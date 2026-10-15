@@ -1,0 +1,8 @@
+node_modules/
+artifacts/
+state/
+.secrets/
+__pycache__/
+.superpowers/
+*.log
+.env
