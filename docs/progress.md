@@ -28,3 +28,10 @@ Spec: ../Argon_AI_Brain_总体方案_v2.0.md §8.1 and user-approved Sandbox/nat
 - 沙箱容器无 restart policy，operator host 重启后需按 ledger 命令重建；registry DB（`~/argon-sandboxes/sandboxes.sqlite3`）是唯一事实来源。
 - `state/` 证据只在远程 operator host；git 仓库不承诺可复现证据，只保证代码与测试可复现。
 - DSH 升版前必须重跑本 PoC 全部证据链（developer preview，breaking changes 预期）。
+
+## 2026-10-16 — 隔离结论评审与 plugin 抽象裁定
+
+- 隔离结论：**基础设施层的拉取/修改隔离已闭环**——clone 独立副本（`--single-branch`，凭据留在宿主信任域，容器内无 git 凭据/docker.sock）、写入三重夹逼（独立 bind-mount、只读根、`workspace-write` policy）、宿主 change capture 被守卫、候选 commit 经 git bundle 在全新容器 B 独立复现（无 A 的 target/进程，`mvn clean verify` exitCode=0）。
+- 边界裁定：隔离的是**执行环境**，不是**身份**；`owner` 目前是 operator 赋予的标签，`AccessDenied` 是 registry 层校验而非认证。信任域在 `hx` 这个 OS 用户（broker/registry/docker.sock 同域）；多真人 operator 互不信任时需拆 OS 账户，超出 PoC 范围。
+- plugin 抽象裁定：采用**两层结构**。能力层继续复用官方 SSH provider 插件（不重写）；控制面层新写 `argon-sandbox` Cordis 插件（生命周期工具 create/execute/stop/verify + owner 绑定 + 策略门禁 + M2 接 Run Monitor 事件），经 **unix socket（peer creds 鉴权）** 调用外部 broker。**broker 不进 DSH 进程**——docker.sock 等于 root，不能与 Agent 执行面同进程（方案 §10 安全边界）。operator-bridge 文件桥即为该 socket 协议的 MVP。
+- 下一步输入：控制面插件的工具契约 + socket 协议设计文档（M2 开发输入），待排期。
