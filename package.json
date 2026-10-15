@@ -1,0 +1,12 @@
+{
+  "name": "argon-m1-sandbox-poc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "peerDependencies": {
+    "@deepseek-ai/dsh": "0.2.0-rc.2"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  }
+}

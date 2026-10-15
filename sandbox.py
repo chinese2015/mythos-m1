@@ -1,0 +1,128 @@
+"""Trusted operator CLI for isolated task containers. Not exposed as an Agent tool."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import time
+
+from registry import Registry
+from ssh_config import register_include
+
+IMAGE = 'argon-dsh-sandbox:0.2.0-rc.2'
+
+
+def run(argv, **kwargs):
+    result = subprocess.run(argv, capture_output=True, text=True, **kwargs)
+    if result.returncode:
+        raise RuntimeError(f'{argv[0]} failed: {result.stderr[-1500:]}')
+    return result.stdout.strip()
+
+
+class SandboxBroker:
+    def __init__(self, root):
+        self.registry = Registry(root)
+
+    def create(self, owner, workspace, source=None):
+        record = self.registry.allocate(owner, workspace)
+        folder = Path(record['workspace_path']).parent
+        secret = folder / 'private'
+        secret.mkdir(mode=0o700)
+        key = secret / 'client_ed25519'
+        try:
+            run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(key)])
+            if source:
+                run(['git', 'clone', '--single-branch', '--branch', 'main', source, record['workspace_path']])
+                run(['git', '-C', record['workspace_path'], 'config', 'core.sharedRepository', 'group'])
+            for directory, _, files in os.walk(record['workspace_path']):
+                os.chmod(directory, 0o2770)
+                for name in files:
+                    path = Path(directory) / name
+                    if not path.is_symlink():
+                        path.chmod(path.stat().st_mode | 0o060)
+            run(['docker', 'run', '-d', '--name', record['container_name'],
+                 '--label', 'argon.owner=' + owner, '--label', 'argon.sandbox=' + record['sandbox_id'],
+                 '--network', 'none', '--memory', '2g', '--cpus', '1', '--pids-limit', '256',
+                 '--read-only', '--security-opt', 'no-new-privileges:true',
+                 '--cap-drop', 'ALL', '--cap-add', 'SETUID', '--cap-add', 'SETGID',
+                 '--cap-add', 'SYS_CHROOT', '--cap-add', 'DAC_OVERRIDE', '--cap-add', 'CHOWN',
+                 '--tmpfs', '/run:rw,nosuid,nodev,size=16m',
+                 '--tmpfs', '/tmp:rw,nosuid,nodev,mode=1777,size=256m',
+                 '--mount', f'type=bind,src={record["workspace_path"]},dst={record["workspace_path"]}',
+                 '--mount', f'type=bind,src={key}.pub,dst=/etc/argon/authorized_keys,readonly', IMAGE])
+            host_key = ''
+            for _ in range(50):
+                result = subprocess.run(['docker', 'exec', record['container_name'], 'cat', '/run/ssh_host_ed25519_key.pub'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    host_key = result.stdout.strip()
+                    break
+                time.sleep(0.1)
+            if not host_key:
+                raise RuntimeError('Sandbox SSH daemon did not start')
+            known = secret / 'known_hosts'
+            alias = 'argon-' + record['sandbox_id']
+            known.write_text(f'{alias} {host_key}\n')
+            known.chmod(0o600)
+            config = folder / 'ssh_config'
+            config.write_text(f'Host {alias}\n  HostName 127.0.0.1\n  HostKeyAlias {alias}\n  User runner\n'
+                              f'  IdentityFile {key}\n  UserKnownHostsFile {known}\n'
+                              '  StrictHostKeyChecking yes\n  IdentitiesOnly yes\n  ForwardAgent no\n'
+                              # OpenSSH's admin forwarding gate also covers Unix sockets.
+                              # This is a stdio transport into a network-none container.
+                              f'  ProxyCommand /usr/bin/docker exec -i --user 0 {record["container_name"]} /usr/sbin/sshd -i -o AllowTcpForwarding=yes -f /etc/ssh/sshd_config\n'
+                              f'  SetEnv MAVEN_OPTS=-Dmaven.repo.local={record["workspace_path"]}/.cache/m2/repository\n')
+            config.chmod(0o600)
+            ssh = Path.home() / '.ssh/config'
+            register_include(ssh, config)
+            run(['ssh', '-o', 'BatchMode=yes', alias, 'true'])
+            self.registry.transition(owner, record['sandbox_id'], 'running')
+            self.execute(owner, record['sandbox_id'], ['true'])
+            self.execute(owner, record['sandbox_id'], ['sh', '-c', 'mkdir -p .cache/m2 && cp -a /opt/m2-seed/repository .cache/m2/'])
+            excludes = Path(record['workspace_path']) / '.git/info/exclude'
+            if excludes.exists():
+                with excludes.open('a') as f:
+                    f.write('\n.cache/\ntarget/\n')
+            return self.registry.get(owner, record['sandbox_id'])
+        except Exception:
+            removed = subprocess.run(['docker', 'rm', '-f', record['container_name']], capture_output=True)
+            absent = removed.returncode == 0
+            if not absent:
+                listing = subprocess.run(['docker', 'ps', '-aq', '--filter', 'name=^/' + record['container_name'] + '$'], capture_output=True, text=True)
+                absent = listing.returncode == 0 and not listing.stdout.strip()
+            self.registry.transition(owner, record['sandbox_id'], 'failed' if absent else 'cleanup-pending')
+            raise
+
+    def execute(self, owner, sandbox_id, argv):
+        record = self.registry.get(owner, sandbox_id)
+        if record['state'] != 'running':
+            raise RuntimeError('Sandbox is not running')
+        return run(['docker', 'exec', '--user', '1001:1000', '-w', record['workspace_path'],
+                    record['container_name'], *argv])
+
+    def stop(self, owner, sandbox_id):
+        record = self.registry.get(owner, sandbox_id)
+        run(['docker', 'stop', '--time', '10', record['container_name']])
+        return self.registry.transition(owner, sandbox_id, 'stopped')
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--root', type=Path, default=Path.home() / 'argon-sandboxes')
+    sub = parser.add_subparsers(dest='action', required=True)
+    create = sub.add_parser('create')
+    create.add_argument('--owner', required=True)
+    create.add_argument('--workspace', required=True)
+    create.add_argument('--source')
+    stop = sub.add_parser('stop')
+    stop.add_argument('--owner', required=True)
+    stop.add_argument('sandbox_id')
+    args = parser.parse_args()
+    broker = SandboxBroker(args.root)
+    record = broker.create(args.owner, args.workspace, args.source) if args.action == 'create' else broker.stop(args.owner, args.sandbox_id)
+    print(json.dumps(record))
+
+
+if __name__ == '__main__':
+    main()

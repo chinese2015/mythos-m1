@@ -7,11 +7,12 @@ PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitEmptyPasswords no
 UsePAM no
-AuthorizedKeysFile /etc/argon/authorized_keys
+AuthorizedKeysFile /run/argon-authorized_keys
 AllowUsers runner
 AllowTcpForwarding no
 AllowStreamLocalForwarding yes
 AllowAgentForwarding no
+AcceptEnv MAVEN_OPTS
 X11Forwarding no
 PermitTunnel no
 PrintMotd no

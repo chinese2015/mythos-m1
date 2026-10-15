@@ -1,9 +1,10 @@
 # Reuse the already verified official image to avoid the host's blocked Docker Hub.
 FROM docker.gitea.com/gitea@sha256:b1a90409ae9afcd5a5725404c3639da7245248848b99e35332968891290b953e
 USER root
+RUN sed -i 's@https://dl-cdn.alpinelinux.org/alpine@https://mirrors.aliyun.com/alpine@g' /etc/apk/repositories
 RUN apk add --no-cache nodejs npm openjdk17-jdk maven openssh-server \
-    openssh-client python3 make g++ util-linux bubblewrap \
-    && adduser -D -u 1001 -h /home/runner -s /bin/bash runner \
+    openssh-client python3 make g++ util-linux bubblewrap ripgrep \
+    && adduser -D -u 1001 -G git -h /home/runner -s /bin/bash runner \
     && passwd -d runner \
     && mkdir -p /opt/dsh-helper /etc/argon /run/sshd \
     && chmod 755 /home/runner

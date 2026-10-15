@@ -67,9 +67,15 @@ class Registry:
             raise AccessDenied('Sandbox is unavailable to this owner')
         return dict(row)
 
+    def list_owned(self, owner_id):
+        with self._connection() as connection:
+            rows = connection.execute('SELECT * FROM sandboxes WHERE owner_id=?', (owner_id,)).fetchall()
+        return [dict(row) for row in rows]
+
     def transition(self, owner_id, sandbox_id, state, *, ssh_port=None, session_id=None):
-        allowed = {'allocated': {'running', 'stopped', 'failed'}, 'running': {'stopped', 'failed'},
-                   'stopped': set(), 'failed': set()}
+        allowed = {'allocated': {'running', 'stopped', 'failed', 'cleanup-pending'},
+                   'running': {'stopped', 'failed', 'cleanup-pending'},
+                   'cleanup-pending': {'stopped', 'failed'}, 'stopped': set(), 'failed': set()}
         with self._connection() as connection:
             connection.execute('BEGIN IMMEDIATE')
             row = connection.execute('SELECT * FROM sandboxes WHERE sandbox_id=? AND owner_id=?', (sandbox_id, owner_id)).fetchone()

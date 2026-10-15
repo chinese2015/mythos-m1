@@ -40,10 +40,24 @@ class RegistryTests(unittest.TestCase):
         self.registry.transition('alice', first['sandbox_id'], 'stopped')
         self.assertEqual(self.registry.allocate('charlie', 'a')['owner_id'], 'charlie')
 
+    def test_unconfirmed_cleanup_retains_admission_capacity(self):
+        first = self.registry.allocate('alice', 'a')
+        self.registry.allocate('alice', 'b')
+        self.registry.transition('alice', first['sandbox_id'], 'cleanup-pending')
+        with self.assertRaises(QuotaExceeded):
+            self.registry.allocate('alice', 'c')
+        self.registry.transition('alice', first['sandbox_id'], 'failed')
+        self.assertEqual(self.registry.allocate('alice', 'c')['state'], 'allocated')
+
     def test_identifiers_cannot_escape_storage_paths(self):
         for owner, workspace in [('../bob', 'a'), ('alice', '../b'), ('a;b', 'b')]:
             with self.assertRaises(ValueError):
                 self.registry.allocate(owner, workspace)
+
+    def test_listing_is_scoped_to_owner(self):
+        a = self.registry.allocate('alice', 'a')
+        self.registry.allocate('bob', 'b')
+        self.assertEqual([item['sandbox_id'] for item in self.registry.list_owned('alice')], [a['sandbox_id']])
 
     def test_workspace_and_container_are_unique_for_each_owner_and_task(self):
         a = self.registry.allocate('alice', 'same')
