@@ -9,7 +9,7 @@ class ArgonBrain extends Service {
     super(ctx, 'argonBrain');
     this.bridge = new BrainBridge(config, {
       sessions: ctx.sessionController, workspaces: ctx.workspaceRegistry,
-      emit: (topic, event) => ctx.emit(topic, event),
+      emit: (topic, event) => ctx.parallel(topic, event),
     });
     const interval = config.pollIntervalMs ?? 1000;
     if (!Number.isInteger(interval) || interval < 100 || interval > 30000) throw new Error('Invalid polling interval');

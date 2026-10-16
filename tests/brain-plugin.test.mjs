@@ -71,6 +71,7 @@ test('another session of the same owner cannot read logs or cancel its operation
   const b = bridge();
   try {
     const op = await b.run('alice', 'session-private-a', { command: 'echo private' }, call('private-1'));
+    const other = await b.run('alice', 'session-private-b', { command: 'echo other private' }, call('private-2'));
     for (const action of [() => b.status('alice', 'session-private-b', op.operationId),
       () => b.follow('alice', 'session-private-b', op.operationId, 0),
       () => b.cancel('alice', 'session-private-b', op.operationId, call('wrong-cancel')),
@@ -78,6 +79,7 @@ test('another session of the same owner cannot read logs or cancel its operation
       await assert.rejects(action, /bound|session|unavailable/i);
     }
     await b.cancel('alice', 'session-private-a', op.operationId, call('cancel-private'));
+    await b.cancel('alice', 'session-private-b', other.operationId, call('cancel-private-other'));
   } finally { await b.dispose(); }
 });
 
@@ -180,4 +182,68 @@ test('real Cordis unload unregisters the named service and seven native tools wh
     assert.equal((await client.request('GET', '/api/brain/operations/' + operation.operationId)).state, 'QUEUED');
     await client.request('POST', '/api/brain/operations/' + operation.operationId + '/cancel', { key: 'cordis-cleanup', body: { expectedVersion: 1 } });
   } finally { await ctx.fiber.dispose(); }
+});
+
+test('a failed initial snapshot is retried before subsequent events', async () => {
+  const sessionId = 'session-snapshot-retry';
+  await client.request('POST', '/api/brain/work-items', { key: 'snapshot-fixture', body: {
+    source: { type: 'DIRECT', id: 'DSH:' + sessionId, revision: 1 }, sessionId, sandboxId: configuration.records.alice.sandbox_id } });
+  let attempts = 0, delivered = 0;
+  const b = new BrainBridge(bridgeConfig(), { emit: (topic, payload) => {
+    if (topic === 'argon-brain/snapshot' && payload.sessionId === sessionId) {
+      attempts++; if (attempts === 1) throw new Error('temporary subscriber failure'); delivered++;
+    }
+  } });
+  try { await b.restore(); await b.restore(); assert.equal(attempts, 2); assert.equal(delivered, 1); }
+  finally { await b.dispose(); }
+});
+
+test('real Cordis awaits async observer failures and retries their snapshot without unhandled rejection', async () => {
+  const sessionId = 'session-async-observer';
+  await client.request('POST', '/api/brain/work-items', { key: 'async-observer-fixture', body: {
+    source: { type: 'DIRECT', id: 'DSH:' + sessionId, revision: 1 }, sessionId, sandboxId: configuration.records.alice.sandbox_id } });
+  const ctx = new Context(); let attempts = 0, delivered = 0;
+  ctx.provide('sessionController', {}); ctx.provide('workspaceRegistry', {});
+  ctx.on('argon-brain/snapshot', async payload => {
+    if (payload.sessionId !== sessionId) return;
+    attempts++; await new Promise(r => setTimeout(r, 10));
+    if (attempts === 1) throw new Error('async observer failed');
+    delivered++;
+  });
+  try {
+    await ctx.plugin(ServicePlugin, { ...bridgeConfig(), pollIntervalMs: 30000 });
+    await ctx.get('argonBrain').bridge.tick();
+    await ctx.get('argonBrain').bridge.restore();
+    assert.equal(attempts, 2); assert.equal(delivered, 1);
+  } finally { await ctx.fiber.dispose(); }
+});
+
+test('disposal releases a pending observer acknowledgement without any later emission', async () => {
+  const b = bridge(); let entered;
+  const began = new Promise(resolve => { entered = resolve; });
+  let release; const observer = new Promise(resolve => { release = resolve; });
+  b.emit = async () => { entered(); await observer; };
+  const delivery = b.deliver('argon-brain/event', { eventId: 'evt-pending' });
+  await began;
+  await b.dispose();
+  assert.equal(await delivery, false);
+  release();
+});
+
+test('a malformed snapshot cursor is rejected and restoration rereads a valid snapshot', async () => {
+  const sessionId = 'session-malformed-cursor';
+  await client.request('POST', '/api/brain/work-items', { key: 'bad-cursor-fixture', body: {
+    source: { type: 'DIRECT', id: 'DSH:' + sessionId, revision: 1 }, sessionId, sandboxId: configuration.records.alice.sandbox_id } });
+  const reply = once(lines, 'line');
+  fixture.stdin.write(JSON.stringify({ action: 'bad-cursor', sessionId, id: 'bad-cursor' }) + '\n');
+  await reply;
+  const events = []; const b = bridge(events);
+  try {
+    await b.restore();
+    assert.equal(events.filter(e => e.topic === 'argon-brain/snapshot' && e.event.sessionId === sessionId).length, 0);
+    await b.restore();
+    const recovered = events.filter(e => e.topic === 'argon-brain/snapshot' && e.event.sessionId === sessionId);
+    assert.equal(recovered.length, 1);
+    assert.ok(Number.isSafeInteger(recovered[0].event.snapshot.cursor));
+  } finally { await b.dispose(); }
 });

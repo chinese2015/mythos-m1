@@ -58,3 +58,16 @@ Spec: ../Argon_AI_Brain_总体方案_v2.0.md §8.1 and user-approved Sandbox/nat
 - Maven 缓存缺口未掩盖：新 B 的 clean verify 真实记录 **FAILED / exitCode=1**，仍需后续修复镜像种子缓存。该失败不推翻单元测试通过，也不允许报告完整构建通过。
 - 后端开发服务：远程 `127.0.0.1:3081`，运行目录 `/home/hx/argon-m1`，数据/令牌/进程记录在 `/home/hx/.argon-brain/`；凭据未输出或入 Git。临时探针 API/worker 已关闭、其容器已清理，保留原 alice/bob 两个沙箱。
 - 后续接入：DSH 工具改走异步 API、Run Monitor 页面、主动来源订阅、Owner 审批、PR/SDLC；本后端不会自动捕获旧 M1 同步工具的执行。UNKNOWN 的手工解除隔离接口、真实多用户认证与主机开机自启尚未实现。
+
+## 2026-10-16 — DSH M2 插件接入与生命周期验收
+
+- 用户批准：插件管理 DSH 侧工具/命名服务/客户端/事件订阅；M2 API、worker、数据库、容器与已接收命令独立存续；DSH 核心继续管理 Session/workspace，不因适配插件卸载删除会话。
+- 实现 `plugins/argon-brain/`：全局 `argonBrain` Cordis 服务与 per-preset 七工具 execution_run/status/follow/cancel、work_item_status/pause/resume。两个 operator preset 已加载。模型不能指定 owner、沙箱或会话；操作还必须属于当前 Session 的 Work Item，即使相同 owner 的两个会话也不能跨会话读日志/取消。
+- SessionAdapter 经 DSH 原生 workspaceRegistry/sessionController 创建并绑定会话；稳定 operator requestId 对应稳定 Session，prepare 不触发模型，prompt 是显式服务端操作。启动/恢复只读快照与事件，不主动推理或重放命令。
+- M2 幂等改进：expectedVersion 与逻辑业务请求身份分开；同一 DSH callId 在响应丢失、插件重载、版本变化后仍返回同一个 operationId。改变命令等业务参数仍拒绝。历史完整请求指纹仍支持原体重试。
+- 审查问题已补回归修复：初始快照投递失败保持 pending 并重试；以 awaited Cordis parallel 处理异步订阅者，成功确认后推进游标；卸载释放等待中的订阅确认，阻止后续发射；非法快照游标不污染缓存；同 owner 跨会话测试现覆盖双方均已绑定的路径。
+- 验证：本地 Node **22/22**，Python **53 项（52 通过 + Linux 专属 1 跳过）**；远程 Linux Node **22/22**、Python **53/53**。
+- 真实 DSH Web Host 模型会话：`session-53eb9605-76b3-0196-c375-d3f39d222c1c`，绑定 `work-ea8baeb685e64a09a56fd5ba7d11efed`。journal 37 events；真实 execution_run seq16、execution_status seq29、execution_follow seq31，均无工具错误。执行 `exec-a082e7bfb6c84a7d98db437d58da07c7` 从 QUEUED 到 SUCCEEDED/exitCode=0，日志含 DSH_M2_BEGIN 与 DSH_M2_END。
+- 新代码远程 Cordis 生命周期测试：`exec-5c801b7f9dab488abc31a84aa331c20d` 在插件卸载时仍 RUNNING；工具与服务确实移除；重载重试仍为同一 ID，最终 SUCCEEDED/0，起止标记各一次。证据 `state/brain-plugin-lifecycle.json`。真实模型证据 `state/brain-plugin-real-session.json`。
+- DSH 重启后两个 Session/Work Item 关联保留，M2 API PID 113022、worker PID 95506 保持存活；验收用临时 operator 文件桥已卸载并移除 profile 条目，默认运行仅全局服务 + 两个 preset 工具插件。profile 备份：`state/profile-before-presets-1792133038.yml`。
+- 用户使用入口及生命周期约定见 `docs/m2-dsh-plugin.md`。已有 M1 同步工具继续兼容但不会自动进入 M2；独立 Run Monitor 页面、通知/来源/审批、SSO、OS 权限隔离与 Maven clean 缓存缺口仍在后续范围。

@@ -98,5 +98,6 @@ export class M2Client {
     for (const controller of this.#controllers) controller.abort();
     await Promise.allSettled([...this.#pending]);
     this.#token = undefined;
+    this.#tokenLoading = undefined;
   }
 }

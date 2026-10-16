@@ -11,6 +11,7 @@ export class BrainBridge {
     if (!config.owners || !Object.keys(config.owners).length) throw new Error('Configured owners are required');
     this.config = config; this.sessions = sessions; this.workspaces = workspaces; this.emit = emit;
     this.clients = new Map(); this.bindings = new Map(); this.closed = false; this.polling = null; this.lastRestore = 0;
+    this.deliveries = new Set();
     for (const [owner, profile] of Object.entries(config.owners)) {
       if (!/^sb-[a-z0-9-]+$/.test(profile.sandboxId) || !isAbsolute(profile.workspacePath) ||
           profile.preset !== 'argon-' + owner) throw new Error('Invalid operator sandbox/preset binding');
@@ -28,12 +29,21 @@ export class BrainBridge {
     if (typeof callId !== 'string' || !callId || callId.length > 200) throw new Error('A stable DSH callId is required');
     return 'dsh-' + hash([action, owner, sessionId, callId]);
   }
-  deliver(topic, payload) {
+  async deliver(topic, payload) {
     if (this.closed) return false;
-    try { this.emit(topic, payload); return true; } catch { return false; }
+    let cancel;
+    const disposed = new Promise(resolve => { cancel = () => resolve(false); });
+    this.deliveries.add(cancel);
+    try {
+      const delivered = Promise.resolve().then(() => {
+        if (this.closed) return false;
+        return Promise.resolve(this.emit(topic, payload)).then(() => !this.closed);
+      }).catch(() => false);
+      return await Promise.race([delivered, disposed]);
+    } finally { this.deliveries.delete(cancel); }
   }
   error(owner, error, sessionId) {
-    this.deliver('argon-brain/error', { ownerId: owner, ...(sessionId ? { sessionId } : {}),
+    return this.deliver('argon-brain/error', { ownerId: owner, ...(sessionId ? { sessionId } : {}),
       code: error.code ?? 'ADAPTER_ERROR', status: error.status ?? 0 });
   }
 
@@ -47,13 +57,21 @@ export class BrainBridge {
     this.alive(); this.validateWork(owner, sessionId, work);
     const key = owner + ':' + sessionId;
     let binding = this.bindings.get(key);
-    if (binding) return binding;
-    const snapshot = await this.client(owner).request('GET', route(work.workItemId), { signal });
-    this.alive(); this.validateWork(owner, sessionId, snapshot.workItem);
-    binding = { owner, sessionId, workItemId: work.workItemId, cursor: snapshot.cursor };
-    this.bindings.set(key, binding);
-    this.deliver('argon-brain/snapshot', { ownerId: owner, sessionId, workItemId: work.workItemId, snapshot });
+    if (!binding) {
+      binding = { owner, sessionId, workItemId: work.workItemId, cursor: null };
+      this.bindings.set(key, binding);
+    }
+    if (binding.cursor === null) await this.publishSnapshot(binding, signal);
+    this.alive();
     return binding;
+  }
+
+  async publishSnapshot(binding, signal) {
+    const snapshot = await this.client(binding.owner).request('GET', route(binding.workItemId), { signal });
+    this.alive(); this.validateWork(binding.owner, binding.sessionId, snapshot.workItem);
+    if (!Number.isSafeInteger(snapshot.cursor) || snapshot.cursor < 0) throw new Error('Invalid snapshot cursor');
+    if (await this.deliver('argon-brain/snapshot', { ownerId: binding.owner, sessionId: binding.sessionId,
+      workItemId: binding.workItemId, snapshot })) binding.cursor = snapshot.cursor;
   }
 
   async binding(owner, sessionId, create = false, signal) {
@@ -140,7 +158,7 @@ export class BrainBridge {
         for (const work of workItems) {
           if (work.sessionId && work.source?.id === 'DSH:' + work.sessionId) await this.watch(owner, work.sessionId, work);
         }
-      } catch (error) { this.error(owner, error); }
+      } catch (error) { await this.error(owner, error); }
     }
     this.lastRestore = Date.now();
   }
@@ -153,18 +171,21 @@ export class BrainBridge {
       for (const binding of this.bindings.values()) {
         if (this.closed) break;
         try {
+          if (binding.cursor === null) {
+            await this.publishSnapshot(binding);
+            if (binding.cursor === null) continue;
+          }
           const page = await this.client(binding.owner).request('GET', route(binding.workItemId) + '/events?after=' + binding.cursor + '&limit=100');
           for (const event of page.events) {
             if (event.sequence <= binding.cursor) continue;
             if (event.workItemId !== binding.workItemId || event.sequence !== binding.cursor + 1) {
-              const snapshot = await this.snapshot(binding.owner, binding.sessionId);
-              if (this.deliver('argon-brain/snapshot', { ownerId: binding.owner, sessionId: binding.sessionId, workItemId: binding.workItemId, snapshot })) binding.cursor = snapshot.cursor;
+              await this.publishSnapshot(binding);
               break;
             }
-            if (!this.deliver('argon-brain/event', { ownerId: binding.owner, sessionId: binding.sessionId, workItemId: binding.workItemId, event })) break;
+            if (!await this.deliver('argon-brain/event', { ownerId: binding.owner, sessionId: binding.sessionId, workItemId: binding.workItemId, event })) break;
             binding.cursor = event.sequence;
           }
-        } catch (error) { this.error(binding.owner, error, binding.sessionId); }
+        } catch (error) { await this.error(binding.owner, error, binding.sessionId); }
       }
     })().finally(() => { this.polling = null; });
     return this.polling;
@@ -196,6 +217,7 @@ export class BrainBridge {
 
   async dispose() {
     this.closed = true;
+    for (const cancel of this.deliveries) cancel();
     await Promise.allSettled([...this.clients.values()].map(client => client.dispose()));
     if (this.polling) await this.polling;
     this.bindings.clear();

@@ -6,7 +6,7 @@
 
 运行目标为现有 Linux Docker operator host。Python 3.9+，只使用标准库。macOS 可运行离线测试，但 Linux subreaper 的脱离进程组子进程清理测试仅在 Linux 上运行。
 
-当前仍为单操作员 PoC：服务端令牌映射 owner，未接 SSO；DSH、broker 与 worker 共用 operator 的 OS 信任域。现有 M1 Agent 工具保持同步行为，尚未迁移到本后端；新 API 仅记录通过它提交的执行。
+当前仍为单操作员 PoC：服务端令牌映射 owner，未接 SSO；DSH、broker 与 worker 共用 operator 的 OS 信任域。DSH 接入现已由 [argon-brain 插件](m2-dsh-plugin.md) 提供七个异步工具。旧 M1 同步工具保持原行为；本后端仅记录经 M2 接口提交的执行。
 
 ## 启动
 
@@ -49,7 +49,7 @@ API 和 worker 都可以用 SIGTERM 停止。worker 退出不取消容器里的�
 | POST /api/brain/operations/{id}/cancel | `{expectedVersion}` → 取消请求或尚未派发时直接 CANCELLED |
 | POST /api/brain/work-items/{id}/pause 或 /resume | `{expectedVersion}` → Work Item |
 
-每次 POST 都需 `Idempotency-Key`；相同 key 的请求体必须完全一致。操作/工作项的版本分别从相应 GET 读取；版本冲突为 409。不同 owner 无权读取的 ID 与不存在的 ID 均为 404。未知字段、非法类型、超限值为 400。JSON 请求体上限 64 KiB；事件/日志分页 limit 为 1..200。
+每次 POST 都需 `Idempotency-Key`；相同 key 的业务参数必须一致，expectedVersion 只是并发前提，不计入新请求的逻辑身份。这样插件在响应丢失、重载后可重读版本并安全重试；改变命令等业务输入仍会冲突。操作/工作项的版本分别从相应 GET 读取；版本冲突为 409。不同 owner 无权读取的 ID 与不存在的 ID 均为 404。未知字段、非法类型、超限值为 400。JSON 请求体上限 64 KiB；事件/日志分页 limit 为 1..200。
 
 source.type 为 ARGON/JIRA/DIRECT；这是引用的快照，并不代表已经接通来源系统或审批。source 与 sandbox/session 绑定不可变；同 owner、同 source revision 只能有一个 Work Item。
 
