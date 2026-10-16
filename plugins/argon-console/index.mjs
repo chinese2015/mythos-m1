@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 export const name = 'argon-console';
 export const inject = ['webServer', 'connection', 'argonWorkflow', 'argonSdlc'];
-const assets = new Map([['/', ['index.html', 'text/html; charset=utf-8']], ['/app.js', ['app.js', 'text/javascript; charset=utf-8']], ['/delivery-view.js', ['delivery-view.js', 'text/javascript; charset=utf-8']], ['/styles.css', ['styles.css', 'text/css; charset=utf-8']]]);
+const assets = new Map([['/', ['index.html', 'text/html; charset=utf-8']], ['/app.js', ['app.js', 'text/javascript; charset=utf-8']], ['/delivery-view.js', ['delivery-view.js', 'text/javascript; charset=utf-8']], ['/monitor-view.js', ['monitor-view.js', 'text/javascript; charset=utf-8']], ['/monitor-state.js', ['monitor-state.js', 'text/javascript; charset=utf-8']], ['/styles.css', ['styles.css', 'text/css; charset=utf-8']]]);
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
 function json(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(value)); }
 async function bodyOf(req) {

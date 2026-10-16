@@ -1,4 +1,5 @@
 import { renderDelivery } from './delivery-view.js';
+import { renderMonitor } from './monitor-view.js';
 (() => {
   'use strict';
   const API = '/argon/api';
@@ -181,6 +182,7 @@ import { renderDelivery } from './delivery-view.js';
     else {bar.append(el('span',{text:phaseIndex(phase)<4?'方案审批会在只读分析完成后开放。':'方案审批状态由工作流记录。'}));}
     pb.append(bar);plan.append(pb);col1.append(plan);
     const activity=el('section',{class:'panel'});activity.append(panelHead('操作记录','状态、退出码与 JUnit'));const ab=el('div',{class:'panel-body'});ab.append(renderOperations(d.operations||[],d.evidence||[],openLogs));activity.append(ab);col1.append(activity);
+    col1.append(renderMonitor({ workItemId: currentWorkId, workflow, operations, session, workItem: item, el, panelHead, request, notice: showNotice, phaseText: p => phaseLabels[phaseIndex(p)] ?? p, opLabel }));
     const sessionPanel=el('section',{class:'panel'});sessionPanel.append(panelHead('DSH 工作会话',session?`${session.role||'Session'} · ${session.running?'运行中':'已暂停'}`:'会话尚未建立'));const ss=el('div',{class:'panel-body'});
     if(session){const caption=el('div',{class:'session-caption'});caption.append(el('span',{text:`Session ${session.sessionId} · ${session.activity||''}`}));const sessionUrl=session.url||`/?argonSession=${encodeURIComponent(session.sessionId)}&argonEmbedded=1`;caption.append(el('a',{class:'session-link',href:sessionUrl,target:'_blank',rel:'noopener noreferrer',text:'在 DSH 中打开 ↗'}));ss.append(caption);
       if(session.url){const frame=el('iframe',{class:'session-frame',src:session.url,title:'DSH 工作会话','data-session-id':String(session.sessionId)});ss.append(frame);} else {ss.append(renderTranscript(session));}
