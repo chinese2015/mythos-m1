@@ -1,4 +1,4 @@
-import { mergeEvents, displayState, formatJUnit, formatEvent, staleNote } from './monitor-state.js';
+import { mergeEvents, displayState, formatJUnit, formatEvent, staleNote, shouldAutoExpand } from './monitor-state.js';
 
 const ACTIVE = new Set(['QUEUED', 'STARTING', 'RUNNING', 'CANCEL_REQUESTED']);
 const MAX_EVENTS = 200, MAX_LOG_LINES = 200, MAX_EVENTS_IN_STATE = 500;
@@ -8,7 +8,7 @@ function stateFor(workItemId) {
   if (!stateByWork.has(workItemId)) stateByWork.set(workItemId, {
     eventCursor: 0, events: [], fetchedEvents: false, fetchingEvents: false,
     logCursors: new Map(), logText: new Map(), fetchingLogs: new Set(), terminalFetched: new Set(),
-    expanded: new Set(), cancelled: new Set(), lastErrorAt: null,
+    expanded: new Set(), collapsed: new Set(), cancelled: new Set(), lastErrorAt: null,
   });
   return stateByWork.get(workItemId);
 }
@@ -80,7 +80,7 @@ function tailActiveLogs(ctx, st, operations) {
   for (const op of operations) {
     const opId = opIdOf(op);
     const active = ACTIVE.has(String(op.status || '').toUpperCase());
-    if (active) { st.expanded.add(opId); tailLog(ctx, st, op); }
+    if (active) { if (shouldAutoExpand(true, st.collapsed.has(opId))) { st.expanded.add(opId); tailLog(ctx, st, op); } }
     else if (!st.terminalFetched.has(opId)) { st.terminalFetched.add(opId); if (st.expanded.has(opId)) tailLog(ctx, st, op); }
   }
 }
@@ -132,8 +132,8 @@ function renderOperation(ctx, st, op) {
   const expanded = st.expanded.has(opId);
   const toggle = ctx.el('button', { class: 'text-button', type: 'button', text: expanded ? '收起日志' : '查看实时日志' });
   toggle.addEventListener('click', () => {
-    if (st.expanded.has(opId)) st.expanded.delete(opId);
-    else { st.expanded.add(opId); tailLog(ctx, st, op); }
+    if (st.expanded.has(opId)) { st.expanded.delete(opId); st.collapsed.add(opId); }
+    else { st.expanded.add(opId); st.collapsed.delete(opId); tailLog(ctx, st, op); }
     const box = row.querySelector(`[data-monitor-log="${CSS.escape(opId)}"]`);
     if (box) box.hidden = !st.expanded.has(opId);
     toggle.textContent = st.expanded.has(opId) ? '收起日志' : '查看实时日志';

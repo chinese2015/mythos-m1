@@ -72,3 +72,7 @@ export function staleNote(lastErrorAt, now = Date.now()) {
   const seconds = Math.max(1, Math.round((now - lastErrorAt) / 1000));
   return `连接中断，显示的是 ${seconds} 秒前的快照`;
 }
+
+export function shouldAutoExpand(isActive, manuallyCollapsed) {
+  return isActive === true && manuallyCollapsed !== true;
+}

@@ -72,3 +72,10 @@ test('staleNote reports seconds-old snapshots or nothing', () => {
   assert.match(note, /连接中断/);
   assert.match(note, /9 秒前/);
 });
+
+test('shouldAutoExpand honors a manual collapse for active operations', async () => {
+  const { shouldAutoExpand } = await import('../plugins/argon-console/public/monitor-state.js');
+  assert.equal(shouldAutoExpand(true, false), true);
+  assert.equal(shouldAutoExpand(true, true), false);
+  assert.equal(shouldAutoExpand(false, false), false);
+});
