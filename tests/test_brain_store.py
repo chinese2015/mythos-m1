@@ -88,8 +88,26 @@ class StoreTests(unittest.TestCase):
         b = self.submit(key='second')
         self.assertEqual(self.store.claim_next()['operationId'], a['operationId'])
         self.assertIsNone(self.store.claim_next())
-        self.store.finish(a['operationId'], 'FAILED', exit_code=3)
+        self.store.finish(a['operationId'], 'SUCCEEDED', exit_code=0)
         self.assertEqual(self.store.claim_next()['operationId'], b['operationId'])
+
+    def test_failure_holds_queued_work_until_explicit_resume(self):
+        a = self.submit(); self.submit(key='later')
+        self.store.claim_next()
+        self.store.finish(a['operationId'], 'FAILED', exit_code=2)
+        self.assertIsNone(self.store.claim_next())
+        work = self.store.snapshot('alice', self.work['workItemId'])['workItem']
+        self.store.set_paused('alice', work['workItemId'], False, work['version'], 'resume-after-failure')
+        self.assertIsNotNone(self.store.claim_next())
+
+    def test_unknown_quarantines_sandbox_even_across_work_items_and_resume(self):
+        a = self.submit(); self.store.claim_next()
+        self.store.finish(a['operationId'], 'UNKNOWN')
+        other = self.store.create_work_item('alice', {'source': {'type': 'DIRECT', 'id': 'another-task', 'revision': 1}, 'sandboxId': 'sb-alice'}, 'other-work')
+        self.store.submit('alice', other['workItemId'], {'expectedVersion': 1, 'command': 'echo unsafe'}, 'other-run')
+        work = self.store.snapshot('alice', self.work['workItemId'])['workItem']
+        self.store.set_paused('alice', work['workItemId'], False, work['version'], 'resume-unknown')
+        self.assertIsNone(self.store.claim_next())
 
     def test_queued_cancel_never_executes_and_active_cancel_is_only_a_request(self):
         queued = self.submit()

@@ -20,3 +20,9 @@ class Conflict(BrainError):
 class Unauthorized(BrainError):
     status = 401
     code = 'UNAUTHORIZED'
+
+
+class PreparationFailure(RuntimeError):
+    def __init__(self, message, runtime):
+        super().__init__(message)
+        self.runtime = dict(runtime, preparedOnly=True)

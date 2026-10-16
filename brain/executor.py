@@ -7,7 +7,7 @@ import time
 
 from registry import AccessDenied
 from . import container_runner
-from .errors import InvalidInput, NotFound
+from .errors import InvalidInput, NotFound, PreparationFailure
 
 REPOSITORIES = {'http://127.0.0.1:3000/demo/' + name + '.git' for name in [
     'demo-orion-notes-api', 'demo-nova-catalog-api', 'demo-pixel-reports-batch']}
@@ -60,11 +60,16 @@ class DockerExecutor:
         self._inspect(item)
         if op['kind'] == 'VERIFY':
             item = self._prepare_verifier(op, item)
-        # Seed selection remains an image concern. Missing cached plugins fail truthfully.
-        self._exec(item, ['mkdir', '-p', '.cache/jansi'])
-        subprocess.run(['docker', 'exec', '-i', '--user', '1001:1000', '-w', item['workspace_path'],
-                        item['container_name'], 'sh', '-c', 'cat > .cache/settings.xml'],
-                       input=SETTINGS.encode(), capture_output=True, check=True, timeout=10)
+        try:
+            # Seed selection remains an image concern. Missing plugins fail truthfully.
+            self._exec(item, ['mkdir', '-p', '.cache/jansi'])
+            subprocess.run(['docker', 'exec', '-i', '--user', '1001:1000', '-w', item['workspace_path'],
+                            item['container_name'], 'sh', '-c', 'cat > .cache/settings.xml'],
+                           input=SETTINGS.encode(), capture_output=True, check=True, timeout=10)
+        except Exception as error:
+            if op['kind'] == 'VERIFY':
+                raise PreparationFailure(str(error), self._runtime(item, fresh=True)) from error
+            raise
         return self._runtime(item, fresh=op['kind'] == 'VERIFY')
 
     def _prepare_verifier(self, op, source):
@@ -90,10 +95,8 @@ class DockerExecutor:
                 raise RuntimeError('Verifier commit mismatch')
             self._exec(item, ['test', '!', '-e', 'target'])
             return item
-        except BaseException:
-            self.broker.stop(op['ownerId'], item['sandbox_id'])
-            subprocess.run(['docker', 'rm', '-v', item['container_name']], capture_output=True, timeout=20)
-            raise
+        except Exception as error:
+            raise PreparationFailure(str(error), self._runtime(item, fresh=True)) from error
 
     def recover_runtime(self, op):
         if op['kind'] != 'VERIFY':
@@ -137,9 +140,10 @@ class DockerExecutor:
         return self._runner(op, 'cancel')
 
     def cleanup(self, op):
-        result = self._runner(op, 'cleanup')
-        if not result['cleaned']:
-            raise RuntimeError('Supervisor has no confirmed result; cleanup refused')
+        if not op['runtime'].get('preparedOnly'):
+            result = self._runner(op, 'cleanup')
+            if not result['cleaned']:
+                raise RuntimeError('Supervisor has no confirmed result; cleanup refused')
         if op['kind'] == 'VERIFY':
             item = self.broker.registry.get(op['ownerId'], op['runtime']['sandboxId'])
             if item['state'] == 'running':

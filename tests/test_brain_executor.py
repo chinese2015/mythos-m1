@@ -2,7 +2,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from brain.errors import InvalidInput, NotFound
+from brain.errors import InvalidInput, NotFound, PreparationFailure
 from brain.executor import DockerExecutor, validate_repository
 from sandbox import SandboxBroker
 
@@ -29,6 +29,25 @@ class ExecutorPolicyTests(unittest.TestCase):
                 executor.validate_binding('alice', record['sandbox_id'])
             broker.registry.transition('alice', record['sandbox_id'], 'running')
             self.assertEqual(executor.validate_binding('alice', record['sandbox_id'])['owner_id'], 'alice')
+
+    def test_post_allocation_preparation_failure_exposes_verifier_for_cleanup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            broker = SandboxBroker(Path(temporary))
+            source = broker.registry.allocate('alice', 'source')
+            broker.registry.transition('alice', source['sandbox_id'], 'running')
+            class FailingSetup(DockerExecutor):
+                def _inspect(self, item):
+                    pass
+                def _prepare_verifier(self, operation, source):
+                    item = self.broker.registry.allocate('alice', 'verifier')
+                    return self.broker.registry.transition('alice', item['sandbox_id'], 'running')
+                def _exec(self, item, argv):
+                    raise RuntimeError('Filesystem full')
+            executor = FailingSetup(broker)
+            with self.assertRaises(PreparationFailure) as raised:
+                executor.prepare({'ownerId': 'alice', 'sandboxId': source['sandbox_id'], 'kind': 'VERIFY'})
+            self.assertNotEqual(raised.exception.runtime['sandboxId'], source['sandbox_id'])
+            self.assertTrue(raised.exception.runtime['preparedOnly'])
 
 
 if __name__ == '__main__':

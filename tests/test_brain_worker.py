@@ -11,6 +11,7 @@ import unittest
 from brain import container_runner
 from brain.store import Store
 from brain.worker import Worker
+from brain.errors import PreparationFailure
 
 
 class ProcessExecutor:
@@ -142,6 +143,17 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(result['state'], 'UNKNOWN')
         self.worker.tick()
         self.assertEqual(len(self.executor.processes), 1)
+
+    def test_preparation_failure_records_owned_environment_and_cleanup(self):
+        def fail(operation):
+            raise PreparationFailure('Cannot write settings', {'sandboxId': 'sb-owned-verifier', 'preparedOnly': True})
+        self.executor.prepare = fail
+        op = self.submit('true')
+        result = self.complete(op)
+        self.assertEqual(result['state'], 'FAILED')
+        self.assertEqual(result['runtime']['sandboxId'], 'sb-owned-verifier')
+        self.worker.tick()
+        self.assertEqual(self.store.operation('alice', op['operationId'])['runtime']['cleanup']['status'], 'done')
 
 
 if __name__ == '__main__':

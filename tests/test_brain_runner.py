@@ -9,8 +9,9 @@ import tempfile
 import time
 import unittest
 import uuid
+from unittest.mock import patch
 
-from brain.container_runner import snapshot, request_cancel
+from brain.container_runner import snapshot, request_cancel, kill_group
 from brain.evidence import summarize_junit, passing_junit
 
 
@@ -97,11 +98,8 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(final['result']['exitCode'], 0)
 
     def test_junit_is_captured_at_exit_and_path_escape_is_rejected(self):
-        directory = self.workspace / 'target/surefire-reports'
-        directory.mkdir(parents=True)
-        (directory / 'TEST-pass.xml').write_text('<testsuite name="suite" tests="2" failures="0" errors="0" skipped="0"/>')
-        (directory / 'TEST-escape.xml').symlink_to('/etc/passwd')
-        op, _ = self.start('true')
+        command = "mkdir -p target/surefire-reports; printf '%s' '<testsuite tests=\"2\" failures=\"0\" errors=\"0\" skipped=\"0\"/>' > target/surefire-reports/TEST-pass.xml; ln -s /etc/passwd target/surefire-reports/TEST-escape.xml"
+        op, _ = self.start(command)
         result = self.wait_for(op, lambda r: r.get('result') is not None)['result']
         reports = result['reports']
         self.assertEqual(len(reports), 2)
@@ -109,6 +107,49 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(summary['tests'], 2)
         self.assertFalse(passing_junit(summary))
         self.assertTrue(summary['invalidReports'])
+
+    def test_previous_reports_cannot_pass_a_command_that_did_not_run_tests(self):
+        directory = self.workspace / 'target/surefire-reports'; directory.mkdir(parents=True)
+        (directory / 'TEST-stale.xml').write_text('<testsuite tests="2" failures="0" errors="0"/>')
+        op, _ = self.start('true')
+        result = self.wait_for(op, lambda r: r.get('result') is not None)['result']
+        self.assertEqual(result['reports'], [])
+
+    def test_fifo_report_is_rejected_without_blocking_supervision(self):
+        op, _ = self.start('mkdir -p target/surefire-reports; mkfifo target/surefire-reports/TEST-fifo.xml', timeout=.2)
+        result = self.wait_for(op, lambda r: r.get('result') is not None)['result']
+        self.assertFalse(passing_junit(summarize_junit(result['reports'])))
+        self.assertIn('error', result['reports'][0])
+
+    def test_signalling_without_cap_kill_uses_runner_identity(self):
+        child = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(10)'], start_new_session=True)
+        def cleanup():
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=2)
+        self.addCleanup(cleanup)
+        with patch('brain.container_runner.os.killpg', side_effect=PermissionError('CAP_KILL missing')):
+            kill_group(child, {'uid': os.getuid(), 'gid': os.getgid()})
+        self.assertNotEqual(child.wait(timeout=2), 0)
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Production containment uses Linux subreaper')
+    def test_cancel_terminates_daemonized_descendants(self):
+        marker = self.workspace / 'escaped-marker'
+        code = 'import subprocess,sys,time;subprocess.Popen([sys.executable,"-c",' + repr('import time;time.sleep(1);open('+repr(str(marker))+',"w").write("escaped")') + '],start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);print("spawned",flush=True);time.sleep(10)'
+        op, _ = self.start(shlex.quote(sys.executable) + ' -c ' + shlex.quote(code))
+        self.wait_for(op, lambda r: bool(r.get('stdout')))
+        request_cancel(self.root, op)
+        result = self.wait_for(op, lambda r: r.get('result') is not None)['result']
+        time.sleep(1.2)
+        self.assertEqual(result['reason'], 'cancelled')
+        self.assertTrue(result['containmentConfirmed'])
+        self.assertFalse(marker.exists(), 'Detached child survived confirmed cancellation')
+
+    def test_git_commands_trust_only_the_registered_workspace(self):
+        op, _ = self.start('git config --get safe.directory')
+        result = self.wait_for(op, lambda r: r.get('result') is not None)
+        self.assertEqual(result['result']['exitCode'], 0)
+        self.assertEqual(base64.b64decode(result['stdout']).decode().strip(), str(self.workspace))
 
     def test_missing_or_invalid_junit_is_never_passing(self):
         self.assertFalse(passing_junit(summarize_junit([])))

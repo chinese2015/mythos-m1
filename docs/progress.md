@@ -44,3 +44,17 @@ Spec: ../Argon_AI_Brain_总体方案_v2.0.md §8.1 and user-approved Sandbox/nat
 - 下一步输入：控制面插件的工具契约 + socket 协议设计文档（M2 开发输入），待排期。
 - 能力边界核定（实证，2026-10-16）：DSH 官方 `dsh-sandbox-*` 家族的 "sandbox" 是**调用级文件效果约束**（Linux bwrap/landlock、Windows ACL、SSH 远端复用宿主机本地后端），`dsh-bash-sandbox` 明示 *network access and process visibility remain outside its guarantees*；dsh core 无任何容器生命周期动词。端点**创建/停止/销毁/配额/owner 绑定/干净环境重建**在 DSH 能力之外，全部由外部 broker 补齐（互补关系，非重叠）。附注：`dsh-sandbox-local`（bwrap/landlock）将来可用于 DSH 宿主机非容器类工具（如浏览器工具）的同机约束，与容器方案构成两级。
 - 设计文档产出：`docs/argon-sandbox-plugin-design.md`（M2 开发输入）——工具契约（create/exec/verify/stop/status/follow + cancel）、unix socket 协议（NDJSON + SO_PEERCRED + 事件订阅）、IdentityAdapter 接缝、PolicyGate 矩阵、迁移与双写比对计划、测试计划、4 个待拍板开放问题（首要是身份认证选型）。
+
+## 2026-10-16 — M2 后端实现与远程验收
+
+- 用户选择先实现 M2 后端；代码位于独立分支 `codex/m2-backend` 的 `brain/`，不更改已有 DSH 同步工具接口。设计与执行计划见 `docs/superpowers/`，操作与接口见 `docs/m2-backend.md`。
+- SQLite WAL 事务存储：Work Item/source revision 去重、owner 绑定、乐观版本、请求幂等、ExecutionOperation、追加事件、日志与证据。快照和事件 cursor 在同一读事务取得；事件与事实更新在同一写事务提交。
+- 独立 API/worker：HTTP 立即返回 operationId；容器内 detached root supervisor 管理 runner 命令，worker/API 重启后继续读取原任务，不重放命令。服务端私有 bearer 配置解析 owner；明确仍是单 operator OS 信任域，SSO/OS 权限隔离不在本交付内。
+- 状态语义：取消先 CANCEL_REQUESTED，实际进程终止后才 CANCELLED；失败阻止后续自动调度，显式 resume 可继续已确认结束的失败；UNKNOWN 不自动重放，并隔离整个源沙箱，即使其他 Work Item 绑定同一沙箱也不派发。
+- VERIFY：从 A 的精确 HEAD commit 导出 Git bundle，在新 B 检出并确认无 target；不复制 A 的未提交文件或缓存。Evidence 记录实际退出码、提交、JUnit 报告/计数与 SHA256、持久化日志 SHA256。成功后 AWAITING_REVIEW，不自动完成 Finding/创建 PR。
+- 独立审查指出并修复 5 项问题，均补回归：失败/UNKNOWN 之后排队任务错误续跑；沿用旧 JUnit 造成假成功；FIFO 报告阻塞采集；setsid 子进程逃过取消；B 创建后准备失败丢失清理元数据。另由真实 Docker 实测定位 root 无 CAP_KILL，改用 runner 身份信号辅助进程，不扩大容器 capabilities；Linux subreaper 确认后代终止。
+- 测试：macOS Python 50 项（49 通过、1 项 Linux 专属跳过）；远程 Linux Python **50/50**，Node **7/7**。M1 两项路径测试改为显式 fixture root，现已可在 macOS 验证。
+- 真实远程验收证据：`/home/hx/argon-m1/state/m2-smoke-38c7ab654237/acceptance.json` 及同目录 SQLite。API 重开 + worker SIGKILL 恢复后执行计数仍 1；跨 owner 拒绝；取消实际 exitCode=-9；刻意失败 exitCode=23；新 B `sb-1c8be569640b48f9` 的候选 ce4181d 经 mvn test 得到 2 tests / 0 failures/errors；B 证据落库后清理；失去容器记 UNKNOWN。
+- Maven 缓存缺口未掩盖：新 B 的 clean verify 真实记录 **FAILED / exitCode=1**，仍需后续修复镜像种子缓存。该失败不推翻单元测试通过，也不允许报告完整构建通过。
+- 后端开发服务：远程 `127.0.0.1:3081`，运行目录 `/home/hx/argon-m1`，数据/令牌/进程记录在 `/home/hx/.argon-brain/`；凭据未输出或入 Git。临时探针 API/worker 已关闭、其容器已清理，保留原 alice/bob 两个沙箱。
+- 后续接入：DSH 工具改走异步 API、Run Monitor 页面、主动来源订阅、Owner 审批、PR/SDLC；本后端不会自动捕获旧 M1 同步工具的执行。UNKNOWN 的手工解除隔离接口、真实多用户认证与主机开机自启尚未实现。

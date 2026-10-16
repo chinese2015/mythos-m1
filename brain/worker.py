@@ -30,6 +30,8 @@ class Worker:
         try:
             runtime = self.executor.prepare(op)
         except Exception as error:
+            if getattr(error, 'runtime', None):
+                self.store.record_runtime(op['operationId'], error.runtime, started=False)
             self.store.finish(op['operationId'], 'FAILED', reason='Preparation failed: ' + str(error)[:700])
             return
         self.store.record_runtime(op['operationId'], runtime, started=False)
@@ -44,7 +46,10 @@ class Worker:
     def _observe(self, op):
         if not op['runtime']:
             recover = getattr(self.executor, 'recover_runtime', None)
-            runtime = recover(op) if recover else None
+            try:
+                runtime = recover(op) if recover else None
+            except Exception:
+                runtime = None
             if runtime:
                 self.store.record_runtime(op['operationId'], runtime, started=False)
                 op['runtime'] = runtime
@@ -70,9 +75,9 @@ class Worker:
         code = result['exitCode']
         junit = summarize_junit(result.get('reports', []))
         reason = result.get('reason')
-        if code is None:
+        if code is None or result.get('containmentConfirmed') is False:
             state = 'UNKNOWN'
-            reason = result.get('error', reason)
+            reason = result.get('error') or reason or 'Descendant termination could not be confirmed'
         elif code == 0:
             state = 'SUCCEEDED'
             if op['kind'] in {'UNIT_TEST', 'VERIFY'} and not passing_junit(junit):

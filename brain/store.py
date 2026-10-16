@@ -160,7 +160,7 @@ class Store:
             else:
                 work = {'workItemId': identifier('work'), 'ownerId': owner, 'source': source,
                         'sandboxId': body['sandboxId'], 'sessionId': body.get('sessionId'),
-                        'stage': 'PLANNING', 'status': 'PLANNING', 'paused': False,
+                        'stage': 'PLANNING', 'status': 'PLANNING', 'paused': False, 'blocked': False,
                         'version': 1, 'sequence': 0, 'createdAt': now()}
                 db.execute('INSERT INTO work_items VALUES (?, ?, ?, ?)',
                            (work['workItemId'], owner, source_key, encoded(work)))
@@ -199,7 +199,8 @@ class Store:
             db.execute('INSERT INTO operations VALUES (?, ?, ?, ?, ?, ?)',
                        (op['operationId'], owner, work_id, work['sandboxId'], 'QUEUED', encoded(op)))
             work['version'] += 1
-            work['stage'] = 'CODING' if kind == 'COMMAND' else 'VERIFYING'
+            if not work.get('blocked'):
+                work['stage'] = 'CODING' if kind == 'COMMAND' else 'VERIFYING'
             self._save_work(db, work)
             self._event(db, work_id, 'execution.queued', {'status': 'QUEUED', 'kind': kind}, op['operationId'])
             self._remember(db, owner, scope, key, digest, op['operationId'])
@@ -267,6 +268,10 @@ class Store:
                 return work
             self._version(work, version)
             work['paused'] = paused
+            if not paused:
+                work['blocked'] = False
+                if work['stage'] == 'BLOCKED':
+                    work['stage'] = 'CODING'
             work['version'] += 1
             self._save_work(db, work)
             self._event(db, work_id, 'work_item.paused' if paused else 'work_item.resumed', {})
@@ -279,11 +284,19 @@ class Store:
 
     def claim_next(self):
         with self.connection(True) as db:
-            occupied = {r[0] for r in db.execute("SELECT sandbox_id FROM operations WHERE state IN ('STARTING','RUNNING','CANCEL_REQUESTED')")}
+            # UNKNOWN may still execute. Keep its source sandbox quarantined,
+            # including against other Work Items and explicit workflow resume.
+            occupied = {r[0] for r in db.execute("SELECT sandbox_id FROM operations WHERE state IN ('STARTING','RUNNING','CANCEL_REQUESTED','UNKNOWN')")}
             for row in db.execute("SELECT data FROM operations WHERE state='QUEUED' ORDER BY rowid").fetchall():
                 op = json.loads(row['data'])
-                if op['sandboxId'] in occupied or self._work(db, op['workItemId'])['paused']:
+                work = self._work(db, op['workItemId'])
+                if op['sandboxId'] in occupied or work['paused'] or work.get('blocked'):
                     continue
+                stage = 'CODING' if op['kind'] == 'COMMAND' else 'VERIFYING'
+                if work['stage'] != stage:
+                    work['stage'] = stage
+                    work['version'] += 1
+                    self._save_work(db, work)
                 op.update(state='STARTING', version=op['version'] + 1, startedAt=now())
                 self._save_op(db, op)
                 self._event(db, op['workItemId'], 'execution.starting', {'status': 'STARTING'}, op['operationId'])
@@ -354,5 +367,6 @@ class Store:
             work = self._work(db, op['workItemId'])
             work['version'] += 1
             work['stage'] = ('AWAITING_REVIEW' if op['kind'] == 'VERIFY' else 'CODING') if state == 'SUCCEEDED' else 'BLOCKED'
+            work['blocked'] = state != 'SUCCEEDED'
             self._save_work(db, work)
             self._event(db, op['workItemId'], 'execution.' + state.lower(), {'status': state, 'exitCode': exit_code, 'reason': reason}, op_id)

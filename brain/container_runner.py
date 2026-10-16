@@ -4,6 +4,7 @@ The supervisor and its result directory are root-owned. The child command
 drops to runner. Worker/API disconnection does not signal either process.
 """
 import base64
+import ctypes
 import fcntl
 import json
 import os
@@ -12,6 +13,7 @@ import re
 import selectors
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -60,14 +62,34 @@ def capture_reports(workspace):
         try:
             if not path.resolve().is_relative_to(workspace) or path.is_symlink():
                 raise ValueError('Report path escapes workspace or is a symlink')
-            if path.stat().st_size > 256 * 1024:
-                raise ValueError('Report exceeds 256 KiB')
-            reports.append({'path': name, 'xml': path.read_text()})
+            fd = os.open(str(path), os.O_RDONLY | os.O_NONBLOCK | getattr(os, 'O_NOFOLLOW', 0))
+            try:
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode):
+                    raise ValueError('JUnit report is not a regular file')
+                if info.st_size > 256 * 1024:
+                    raise ValueError('Report exceeds 256 KiB')
+                with os.fdopen(fd, 'rb', closefd=False) as stream:
+                    content = stream.read(256 * 1024 + 1)
+                if len(content) > 256 * 1024:
+                    raise ValueError('Report exceeds 256 KiB')
+                reports.append({'path': name, 'xml': content.decode()})
+            finally:
+                os.close(fd)
         except (OSError, ValueError, UnicodeError) as error:
             reports.append({'path': name, 'error': str(error)[:300]})
     if len(paths) > 8:
         reports.append({'path': '*', 'error': 'Report count exceeds 8'})
     return reports
+
+
+def clear_reports(workspace):
+    workspace = Path(workspace).resolve()
+    directory = workspace / 'target/surefire-reports'
+    if directory.exists() and not directory.resolve().is_relative_to(workspace):
+        raise ValueError('JUnit directory escapes workspace')
+    for path in directory.glob('TEST-*.xml'):
+        path.unlink()
 
 
 def commit_state(workspace, expected):
@@ -83,11 +105,68 @@ def commit_state(workspace, expected):
     return {'sourceCommit': commit, 'sourceDirty': bool(changed)}
 
 
-def kill_group(process):
+def send_signal(pid, group, spec):
     try:
-        os.killpg(process.pid, signal.SIGKILL)
+        (os.killpg if group else os.kill)(pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
+    except PermissionError:
+        # These containers deliberately omit CAP_KILL. Signal as the command
+        # user rather than broadening container capabilities.
+        code = 'import os,signal,sys\ntry:\n (os.killpg if sys.argv[2]=="group" else os.kill)(int(sys.argv[1]),signal.SIGKILL)\nexcept ProcessLookupError: pass\n'
+        identity = {'user': spec['uid'], 'group': spec['gid'], 'extra_groups': [spec['gid']]} if os.getuid() == 0 else {}
+        subprocess.run([sys.executable, '-c', code, str(pid), 'group' if group else 'pid'],
+                       capture_output=True, check=True, timeout=2, **identity)
+
+
+def kill_group(process, spec):
+    send_signal(process.pid, True, spec)
+
+
+def enable_subreaper():
+    if sys.platform.startswith('linux'):
+        if ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) != 0:
+            raise OSError(ctypes.get_errno(), 'Cannot establish child subreaper')
+
+
+def descendants():
+    if not sys.platform.startswith('linux'):
+        return {}
+    processes = {}
+    for path in Path('/proc').iterdir():
+        if path.name.isdigit():
+            try:
+                fields = (path / 'stat').read_text().rsplit(')', 1)[1].split()
+                processes[int(path.name)] = (int(fields[1]), fields[0])
+            except (OSError, ValueError, IndexError):
+                pass
+    selected = {os.getpid()}
+    while True:
+        children = {pid for pid, (parent, _) in processes.items() if parent in selected}
+        if children.issubset(selected):
+            break
+        selected.update(children)
+    return {pid: processes[pid] for pid in selected if pid != os.getpid()}
+
+
+def terminate_tree(process, spec):
+    kill_group(process, spec)
+    process.wait(timeout=2)
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        children = descendants()
+        if not children:
+            return True
+        for pid, (parent, state) in children.items():
+            if state == 'Z' and parent == os.getpid():
+                try:
+                    os.waitpid(pid, os.WNOHANG)
+                except ChildProcessError:
+                    pass
+            else:
+                send_signal(pid, False, spec)
+        time.sleep(.02)
+    return not descendants()
 
 
 def supervise(root, spec):
@@ -107,8 +186,12 @@ def supervise(root, spec):
         result = {'exitCode': None, 'reason': None, 'reports': [], 'truncated': {'stdout': False, 'stderr': False}}
         process = None
         try:
+            enable_subreaper()
             result.update(commit_state(spec['workspace'], spec.get('sourceCommit')))
+            clear_reports(spec['workspace'])
             environment = os.environ.copy()
+            environment.update(GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='safe.directory',
+                               GIT_CONFIG_VALUE_0=spec['workspace'])
             if spec.get('mavenOpts'):
                 environment['MAVEN_OPTS'] = spec['mavenOpts']
             identity = {}
@@ -122,6 +205,7 @@ def supervise(root, spec):
             selector = selectors.DefaultSelector()
             files = {name: (folder / (name + '.log')).open('wb') for name in ['stdout', 'stderr']}
             sizes = {'stdout': 0, 'stderr': 0}
+            containment = None
             for name in ['stdout', 'stderr']:
                 pipe = getattr(process, name)
                 os.set_blocking(pipe.fileno(), False)
@@ -129,16 +213,16 @@ def supervise(root, spec):
             try:
                 while selector.get_map() or process.poll() is None:
                     # Once the command has actually completed, a late cancel loses.
-                    if process.poll() is None:
+                    if containment is None and process.poll() is None:
                         if (folder / 'cancel').exists():
                             result['reason'] = 'cancelled'
-                            kill_group(process)
+                            containment = terminate_tree(process, spec)
                         elif time.monotonic() >= deadline:
                             result['reason'] = 'timeout'
-                            kill_group(process)
-                    else:
+                            containment = terminate_tree(process, spec)
+                    if containment is None and process.poll() is not None:
                         # Background descendants cannot outlive a completed command.
-                        kill_group(process)
+                        containment = terminate_tree(process, spec)
                     for key, _ in selector.select(.05):
                         chunk = os.read(key.fileobj.fileno(), 65536)
                         if not chunk:
@@ -151,7 +235,12 @@ def supervise(root, spec):
                         files[name].flush()
                         sizes[name] += len(keep)
                         result['truncated'][name] |= len(keep) != len(chunk)
+                    if containment is False:
+                        break
+                if containment is None:
+                    containment = terminate_tree(process, spec)
                 result['exitCode'] = process.wait()
+                result['containmentConfirmed'] = containment is True
             finally:
                 selector.close()
                 for stream in files.values():
@@ -159,8 +248,11 @@ def supervise(root, spec):
             result['reports'] = capture_reports(spec['workspace'])
         except Exception as error:
             if process is not None:
-                kill_group(process)
-                process.wait()
+                try:
+                    result['containmentConfirmed'] = terminate_tree(process, spec)
+                    result['exitCode'] = process.returncode
+                except Exception:
+                    result['containmentConfirmed'] = False
             result.update(reason='preflight_or_supervisor_error', error=str(error)[:1000])
         finally:
             result['finishedAt'] = time.time()
