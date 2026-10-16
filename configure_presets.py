@@ -25,7 +25,8 @@ def make_preset(owner, record):
          'config': {'sampleOverCapGlobResults': False}},
         {'id': 'commands', 'name': '@deepseek-ai/dsh-tool-bash'},
         {'id': 'jobs', 'name': '@deepseek-ai/dsh-tool-jobs'},
-        {'id': 'sandboxctl', 'name': str(ROOT / 'plugins/argon-sandbox/index.mjs')},
+        {'id': 'sandboxctl', 'name': str(ROOT / 'plugins/argon-sandbox/index.mjs'),
+         'config': {'owner': owner}},
     ]
     return {'id': 'preset-argon-' + owner, 'name': '@deepseek-ai/dsh-agent-preset', 'config': {
         'id': 'argon-' + owner, 'name': 'Argon Sandbox ' + owner,

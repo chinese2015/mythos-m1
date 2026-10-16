@@ -15,8 +15,12 @@ const broker = (argv, timeoutMs = BROKER_TIMEOUT_MS) =>
   run(PYTHON, [BROKER, ...argv], { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 })
     .then((result) => JSON.parse(result.stdout));
 
-const ownerOf = (exec) => {
-  // SessionHeader.agentPreset is the durable preset id; never trust model input.
+// Owner resolution: the operator-controlled preset config is authoritative.
+// SessionHeader.agentPreset is only a fallback because Web UI created sessions
+// have been observed to record 'standard' there even when the argon preset
+// composed the session's tools.
+const ownerOf = (exec, configured) => {
+  if (typeof configured === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(configured)) return configured;
   const preset = exec?.agent?.session?.header?.agentPreset;
   const match = typeof preset === 'string' && /^argon-([a-z0-9][a-z0-9-]{0,63})$/.exec(preset);
   if (!match) throw new Error('sandbox tools are only available in an argon-<owner> preset session');
@@ -40,7 +44,8 @@ const sandboxIdParam = { sandboxId: { type: 'string', required: true, descriptio
 
 export const name = 'argon-sandboxctl';
 export const inject = ['tools'];
-export function apply(ctx) {
+export function apply(ctx, config = {}) {
+  const resolveOwner = (exec) => ownerOf(exec, config.owner);
   ctx.tools.register(defineTool({
     name: 'sandbox_create',
     description: 'Create an isolated Docker sandbox bound to you: fresh workspace, optional git clone, confined execution environment. Subject to per-owner quota (default 2).',
@@ -52,7 +57,7 @@ export function apply(ctx) {
       render: (_args, value) => [{ type: 'text', text: value }] },
     timeoutMs: BROKER_TIMEOUT_MS,
     execute(args, exec) {
-      const owner = ownerOf(exec);
+      const owner = resolveOwner(exec);
       const argv = ['create', '--owner', owner, '--workspace', args.workspaceId];
       if (args.repoUrl) argv.push('--source', args.repoUrl);
       return broker(argv).then((r) => JSON.stringify({
@@ -84,7 +89,7 @@ export function apply(ctx) {
     },
     timeoutMs: EXEC_TIMEOUT_MAX_MS + BROKER_TIMEOUT_MS,
     execute(args, exec) {
-      const owner = ownerOf(exec);
+      const owner = resolveOwner(exec);
       const timeout = Math.min(args.timeoutMs ?? 60000, EXEC_TIMEOUT_MAX_MS);
       // argparse.REMAINDER swallows everything after the positional sandbox_id,
       // so every optional flag must precede it.
@@ -101,7 +106,7 @@ export function apply(ctx) {
       render: (_args, value) => [{ type: 'text', text: value }] },
     timeoutMs: BROKER_TIMEOUT_MS,
     execute(args, exec) {
-      const owner = ownerOf(exec);
+      const owner = resolveOwner(exec);
       return broker(['stop', '--owner', owner, args.sandboxId]).then((r) => JSON.stringify({
         sandboxId: r.sandbox_id, ownerId: r.owner_id, workspaceId: r.workspace_id,
         workspacePath: r.workspace_path, state: r.state, containerName: r.container_name
@@ -119,7 +124,7 @@ export function apply(ctx) {
     },
     timeoutMs: BROKER_TIMEOUT_MS,
     execute(args, exec) {
-      const owner = ownerOf(exec);
+      const owner = resolveOwner(exec);
       const argv = ['status', '--owner', owner];
       if (args.sandboxId) argv.push(args.sandboxId);
       return broker(argv)
