@@ -86,7 +86,7 @@ Spec: ../Argon_AI_Brain_总体方案_v2.0.md §8.1 and user-approved Sandbox/nat
 ## 2026-10-17 — Run Monitor 最小完整链路（M2 收口）
 
 - 设计与计划：`docs/superpowers/specs/2026-10-17-run-monitor-design.md`、`docs/superpowers/plans/2026-10-17-run-monitor.md`。方案：纯轮询不推送——console 新增只读代理 `GET /argon/api/work-items/{id}/events?after=N`（TaskWorkflow.events 转发 M2 游标接口），前端新增 `monitor-view.js`（视图）+ `monitor-state.js`（纯函数，node 直测），游标状态存模块级 Map；整页重开 = after=0 全量拉取，天然恢复观察。
-- 提交：`add6a19`（events 代理 + 401/400 用例）、`7ae3950`（monitor-state 纯函数 + 8 项单测，含 CANCEL_REQUESTED≠CANCELLED、乱序去重、折叠输出）、`276a636`（monitor-view + app.js/index.mjs/styles.css 集成）。
+- 提交：`add6a19`（events 代理 + 401/400 用例）、`7ae3950`（monitor-state 纯函数 + 8 项单测，含 CANCEL_REQUESTED≠CANCELLED、乱序去重、折叠输出）、`276a636`（monitor-view + app.js/index.mjs/styles.css 集成）、`c4eef8e`（评审修复：用户手动收起的日志盒不再被自动展开覆写，shouldAutoExpand）。
 - 测试：Node 68/68、Python 73 项（72 通过 + 1 Linux 跳过）本地与远程均绿（`tests/monitor-state.test.mjs`、`tests/task-controller.test.mjs` 新增）。
 - 部署：tar 同步 + 仅重启 DSH（M2 无改动）；冒烟：events 代理 200（200 条事件 + nextCursor）、monitor-view.js 200。
 - 真实验收（证据 `~/argon-m1/state/run-monitor-acceptance.json`）：① 实时日志尾随（tick 每 3s 增长）+ 输出事件折叠（"已折叠 N 条输出事件"）；② 运行中关标签页 15s → 全新页面恢复观察（运行中 + 取消按钮 + 事件流续载）；③ 浏览器取消 → 已取消 + 退出码 -9，QUEUED 取消 → "Cancelled before dispatch"（CANCEL_REQUESTED 亚秒窗口由单测+事件流锚定）；④ worker SIGTERM+重启 mid-RUNNING → 容器命令存活、新 worker 对账续观察、最终 SUCCEEDED/0、零重复执行；⑤ 失败不假成功：监控内基线 FAILED/退出码 1 红色实况 + M2 `exit 23` → FAILED/23。
