@@ -71,7 +71,8 @@ class SandboxBroker:
                               '  StrictHostKeyChecking yes\n  IdentitiesOnly yes\n  ForwardAgent no\n'
                               # OpenSSH's admin forwarding gate also covers Unix sockets.
                               # This is a stdio transport into a network-none container.
-                              f'  ProxyCommand /usr/bin/docker exec -i --user 0 {record["container_name"]} /usr/sbin/sshd -i -o AllowTcpForwarding=yes -f /etc/ssh/sshd_config\n'
+                              f'  ProxyCommand /usr/bin/docker exec -i --user 0 {record["container_name"]} /usr/sbin/sshd -i -o AllowTcpForwarding=yes '
+                              '-o SetEnv=GIT_CONFIG_GLOBAL=/tmp/argon-gitconfig -f /etc/ssh/sshd_config\n'
                               f'  SetEnv MAVEN_OPTS=-Dmaven.repo.local={record["workspace_path"]}/.cache/m2/repository\n')
             config.chmod(0o600)
             ssh = Path.home() / '.ssh/config'
@@ -79,6 +80,10 @@ class SandboxBroker:
             run(['ssh', '-o', 'BatchMode=yes', alias, 'true'])
             self.registry.transition(owner, record['sandbox_id'], 'running')
             self.execute(owner, record['sandbox_id'], ['true'])
+            # The image's HOME is inherited from Gitea and its root is read-only.
+            # Native SSH tools get this per-container config through sshd SetEnv.
+            self.execute(owner, record['sandbox_id'], ['git', 'config', '--file', '/tmp/argon-gitconfig',
+                                                       '--add', 'safe.directory', record['workspace_path']])
             self.execute(owner, record['sandbox_id'], ['sh', '-c', 'mkdir -p .cache/m2 && cp -a /opt/m2-seed/repository .cache/m2/'])
             excludes = Path(record['workspace_path']) / '.git/info/exclude'
             if excludes.exists():

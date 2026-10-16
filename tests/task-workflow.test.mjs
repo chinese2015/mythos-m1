@@ -46,6 +46,13 @@ test('baseline reproduction requires actual expected failing JUnit evidence', ()
   assert.equal(baselineReproduced({ state: 'FAILED', exitCode: 1, evidence: { junit: { tests: 0 } } }), false);
   assert.equal(baselineReproduced({ ...operation, evidence: { junit: { ...operation.evidence.junit, failedTests: ['findsMatchingItems'] } } }), false);
 });
+test('native inbox admission is durable and canceled prompts are never treated as new work', () => {
+  const inbox = [{ seq: 1, type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [{ id: 'message', role: 'user', source: { rpcId: 'code-request', kind: 'user' } }] } }];
+  assert.equal(sessionProgress({ events: inbox }, 'code-request').pending, true);
+  inbox.push({ seq: 2, type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' } });
+  const result = sessionProgress({ events: inbox }, 'code-request');
+  assert.equal(result.found, true); assert.equal(result.failed, true); assert.equal(result.reason, 'canceled');
+});
 test('task presets use the task workspace and separate PLAN from CODE capabilities', () => {
   const work = { workItemId: 'work-' + 'a'.repeat(32), ownerId: 'alice', sandboxId: 'sb-new-task' };
   const config = { root: '/home/hx/argon-m1', helperHash: 'b'.repeat(64), workspacePath: '/home/hx/argon-sandboxes/sb-new-task/workspace' };

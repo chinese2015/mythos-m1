@@ -15,15 +15,17 @@
 - Keep legacy data/services/presets; new task sandboxes start from vulnerable baseline and fixed branch.
 
 ### Task 1: Task-first domain and resources
-- [ ] RED tests for global claims, unprepared work, multi-Session binding, workflow CAS, preparation recovery and owner access.
-- [ ] Implement additive Store/API/workspace provisioning and git evidence; run Python suite.
+- [x] RED tests for global claims, unprepared work, multi-Session binding, workflow CAS, preparation recovery and owner access.
+- [x] Implement additive Store/API/workspace provisioning and git evidence; run Python suite.
 ### Task 2: Source/workflow and dynamic presets
-- [ ] RED tests for Mock normalization, read-only guard, journal parsing, approval/phase/reload and task-bound tool resolution.
-- [ ] Implement Cordis source/workflow service and per-task PLAN/CODE presets; run Node suite.
+- [x] RED tests for Mock normalization, read-only guard, journal parsing, approval/phase/reload and task-bound tool resolution.
+- [x] Implement Cordis source/workflow service and per-task PLAN/CODE presets; run Node suite.
 ### Task 3: Console and native navigation
-- [ ] Implement task list/detail static assets against exact same-origin contract; register authenticated routes and native client bridge.
-- [ ] Verify version/conflict/errors and actual browser interactions.
+- [x] Implement task list/detail static assets against exact same-origin contract; register authenticated routes and native client bridge.
+- [x] Verify version/conflict/errors and real authenticated HTTP paths.
+- [ ] Browser click/layout/iframe acceptance: CUA rejected URL access; no alternate browser or bypass attempted.
 ### Task 4: Trusted cache and remote acceptance
-- [ ] Integrate independently warmed reproducible offline Maven image without stopping legacy containers.
-- [ ] Deploy with backup; click Nova, approve actual model plan, verify actual code/tests/diff in fresh B; refresh/restart and duplicate-action checks.
-- [ ] Independent review, regression fixes, complete suites, document user URL and remaining limitations.
+- [x] Integrate independently warmed reproducible offline Maven image without stopping legacy containers.
+- [x] Deploy with backup; launch Nova through the console HTTP API, approve actual model plan, verify actual code/tests/diff in fresh B; duplicate-action checks.
+- [ ] Complete final restart recovery check and documentation after regression deployment.
+- [x] Independent review and regression fixes for inbox cancellation, approval admission fence, verification freshness and supplemental-message loss.

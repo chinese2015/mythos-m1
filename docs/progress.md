@@ -1,5 +1,7 @@
 # Execution ledger — M1 Docker Sandbox PoC
 
+当前任务工作台入口与最新验收见 [task-workbench.md](task-workbench.md)。2026-10-16 的 Nova 任务已由真实模型完成只读计划、批准后编码提交和新容器独立验证，停在 AWAITING_REVIEW；浏览器视觉/点击验收因自动浏览器 URL 策略拒绝而未完成。
+
 Plan: docs/sandbox-poc.md
 
 Spec: ../Argon_AI_Brain_总体方案_v2.0.md §8.1 and user-approved Sandbox/native-capability/multi-user amendments.

@@ -61,7 +61,6 @@ class TaskWorkspace:
             self._exec(owner, sandbox_id, ['git', 'config', 'user.name', 'Argon Demo Operator'])
             self._exec(owner, sandbox_id, ['git', 'config', 'user.email', 'argon-demo@localhost'])
             item = self.broker.registry.get(owner, sandbox_id)
-            self._exec(owner, sandbox_id, ['git', 'config', '--global', '--add', 'safe.directory', item['workspace_path']])
             subprocess.run(['docker', 'exec', '-i', '--user', '1001:1000', '-w', item['workspace_path'],
                             item['container_name'], 'sh', '-c', 'mkdir -p .cache && cat > .cache/settings.xml'],
                            input=SETTINGS.encode(), capture_output=True, check=True, timeout=10)

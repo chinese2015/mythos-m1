@@ -2,9 +2,23 @@ export function conflict(message) { const error = new Error('409 ' + message); e
 const plain = content => (content ?? []).filter(x => x.type === 'text').map(x => x.text).join('\n');
 export function sessionProgress(inspection, requestId) {
   const events = inspection?.events ?? [];
-  const latestUserSequence = Math.max(0, ...events.filter(e => e.type === 'user/message').map(e => e.seq));
+  const queues = { 'next-turn': [], 'next-step': [] }, admissions = new Map(); let latestUserSequence = 0;
+  for (const event of events) {
+    if (event.type === 'agent/inbox/spliced') {
+      const splice = event.data, queue = queues[splice.target];
+      if (!queue) continue;
+      const removed = queue.splice(splice.start, splice.removedCount ?? 0, ...(splice.inserted ?? []));
+      for (const message of removed) if (message.source?.rpcId) admissions.set(message.source.rpcId, { state: splice.outcome === 'canceled' ? 'canceled' : 'consumed' });
+      for (const message of splice.inserted ?? []) if (message.source?.rpcId) {
+        admissions.set(message.source.rpcId, { state: 'pending' }); latestUserSequence = Math.max(latestUserSequence, event.seq);
+      }
+    }
+    if (event.type === 'user/message') latestUserSequence = Math.max(latestUserSequence, event.seq);
+  }
+  const pendingInputs = Object.values(queues).flat().filter(m => m.source?.rpcId).map(m => m.source.rpcId);
   const index = events.findIndex(e => e.type === 'user/message' && e.data?.source?.rpcId === requestId);
-  if (index < 0) return { found: false, completed: false, failed: false, latestUserSequence };
+  if (index < 0) { const state = admissions.get(requestId)?.state; return { found: !!state, pending: state === 'pending', completed: false,
+    failed: state === 'canceled', reason: state === 'canceled' ? 'canceled' : undefined, latestUserSequence, pendingInputs }; }
   let start = index;
   while (start >= 0 && events[start].type !== 'turn/start') start--;
   const turn = events[start]?.data?.turn;
@@ -13,17 +27,17 @@ export function sessionProgress(inspection, requestId) {
   const text = addressed.filter(e => e.type === 'assistant/message').map(e => plain(e.data?.message?.content)).filter(Boolean).join('\n\n');
   const end = endIndex >= 0 ? events[endIndex] : null;
   return { found: true, completed: end?.data?.reason?.kind === 'completed', failed: !!end && end.data?.reason?.kind !== 'completed',
-    latestUserSequence, endSequence: end?.seq, text, reason: end?.data?.reason?.kind };
+    latestUserSequence, pendingInputs, endSequence: end?.seq, text, reason: end?.data?.reason?.kind };
 }
 export function assertApproval(snapshot, body, progress) {
   const w = snapshot.workflow ?? snapshot.workItem.workflow;
   if (body.expectedVersion !== snapshot.workItem.version || w.phase !== 'AWAITING_PLAN_APPROVAL' ||
       body.planHash !== w.planHash || !progress.completed || progress.endSequence !== w.planEndSequence ||
-      progress.latestUserSequence > w.planEndSequence) throw conflict('方案已更新，请刷新并重新确认');
+      progress.latestUserSequence > w.planEndSequence || progress.pendingInputs?.length) throw conflict('方案已更新，请刷新并重新确认');
 }
 export function baselineReproduced(operation) {
   const j = operation?.evidence?.junit;
-  return operation?.state === 'FAILED' && operation.exitCode !== 0 && j?.tests === 2 && j.failures === 1 && j.errors === 0 && j.skipped === 0 &&
+  return operation?.state === 'FAILED' && operation.exitCode !== 0 && j?.tests === 2 && j.failures === 1 && j.errors === 0 && j.skipped === 0 && !j.invalidReports?.length &&
     (j.failedTests ?? []).some(name => name === 'maliciousInputReturnsNothing' || name.endsWith('.maliciousInputReturnsNothing'));
 }
 export function transcript(inspection) {

@@ -7,7 +7,7 @@
   const navCount = document.getElementById('nav-count');
   const phases = ['CLAIMED','PREPARING','BASELINE','PLANNING','AWAITING_PLAN_APPROVAL','CODING','VERIFYING','AWAITING_REVIEW'];
   const phaseLabels = ['已接收','准备工作区','复现基线','生成方案','方案待审批','执行修改','独立验证','等待审核'];
-  let timer = null, loading = false, currentWorkId = null, taskCache = [], workSnapshot = null;
+  let timer = null, loading = false, currentWorkId = null, taskCache = [], workSnapshot = null, routeEpoch = 0, requestEpoch = 0;
 
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const el = (tag, attrs = {}, content = '') => {
@@ -77,12 +77,13 @@
       card.append(content,side); list.append(card);
     });
   }
-  async function loadTasks() {
-    if (loading) return; loading=true;
+  async function loadTasks(force=false) {
+    if (loading&&!force) return; loading=true;
+    const epoch=routeEpoch, seq=++requestEpoch;
     if (!taskCache.length) view.innerHTML='<div class="loading"><span class="spinner"></span>正在读取来源任务…</div>';
-    try { hideNotice(); const data=await request('/tasks'); renderTasks(data); }
-    catch(e) { showNotice(e.message,'error'); if (!taskCache.length) view.innerHTML='<div class="empty-state">任务来源暂不可用。<br><br>请检查服务状态，或刷新重试。</div>'; }
-    finally { loading=false; }
+    try { hideNotice(); const data=await request('/tasks'); if(epoch!==routeEpoch||seq!==requestEpoch||route().name!=='tasks')return; renderTasks(data); }
+    catch(e) { if(epoch!==routeEpoch||seq!==requestEpoch||route().name!=='tasks')return; showNotice(e.message,'error'); if (!taskCache.length) view.innerHTML='<div class="empty-state">任务来源暂不可用。<br><br>请检查服务状态，或刷新重试。</div>'; }
+    finally { if(seq===requestEpoch)loading=false; }
   }
   async function startTask(task, button) {
     button.disabled=true; button.textContent='正在启动…';
@@ -100,7 +101,7 @@
     return {...raw,id:raw.id||raw.operationId,operationId:raw.operationId||raw.id,status:state,junit:raw.junit||evidence.junit,evidence,version:raw.version??raw.expectedVersion};
   }
   function statusText(op) { const v=String(op.status||op.state||'UNKNOWN').toUpperCase(); return ({SUCCEEDED:'已完成',COMPLETED:'已完成',FAILED:'失败',RUNNING:'运行中',QUEUED:'排队中',PENDING:'等待中',CANCELLED:'已取消',CANCELED:'已取消',UNKNOWN:'状态未知'})[v]||v; }
-  function opLabel(op) { const kind=op.kind||op.type||op.operationType||'操作'; return ({UNIT_TEST:'基线复现',VERIFY:'独立验证',TEST:'测试',AGENT:'Agent 执行',COMMAND:'命令执行'})[kind]||kind; }
+  function opLabel(op) { const kind=op.kind||op.type||op.operationType||'操作'; return ({UNIT_TEST:'单元测试',VERIFY:'独立验证',TEST:'测试',AGENT:'Agent 执行',COMMAND:'命令执行'})[kind]||kind; }
   function safeText(value) { return String(value==null?'':value); }
   function makePhaseStrip(phase) {
     const active=phaseIndex(phase); const strip=el('div',{class:'phase-strip'});
@@ -134,11 +135,11 @@
     Array.from(next.attributes).forEach(attr=>{if(attr.name==='src'&&current.tagName==='IFRAME'&&!sessionChanged)return;if(current.getAttribute(attr.name)!==attr.value)current.setAttribute(attr.name,attr.value);});
     if(current.tagName==='INPUT'){const focused=document.activeElement===current;const value=focused?current.value:next.value;if(current.value!==value)current.value=value;}
     const oldChildren=Array.from(current.childNodes), newChildren=Array.from(next.childNodes);
-    newChildren.forEach((child,index)=>{const old= current.childNodes[index];if(old&&compatibleNode(old,child)){patchTree(old,child);}else current.insertBefore(child,old||null);});
+    newChildren.forEach((child,index)=>{const old=current.childNodes[index];if(old&&compatibleNode(old,child)){patchTree(old,child);}else if(old){current.replaceChild(child,old);}else current.appendChild(child);});
     while(current.childNodes.length>newChildren.length)current.removeChild(current.lastChild);
     return current;
   }
-  function patchChildren(current,next){const old=Array.from(current.childNodes),fresh=Array.from(next.childNodes);fresh.forEach((node,index)=>{const prior=current.childNodes[index];if(prior&&compatibleNode(prior,node))patchTree(prior,node);else current.insertBefore(node,prior||null);});while(current.childNodes.length>fresh.length)current.removeChild(current.lastChild);}
+  function patchChildren(current,next){const fresh=Array.from(next.childNodes);fresh.forEach((node,index)=>{const prior=current.childNodes[index];if(prior&&compatibleNode(prior,node))patchTree(prior,node);else if(prior)current.replaceChild(node,prior);else current.appendChild(node);});while(current.childNodes.length>fresh.length)current.removeChild(current.lastChild);}
   function buildDetail(d) {
     const target=el('div');
     const scrollY=window.scrollY;
@@ -182,28 +183,28 @@
     const sessionPanel=el('section',{class:'panel'});sessionPanel.append(panelHead('DSH 工作会话',session?`${session.role||'Session'} · ${session.running?'运行中':'已暂停'}`:'会话尚未建立'));const ss=el('div',{class:'panel-body'});
     if(session){const caption=el('div',{class:'session-caption'});caption.append(el('span',{text:`Session ${session.sessionId} · ${session.activity||''}`}));const sessionUrl=session.url||`/?argonSession=${encodeURIComponent(session.sessionId)}&argonEmbedded=1`;caption.append(el('a',{class:'session-link',href:sessionUrl,target:'_blank',rel:'noopener noreferrer',text:'在 DSH 中打开 ↗'}));ss.append(caption);
       if(session.url){const frame=el('iframe',{class:'session-frame',src:session.url,title:'DSH 工作会话','data-session-id':String(session.sessionId)});ss.append(frame);} else {ss.append(renderTranscript(session));}
-      const form=el('form',{class:'message-form'});const input=el('input',{type:'text',name:'text',placeholder:'向当前工作会话发送补充说明…',autocomplete:'off','aria-label':'补充说明'});input.value=draft;const send=el('button',{class:'secondary-button',type:'submit',text:'发送'});form.append(input,send);form.addEventListener('submit',async ev=>{ev.preventDefault();const text=input.value.trim();if(!text)return;send.disabled=true;try{await request(`/work-items/${encodeURIComponent(currentWorkId)}/message`,{method:'POST',body:{text},mutation:true});input.value='';await loadWork(true);}catch(e){showNotice(e.message,'error');}finally{send.disabled=false;}});ss.append(form);
+      const form=el('form',{class:'message-form'});const input=el('input',{type:'text',name:'text',placeholder:'向当前工作会话发送补充说明…',autocomplete:'off','aria-label':'补充说明'});input.value=draft;const send=el('button',{class:'secondary-button',type:'submit',text:'发送'});form.append(input,send);form.addEventListener('submit',async ev=>{ev.preventDefault();const activeForm=ev.currentTarget;const activeInput=activeForm.elements.namedItem('text');const activeSend=activeForm.querySelector('button[type="submit"]');const text=activeInput.value.trim();if(!text)return;activeSend.disabled=true;try{await request(`/work-items/${encodeURIComponent(currentWorkId)}/message`,{method:'POST',body:{text},mutation:true});activeInput.value='';await loadWork(true);}catch(e){showNotice(e.message,'error');}finally{if(activeForm.isConnected)activeForm.querySelector('button[type="submit"]').disabled=false;}});ss.append(form);
     }else{ss.append(el('div',{class:'plan-placeholder',text:'工作流会在对应阶段创建独立的 DSH Session。'}));}
     sessionPanel.append(ss);col2.append(sessionPanel);
     const gitPanel=el('section',{class:'panel'});gitPanel.append(panelHead('代码变更','与来源基线比较'));const gb=el('div',{class:'panel-body'});
     if(git){const meta=el('div',{class:'operation-details'});meta.append(el('span',{text:`分支 ${git.branch||'—'}`}),el('span',{class:'mono',text:`HEAD ${git.headCommit||'—'}`}));gb.append(meta);if(git.changedFiles?.length)gb.append(el('div',{class:'operation-details',text:`变更文件：${git.changedFiles.join('、')}`}));if(git.diff){const pre=el('pre',{class:'diff-box'});pre.textContent=git.diff;gb.append(pre);}else gb.append(el('div',{class:'diff-empty',text:'当前没有代码差异。'}));if(git.diffTruncated)gb.append(el('div',{class:'subtle',text:'差异内容已截断。'}));}
     else gb.append(el('div',{class:'diff-empty',text:'工作区准备完成后，代码差异会显示在这里。'}));gitPanel.append(gb);col2.append(gitPanel);
-    const evidence=el('section',{class:'panel'});evidence.append(panelHead('验证证据','基线与独立验证'));const eb=el('div',{class:'panel-body'});const evList=d.evidence||[];if(evList.length){evList.forEach(e=>{const line=el('div',{class:'operation'});line.append(el('div',{class:'operation-top'},''));const top=line.firstElementChild;top.append(el('span',{class:'operation-name',text:e.label||e.kind||e.type||'验证证据'}),el('span',{class:`operation-status ${String(e.status||e.result||'').toUpperCase()==='PASSED'?'succeeded':''}`,text:e.status||e.result||''}));const meta=el('div',{class:'operation-details'});if(e.operationId)meta.append(el('span',{text:`操作 ${e.operationId}`}));if(e.sourceCommit)meta.append(el('span',{class:'mono',text:`来源提交 ${e.sourceCommit}`}));const j=e.junit;if(j)meta.append(el('span',{text:`JUnit：${j.tests??j.testCount??'?'} 项 · ${j.failures??'?'} 失败 · ${j.errors??'?'} 错误`}));line.append(meta);eb.append(line);});}else eb.append(el('div',{class:'diff-empty',text:'真实验证证据会在对应操作完成后显示。'}));evidence.append(eb);col2.append(evidence);
+    const evidence=el('section',{class:'panel'});evidence.append(panelHead('验证证据','基线与独立验证'));const eb=el('div',{class:'panel-body'});const evList=d.evidence||[];if(evList.length){evList.forEach(e=>{const line=el('div',{class:'operation'});line.append(el('div',{class:'operation-top'},''));const top=line.firstElementChild;top.append(el('span',{class:'operation-name',text:e.label||e.kind||e.type||'验证证据'}),el('span',{class:`operation-status ${String(e.status||e.result||'').toUpperCase()==='PASSED'?'succeeded':''}`,text:e.status||e.result||''}));const meta=el('div',{class:'operation-details'});if(e.operationId)meta.append(el('span',{text:`操作 ${e.operationId}`}));if(e.sourceCommit)meta.append(el('span',{class:'mono',text:`来源提交 ${e.sourceCommit}${e.sourceDirty?'（含未提交变更）':''}`}));const j=e.junit;if(j)meta.append(el('span',{text:`JUnit：${j.tests??j.testCount??'?'} 项 · ${j.failures??'?'} 失败 · ${j.errors??'?'} 错误`}));line.append(meta);eb.append(line);});}else eb.append(el('div',{class:'diff-empty',text:'真实验证证据会在对应操作完成后显示。'}));evidence.append(eb);col2.append(evidence);
     grid.append(col1,col2);target.append(grid);patchChildren(view,target);window.scrollTo(0,scrollY);if(restoreInputFocus){const next=view.querySelector('.message-form input');next?.focus({preventScroll:true});next?.setSelectionRange(draft.length,draft.length);}
   }
   function panelHead(title,sub){const h=el('div',{class:'panel-head'});h.append(el('h2',{text:title}),el('small',{text:sub||''}));return h;}
   async function mutateWorkflow(action,item){const endpoint=action==='pause'?'pause':'resume';try{await request(`/work-items/${encodeURIComponent(currentWorkId)}/${endpoint}`,{method:'POST',body:{expectedVersion:item.version},mutation:true});await loadWork(true);}catch(e){showNotice(e.message,'error');}}
   async function loadWork(force=false) {
     if (loading&&!force) return; loading=true;
-    if(!workSnapshot||currentWorkId!==route().id){view.innerHTML='<div class="loading"><span class="spinner"></span>正在读取工作流…</div>';}
-    const id=route().id; currentWorkId=id;
-    try{const data=await request(`/work-items/${encodeURIComponent(id)}`);workSnapshot=data;hideNotice();renderWork(data);}
-    catch(e){showNotice(e.message,'error');if(!workSnapshot||currentWorkId!==id)view.innerHTML='<div class="empty-state">无法读取此工作项。请刷新列表确认任务编号和登录状态。</div>';}
-    finally{loading=false;}
+    const id=route().id, epoch=routeEpoch, seq=++requestEpoch, changed=currentWorkId!==id;currentWorkId=id;
+    if(!workSnapshot||changed){view.innerHTML='<div class="loading"><span class="spinner"></span>正在读取工作流…</div>';}
+    try{const data=await request(`/work-items/${encodeURIComponent(id)}`);if(epoch!==routeEpoch||seq!==requestEpoch||route().name!=='work'||route().id!==id)return;workSnapshot=data;hideNotice();renderWork(data);}
+    catch(e){if(epoch!==routeEpoch||seq!==requestEpoch||route().name!=='work'||route().id!==id)return;showNotice(e.message,'error');if(!workSnapshot)view.innerHTML='<div class="empty-state">无法读取此工作项。请刷新列表确认任务编号和登录状态。</div>';}
+    finally{if(seq===requestEpoch)loading=false;}
   }
   function renderWork(data){workSnapshot=data;const item=itemOf(data);if(!item){showNotice('服务返回的数据中没有工作项。','error');return;}buildDetail(data);}
-  function routeChanged(){if(timer){clearInterval(timer);timer=null;}workSnapshot=null;taskCache=[];hideNotice();const r=route();if(r.name==='work'){loadWork();timer=setInterval(()=>{if(!document.hidden)loadWork();},1800);}else loadTasks();}
-  document.getElementById('refresh-button').addEventListener('click',()=>{const r=route();r.name==='work'?loadWork(true):loadTasks();});
+  function routeChanged(){routeEpoch++;requestEpoch++;loading=false;if(timer){clearInterval(timer);timer=null;}workSnapshot=null;taskCache=[];hideNotice();const r=route();if(r.name==='work'){loadWork(true);timer=setInterval(()=>{if(!document.hidden)loadWork();},1800);}else loadTasks(true);}
+  document.getElementById('refresh-button').addEventListener('click',()=>{const r=route();r.name==='work'?loadWork(true):loadTasks(true);});
   window.addEventListener('hashchange',routeChanged);
   routeChanged();
 })();

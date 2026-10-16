@@ -1,12 +1,27 @@
 import { Service } from '@deepseek-ai/cordis';
 import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 const here = fileURLToPath(new URL('.', import.meta.url));
 const allowed = new Set(['read', 'read_image', 'glob', 'grep']);
+const codeTools = new Set([...allowed, 'write', 'edit', 'bash', 'job_output', 'job_list', 'job_kill', 'execution_run', 'execution_status', 'execution_follow', 'execution_cancel', 'work_item_status', 'work_item_pause', 'work_item_resume']);
 export const readonlyGuard = exec => allowed.has(exec.name) ? undefined : 'Task planning is read-only until human plan approval';
 export const name = 'argon-task-policy';
-export const inject = ['tools'];
+export const inject = ['tools', 'argonWorkflow'];
+export function bindTaskAgent(agent, controller, workId, role) {
+  const originals = new Map();
+  for (const method of ['followup', 'steer']) {
+    const original = agent[method];
+    if (typeof original !== 'function') continue;
+    const wrapped = function (...args) {
+      const reason = controller.inputRejection(workId, role, agent.id);
+      if (reason) throw new Error(reason);
+      return original.apply(this, args);
+    };
+    agent[method] = wrapped; originals.set(method, { original, wrapped });
+  }
+  return () => { for (const [method, { original, wrapped }] of originals) if (agent[method] === wrapped) agent[method] = original; };
+}
 export function apply(ctx, config) {
-  ctx.tools.restrict({ allow: [] });
   // A task's immutable role policy does not accept native UI mode overrides.
   class TaskPolicy extends Service {
     constructor() { super(ctx, 'sandboxPolicy'); }
@@ -14,19 +29,27 @@ export function apply(ctx, config) {
     overrideOf() { return undefined; }
   }
   new TaskPolicy();
+  ctx.inject(['systemPrompt'], scope => scope.systemPrompt.context({ name: 'argon:task-policy', order: 999,
+    text: () => config.role === 'PLAN' ? 'Task planning is strictly read-only: only read/read_image/glob/grep may run. Human approval creates a separate coding session.' : 'This is the approved task coding session. All tools operate in the task container.' }));
+  ctx.on('agent/created', ({ agent }) => {
+    agent.ctx.effect(() => bindTaskAgent(agent, ctx.argonWorkflow.controller, config.workId, config.role));
+  });
   if (config.role === 'PLAN') ctx.tools.guard(readonlyGuard);
+  else ctx.tools.guard(exec => !codeTools.has(exec.name) ? 'This tool is outside the task coding capabilities' : allowed.has(exec.name) ? undefined :
+    ctx.argonWorkflow.controller.inputRejection(config.workId, config.role, exec.agent?.id));
 }
 export function taskPreset(work, role, config) {
   if (!['PLAN', 'CODE'].includes(role) || !/^sb-[a-z0-9-]+$/.test(work.sandboxId) || !/^work-[0-9a-f]{32}$/.test(work.workItemId)) throw new Error('Invalid task preset binding');
   const root = config.root;
+  const provider = name => resolve(root, '../dsh-run/node_modules/@deepseek-ai', name, 'lib/index.js');
   const plugins = [
-    { id: 'policy', name: here + 'session-policy.mjs', config: { role, workspacePath: config.workspacePath } },
-    { id: 'ssh', name: '@deepseek-ai/dsh-ssh', config: { host: 'argon-' + work.sandboxId, node: '/usr/bin/node',
+    { id: 'policy', name: here + 'session-policy.mjs', config: { workId: work.workItemId, role, workspacePath: config.workspacePath } },
+    { id: 'ssh', name: provider('dsh-ssh'), config: { host: 'argon-' + work.sandboxId, node: '/usr/bin/node',
       helper: '/opt/dsh-helper/node_modules/@deepseek-ai/dsh-ssh/lib/helper.js', helperHash: config.helperHash, workspace: config.workspacePath } },
-    { id: 'fs', name: '@deepseek-ai/dsh-fs-ssh' }, { id: 'subprocess', name: '@deepseek-ai/dsh-subprocess-ssh' },
-    { id: 'sandbox', name: '@deepseek-ai/dsh-sandbox-ssh' },
+    { id: 'fs', name: provider('dsh-fs-ssh') }, { id: 'subprocess', name: provider('dsh-subprocess-ssh') },
+    { id: 'sandbox', name: provider('dsh-sandbox-ssh') },
     { id: 'files', name: '@deepseek-ai/dsh-tool-fs' },
-    { id: 'search', name: '@deepseek-ai/dsh-tool-fs-search', config: { sampleOverCapGlobResults: false } },
+    { id: 'search', name: here + 'search.mjs', config: { sampleOverCapGlobResults: false } },
   ];
   if (role === 'CODE') plugins.push(
     { id: 'bash', name: '@deepseek-ai/dsh-bash-sandbox', config: { cwd: config.workspacePath, timeoutMs: 60000 } },
