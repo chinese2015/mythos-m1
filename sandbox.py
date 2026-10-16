@@ -101,6 +101,16 @@ class SandboxBroker:
         return run(['docker', 'exec', '--user', '1001:1000', '-w', record['workspace_path'],
                     record['container_name'], *argv])
 
+    def execute_capture(self, owner, sandbox_id, argv, timeout=None):
+        """Run a command and report its real exit code instead of raising."""
+        record = self.registry.get(owner, sandbox_id)
+        if record['state'] != 'running':
+            raise RuntimeError('Sandbox is not running')
+        result = subprocess.run(['docker', 'exec', '--user', '1001:1000', '-w', record['workspace_path'],
+                                 record['container_name'], *argv],
+                                capture_output=True, text=True, timeout=timeout)
+        return {'stdout': result.stdout, 'stderr': result.stderr, 'exitCode': result.returncode}
+
     def stop(self, owner, sandbox_id):
         record = self.registry.get(owner, sandbox_id)
         run(['docker', 'stop', '--time', '10', record['container_name']])
@@ -118,9 +128,32 @@ def main():
     stop = sub.add_parser('stop')
     stop.add_argument('--owner', required=True)
     stop.add_argument('sandbox_id')
+    execute = sub.add_parser('exec')
+    execute.add_argument('--owner', required=True)
+    execute.add_argument('sandbox_id')
+    execute.add_argument('--timeout', type=float, default=None)
+    execute.add_argument('cmd', nargs=argparse.REMAINDER)
+    status = sub.add_parser('status')
+    status.add_argument('--owner', required=True)
+    status.add_argument('sandbox_id', nargs='?')
     args = parser.parse_args()
     broker = SandboxBroker(args.root)
-    record = broker.create(args.owner, args.workspace, args.source) if args.action == 'create' else broker.stop(args.owner, args.sandbox_id)
+    if args.action == 'create':
+        record = broker.create(args.owner, args.workspace, args.source)
+    elif args.action == 'stop':
+        record = broker.stop(args.owner, args.sandbox_id)
+    elif args.action == 'exec':
+        cmd = list(args.cmd)
+        if cmd and cmd[0] == '--':
+            cmd = cmd[1:]
+        if not cmd:
+            raise SystemExit('exec requires a command after --')
+        record = broker.execute_capture(args.owner, args.sandbox_id, cmd, timeout=args.timeout)
+    else:
+        if args.sandbox_id:
+            record = broker.registry.get(args.owner, args.sandbox_id)
+        else:
+            record = broker.registry.list_owned(args.owner)
     print(json.dumps(record))
 
 

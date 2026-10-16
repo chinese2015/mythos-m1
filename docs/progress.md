@@ -22,6 +22,8 @@ Spec: ../Argon_AI_Brain_总体方案_v2.0.md §8.1 and user-approved Sandbox/nat
 - 缺陷修复：`change-boundary.mjs` 补 `guardToolCapture`（TDD：测试先行引用后实现），`shouldCapture` 增加 sandbox preset 短路（preset 命中即排除，不看 cwd）。测试套件在 operator host 全绿（node 0 fail；python unittest OK）。注意套件默认 root 依赖 operator host 的 `$HOME`，在 macOS 上跑路径类用例会失败，属预期。
 - 验收结论：sandbox-poc.md 六项验收全部达成；身份认证仍按 Ruling 单独报告（共享 Web token 仅是 operator 入口，未宣称多租户登录隔离）。
 
+- sandboxctl 插件落地（2026-10-16 下午）：broker 新增 `exec`（真实 exitCode JSON）/`status` 子命令；`plugins/argon-sandbox/index.mjs` 注册 4 个 Agent 工具（sandbox_create/exec/stop/status），owner 取自 `SessionHeader.agentPreset`（持久化字段，模型不可伪造），broker 二次校验；工具随 argon-alice/argon-bob preset 加载（runtime-diagnostic 全 ok）。无头探针实测：模型在真实 session 中实际调用了 sandbox_status/sandbox_exec（session-alice seq 116/122）。缺陷一处：`exec.agent.ctx.preset` 读取报 "cannot get property ... without inject"（Cordis ctx 代理限制），已改走 `exec.agent.session.header.agentPreset`；修复已提交，**待网络恢复后同步→重启→复测**。
+
 ## 遗留（带入 M2/后续）
 
 - `guardToolCapture` 已导出并有测试，但上游 `@deepseek-ai/dsh-workspace-changes` 的 pre-execution capture 路径没有对外钩子，尚未接线；M2 自研 capture 插件时再接入。
