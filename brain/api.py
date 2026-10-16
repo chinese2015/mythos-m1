@@ -5,11 +5,13 @@ import json
 from urllib.parse import parse_qs, urlsplit
 
 from .errors import BrainError, InvalidInput, NotFound, Unauthorized
+from .workspace import TaskWorkspace
 
 
 def make_server(store, executor, tokens, address=('127.0.0.1', 3081)):
     if not tokens or len(set(tokens.values())) != len(tokens):
         raise ValueError('Each owner must have a distinct bearer token')
+    task_workspace = TaskWorkspace(store, executor)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -73,6 +75,10 @@ def make_server(store, executor, tokens, address=('127.0.0.1', 3081)):
                 raise NotFound('Route unavailable')
             route = segments[2:]
             query = parse_qs(url.query, keep_blank_values=True)
+            if route == ['tasks', 'claim'] and self.command == 'POST':
+                body = self.body({'sourceRecord', 'expectedRevision'})
+                result = store.claim_task(owner, body.get('sourceRecord'), body.get('expectedRevision'), key)
+                return 202, result
             if route == ['work-items']:
                 if self.command == 'GET':
                     return 200, {'workItems': store.list_work_items(owner)}
@@ -91,11 +97,22 @@ def make_server(store, executor, tokens, address=('127.0.0.1', 3081)):
                 if self.command == 'GET':
                     if len(route) == 2:
                         return 200, store.snapshot(owner, work_id)
+                    if route[2] == 'workspace':
+                        return 200, task_workspace.evidence(owner, work_id)
                     if route[2] == 'events':
                         return 200, store.events(owner, work_id, *self.page(query))
                     if route[2] == 'operations':
                         return 200, {'operations': store.snapshot(owner, work_id)['operations']}
                 if self.command == 'POST' and len(route) == 3:
+                    if route[2] == 'prepare':
+                        body = self.body({'expectedVersion'})
+                        return 200, task_workspace.prepare(owner, work_id, body.get('expectedVersion'))
+                    if route[2] == 'sessions':
+                        body = self.body({'sessionId', 'role', 'expectedVersion'})
+                        return 200, store.bind_session(owner, work_id, body.get('sessionId'), body.get('role'), body.get('expectedVersion'), key)
+                    if route[2] == 'workflow':
+                        body = self.body({'expectedVersion', 'workflow', 'stage', 'blocked'})
+                        return 200, store.update_workflow(owner, work_id, body.get('expectedVersion'), body.get('workflow'), body.get('stage'), body.get('blocked'), key)
                     if route[2] == 'operations':
                         body = self.body({'expectedVersion', 'command', 'kind', 'timeoutSeconds', 'sourceCommit'})
                         return 202, store.submit(owner, work_id, body, key)

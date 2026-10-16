@@ -64,6 +64,11 @@ class Store:
                     PRIMARY KEY(operation_id, sequence), UNIQUE(operation_id, stream, offset));
                 CREATE TABLE IF NOT EXISTS evidence (
                     operation_id TEXT PRIMARY KEY REFERENCES operations(id), data TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS task_claims (
+                    source_id TEXT PRIMARY KEY, owner TEXT NOT NULL, work_id TEXT NOT NULL UNIQUE REFERENCES work_items(id));
+                CREATE TABLE IF NOT EXISTS work_sessions (
+                    owner TEXT NOT NULL, session_id TEXT NOT NULL, work_id TEXT NOT NULL REFERENCES work_items(id),
+                    role TEXT NOT NULL, PRIMARY KEY(owner, session_id));
             ''')
             if db.execute('SELECT version FROM schema_version').fetchone()[0] != 1:
                 raise RuntimeError('Unsupported brain database schema')
@@ -164,6 +169,7 @@ class Store:
             else:
                 work = {'workItemId': identifier('work'), 'ownerId': owner, 'source': source,
                         'sandboxId': body['sandboxId'], 'sessionId': body.get('sessionId'),
+                        'sessionIds': [body['sessionId']] if body.get('sessionId') else [],
                         'stage': 'PLANNING', 'status': 'PLANNING', 'paused': False, 'blocked': False,
                         'version': 1, 'sequence': 0, 'createdAt': now()}
                 db.execute('INSERT INTO work_items VALUES (?, ?, ?, ?)',
@@ -172,6 +178,144 @@ class Store:
                 work = self._work(db, work['workItemId'])
             self._remember(db, owner, scope, key, digest, work['workItemId'])
             return work
+
+    def claim_task(self, owner, source_record, expected_revision, key):
+        required = {'id', 'title', 'risk', 'ownerId', 'repositoryUrl', 'baseCommit', 'sourcePath', 'revision'}
+        if not isinstance(source_record, dict) or required - set(source_record) or set(source_record) - required - {'description'}:
+            raise InvalidInput('sourceRecord has invalid fields')
+        string_fields = required - {'revision'}
+        if (not all(isinstance(source_record[k], str) and source_record[k] for k in string_fields)
+                or type(source_record['revision']) not in {str, int} or not str(source_record['revision'])
+                or ('description' in source_record and not isinstance(source_record['description'], str))):
+            raise InvalidInput('sourceRecord fields must be nonempty strings')
+        if not isinstance(expected_revision, (str, int)) or isinstance(expected_revision, bool):
+            raise InvalidInput('expectedRevision is invalid')
+        source_id = source_record['id']
+        with self.connection(True) as db:
+            scope = 'claim-task:' + source_id
+            body = {'sourceRecord': source_record, 'expectedRevision': expected_revision}
+            retry, digest = self._retry(db, owner, scope, key, body)
+            if retry:
+                return self._work(db, retry, owner)
+            row = db.execute('SELECT owner, work_id FROM task_claims WHERE source_id=?', (source_id,)).fetchone()
+            if row:
+                if row['owner'] != owner:
+                    raise Conflict('Task is already claimed by another owner')
+                self._remember(db, owner, scope, key, digest, row['work_id'])
+                return self._work(db, row['work_id'], owner)
+            if str(expected_revision) != str(source_record['revision']):
+                raise Conflict('Source revision changed')
+            work_id = identifier('work')
+            source = {'type': 'ARGON', 'id': source_id, 'revision': source_record['revision']}
+            work = {'workItemId': work_id, 'ownerId': owner, 'source': source,
+                    'sourceRecord': dict(source_record), 'sandboxId': None, 'sessionId': None,
+                    'sessionIds': [], 'stage': 'CLAIMED', 'status': 'CLAIMED', 'paused': False,
+                    'blocked': False, 'workflow': {'phase': 'CLAIMED'}, 'version': 1,
+                    'sequence': 0, 'createdAt': now()}
+            db.execute('INSERT INTO work_items VALUES (?, ?, ?, ?)', (work_id, owner, encoded(source), encoded(work)))
+            db.execute('INSERT INTO task_claims VALUES (?, ?, ?)', (source_id, owner, work_id))
+            self._event(db, work_id, 'work_item.claimed', {'source': source, 'sourceRecord': source_record})
+            self._remember(db, owner, scope, key, digest, work_id)
+            return self._work(db, work_id, owner)
+
+    def bind_session(self, owner, work_id, session_id, role, version, key):
+        if not isinstance(session_id, str) or not 1 <= len(session_id) <= 200 or role not in {'PLAN', 'CODE'}:
+            raise InvalidInput('sessionId and role are invalid')
+        with self.connection(True) as db:
+            work = self._work(db, work_id, owner)
+            scope = 'bind-session:' + work_id
+            retry, digest = self._retry(db, owner, scope, key, {'sessionId': session_id, 'role': role})
+            if retry:
+                return self._work(db, retry, owner)
+            self._version(work, version)
+            row = db.execute('SELECT work_id, role FROM work_sessions WHERE owner=? AND session_id=?', (owner, session_id)).fetchone()
+            if row and (row['work_id'] != work_id or row['role'] != role):
+                raise Conflict('Session is already bound to another role or Work Item')
+            if not row:
+                db.execute('INSERT INTO work_sessions VALUES (?, ?, ?, ?)', (owner, session_id, work_id, role))
+            sessions = [{'sessionId': r['session_id'], 'role': r['role']} for r in db.execute('SELECT session_id, role FROM work_sessions WHERE work_id=? ORDER BY rowid', (work_id,))]
+            work['sessionIds'] = [s['sessionId'] for s in sessions]
+            code = next((s['sessionId'] for s in sessions if s['role'] == 'CODE'), None)
+            work['sessionId'] = code or (sessions[0]['sessionId'] if sessions else None)
+            work['version'] += 1
+            self._save_work(db, work)
+            self._event(db, work_id, 'work_item.session_bound', {'sessionId': session_id, 'role': role})
+            self._remember(db, owner, scope, key, digest, work_id)
+            return self._work(db, work_id, owner)
+
+    def update_workflow(self, owner, work_id, expected_version, workflow, stage=None, blocked=None, key=None):
+        if not isinstance(workflow, dict) or not isinstance(workflow.get('phase'), str):
+            raise InvalidInput('workflow must include phase')
+        stages = {'CLAIMED','PREPARING','BASELINE','PLANNING','AWAITING_PLAN_APPROVAL','CODING','VERIFYING','AWAITING_REVIEW','BLOCKED','PAUSED'}
+        if stage is not None and stage not in stages:
+            raise InvalidInput('Unsupported workflow stage')
+        with self.connection(True) as db:
+            work = self._work(db, work_id, owner)
+            scope = 'workflow:' + work_id
+            retry, digest = self._retry(db, owner, scope, key, {'workflow': workflow, 'stage': stage, 'blocked': blocked})
+            if retry:
+                return self._work(db, retry, owner)
+            self._version(work, expected_version)
+            work['workflow'] = dict(workflow)
+            if stage is not None:
+                work['stage'] = stage
+            if blocked is not None:
+                if type(blocked) is not bool:
+                    raise InvalidInput('blocked must be boolean')
+                work['blocked'] = blocked
+            work['version'] += 1
+            self._save_work(db, work)
+            self._event(db, work_id, 'work_item.workflow_updated', {'workflow': workflow, 'stage': stage})
+            self._remember(db, owner, scope, key, digest, work_id)
+            return self._work(db, work_id, owner)
+
+    def begin_prepare(self, owner, work_id, expected_version):
+        with self.connection(True) as db:
+            work = self._work(db, work_id, owner)
+            if work['sandboxId']:
+                return work, False
+            provision = work.get('workspaceProvision')
+            if provision:
+                return work, False
+            self._version(work, expected_version)
+            work['workspaceProvision'] = {'state': 'PREPARING', 'label': 'task-' + work_id.split('-')[-1], 'startedAt': now()}
+            work['stage'] = 'PREPARING'
+            work['version'] += 1
+            self._save_work(db, work)
+            self._event(db, work_id, 'workspace.preparation_started', {'label': work['workspaceProvision']['label']})
+            return self._work(db, work_id, owner), True
+
+    def finish_prepare(self, owner, work_id, sandbox_id=None, error=None):
+        with self.connection(True) as db:
+            work = self._work(db, work_id, owner)
+            provision = work.get('workspaceProvision') or {}
+            if sandbox_id:
+                work['sandboxId'] = sandbox_id
+                provision.update(state='READY', sandboxId=sandbox_id, finishedAt=now())
+                work['stage'] = 'BASELINE'
+            else:
+                provision.update(state='FAILED', error=str(error)[:1000], finishedAt=now())
+                work['stage'] = 'BLOCKED'
+            work['workspaceProvision'] = provision
+            work['version'] += 1
+            self._save_work(db, work)
+            self._event(db, work_id, 'workspace.preparation_' + ('ready' if sandbox_id else 'failed'), provision)
+            return work
+
+    def set_provision_state(self, owner, work_id, state, error):
+        with self.connection(True) as db:
+            work = self._work(db, work_id, owner)
+            provision = work.get('workspaceProvision') or {'label': 'task-' + work_id.split('-')[-1]}
+            provision.update(state=state, error=str(error)[:1000], updatedAt=now())
+            work['workspaceProvision'] = provision
+            work['version'] += 1
+            self._save_work(db, work)
+            self._event(db, work_id, 'workspace.preparation_unknown', {'state': state, 'error': provision['error']})
+            return work
+
+    def get_work_item(self, owner, work_id):
+        with self.connection() as db:
+            return self._work(db, work_id, owner)
 
     def submit(self, owner, work_id, body, key):
         command = body.get('command')
@@ -194,6 +338,8 @@ class Store:
             retry, digest = self._retry(db, owner, scope, key, body)
             if retry:
                 return self._op(db, retry, owner)
+            if not work.get('sandboxId'):
+                raise Conflict('Workspace must be prepared before execution')
             self._version(work, body.get('expectedVersion'))
             op = {'operationId': identifier('exec'), 'workItemId': work_id, 'ownerId': owner,
                   'sandboxId': work['sandboxId'], 'kind': kind, 'command': command,
@@ -219,7 +365,10 @@ class Store:
             work = self._work(db, work_id, owner)
             ops = [json.loads(r['data']) for r in db.execute('SELECT data FROM operations WHERE work_id=? ORDER BY rowid', (work_id,))]
             evidence = [json.loads(r['data']) for r in db.execute('SELECT e.data FROM evidence e JOIN operations o ON e.operation_id=o.id WHERE o.work_id=?', (work_id,))]
-            return {'workItem': work, 'operations': ops, 'evidence': evidence, 'cursor': work['sequence']}
+            sessions = [{'sessionId': r['session_id'], 'role': r['role']} for r in db.execute('SELECT session_id, role FROM work_sessions WHERE work_id=? ORDER BY rowid', (work_id,))]
+            if not sessions and work.get('sessionId'):
+                sessions = [{'sessionId': work['sessionId'], 'role': 'CODE'}]
+            return {'workItem': work, 'sessions': sessions, 'operations': ops, 'evidence': evidence, 'cursor': work['sequence']}
 
     def operation(self, owner, op_id):
         with self.connection() as db:

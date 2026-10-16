@@ -4,7 +4,8 @@ import xml.etree.ElementTree as ET
 
 
 def summarize_junit(reports):
-    summary = {'reports': [], 'invalidReports': [], 'tests': 0, 'failures': 0, 'errors': 0, 'skipped': 0}
+    summary = {'reports': [], 'invalidReports': [], 'tests': 0, 'failures': 0, 'errors': 0, 'skipped': 0,
+               'failedTests': []}
     for report in reports:
         name = report.get('path', '<unknown>')
         try:
@@ -22,6 +23,10 @@ def summarize_junit(reports):
                 raise ValueError('Invalid JUnit counts')
             for key, value in counts.items():
                 summary[key] += value
+            for suite in suites:
+                for case in suite.iter('testcase'):
+                    if case.find('failure') is not None or case.find('error') is not None:
+                        summary['failedTests'].append('.'.join(filter(None, [case.attrib.get('classname'), case.attrib.get('name')])))
             summary['reports'].append({'path': name, 'sha256': hashlib.sha256(xml.encode()).hexdigest(), **counts, 'xml': xml})
         except (ValueError, KeyError, TypeError, ET.ParseError) as error:
             summary['invalidReports'].append({'path': name, 'error': str(error)[:300]})

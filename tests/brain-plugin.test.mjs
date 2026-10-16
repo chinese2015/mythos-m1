@@ -54,6 +54,23 @@ const bridgeConfig = () => ({ ...configuration, owners: Object.fromEntries(Objec
 const bridge = (events = []) => new BrainBridge(bridgeConfig(), { emit: (topic, event) => events.push({ topic, event }) });
 const call = (callId, signal) => ({ callId, signal });
 
+test('persisted task sessions share their task sandbox and never create a DIRECT work item', async () => {
+  const b = bridge();
+  const work = { ownerId: 'alice', sessionId: 'task-code', sessionIds: ['task-plan', 'task-code'],
+    source: { type: 'ARGON', id: 'FND-00009', revision: 2 }, sandboxId: 'sb-new-task',
+    workItemId: 'work-' + 'c'.repeat(32), workflow: { approval: { actor: 'alice' } } };
+  b.clients.get('alice').request = async (method, path) => {
+    assert.equal(method, 'GET');
+    return path.endsWith('/work-items') ? { workItems: [work] } : { workItem: work, cursor: 1 };
+  };
+  try {
+    assert.equal((await b.binding('alice', 'task-plan', true)).workItemId, work.workItemId);
+    assert.equal((await b.binding('alice', 'task-code', true)).workItemId, work.workItemId);
+    assert.throws(() => b.validateWork('alice', 'foreign-session', work), /binding/);
+    assert.throws(() => b.validateWork('bob', 'task-code', work), /binding/);
+  } finally { await b.dispose(); }
+});
+
 test('read-only status does not create work; run binds one durable session work item', async () => {
   const b = bridge();
   try {

@@ -48,9 +48,11 @@ export class BrainBridge {
   }
 
   validateWork(owner, sessionId, work) {
-    if (work.ownerId !== owner || work.sessionId !== sessionId || work.sandboxId !== this.config.owners[owner].sandboxId ||
-        work.source?.type !== 'DIRECT' || work.source?.id !== 'DSH:' + sessionId || work.source?.revision !== 1 ||
-        !/^work-[0-9a-f]{32}$/.test(work.workItemId)) throw new Error('Persisted Session binding is unavailable or mismatched');
+    const legacy = work.sessionId === sessionId && work.sandboxId === this.config.owners[owner]?.sandboxId &&
+      work.source?.type === 'DIRECT' && work.source?.id === 'DSH:' + sessionId && work.source?.revision === 1;
+    const task = work.source?.type === 'ARGON' && work.sessionIds?.includes(sessionId) && /^sb-[a-z0-9-]+$/.test(work.sandboxId);
+    if (work.ownerId !== owner || (!legacy && !task) || !/^work-[0-9a-f]{32}$/.test(work.workItemId))
+      throw new Error('Persisted Session binding is unavailable or mismatched');
   }
 
   async watch(owner, sessionId, work, signal) {
@@ -80,7 +82,7 @@ export class BrainBridge {
     if (this.bindings.has(key)) return this.bindings.get(key);
     const records = await client.request('GET', '/api/brain/work-items', { signal });
     this.alive();
-    const matches = records.workItems.filter(w => w.sessionId === sessionId || w.source?.id === 'DSH:' + sessionId);
+    const matches = records.workItems.filter(w => w.sessionId === sessionId || w.sessionIds?.includes(sessionId) || w.source?.id === 'DSH:' + sessionId);
     if (matches.length > 1) throw new Error('Ambiguous Session binding');
     let work = matches[0];
     if (!work && create) {
@@ -118,6 +120,11 @@ export class BrainBridge {
     this.key('run', owner, sessionId, call.callId);
     if (Object.keys(args).some(k => !['command', 'kind', 'timeoutSeconds', 'sourceCommit'].includes(k))) throw new Error('Unexpected execution parameter');
     const binding = await this.binding(owner, sessionId, true, call.signal);
+    const snapshot = await this.client(owner).request('GET', route(binding.workItemId), { signal: call.signal });
+    this.validateWork(owner, sessionId, snapshot.workItem);
+    if (snapshot.workItem.source.type === 'ARGON' && (!snapshot.workItem.workflow?.approval ||
+        !snapshot.sessions?.some(s => s.sessionId === sessionId && s.role === 'CODE')))
+      throw new Error('Task execution requires the approved CODE Session');
     return this.versioned(owner, sessionId, 'run', call, { ...args, kind: args.kind ?? 'COMMAND', timeoutSeconds: args.timeoutSeconds ?? 300 },
       { read: route(binding.workItemId), write: route(binding.workItemId) + '/operations', version: value => value.workItem.version });
   }
@@ -157,6 +164,7 @@ export class BrainBridge {
         const { workItems } = await this.client(owner).request('GET', '/api/brain/work-items');
         for (const work of workItems) {
           if (work.sessionId && work.source?.id === 'DSH:' + work.sessionId) await this.watch(owner, work.sessionId, work);
+          if (work.source?.type === 'ARGON' && work.sandboxId) for (const sessionId of work.sessionIds ?? []) await this.watch(owner, sessionId, work);
         }
       } catch (error) { await this.error(owner, error); }
     }

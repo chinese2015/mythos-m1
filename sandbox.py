@@ -22,8 +22,8 @@ def run(argv, **kwargs):
 
 
 class SandboxBroker:
-    def __init__(self, root):
-        self.registry = Registry(root)
+    def __init__(self, root, per_owner_limit=2, global_limit=4):
+        self.registry = Registry(root, per_owner_limit=per_owner_limit, global_limit=global_limit)
 
     def create(self, owner, workspace, source=None):
         record = self.registry.allocate(owner, workspace)

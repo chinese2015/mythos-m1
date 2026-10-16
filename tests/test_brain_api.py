@@ -101,6 +101,23 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.request('GET', path + '/events?limit=999999')[0], 400)
         self.assertEqual(self.request('POST', path + '/operations', {'command': 'true', 'expectedVersion': 1, 'cwd': '/etc'}, key='bad')[0], 400)
 
+    def test_task_claim_endpoint_uses_authenticated_owner_and_starts_without_workspace(self):
+        source = {'id': 'FND-00009', 'title': 'Nova', 'risk': 'HIGH', 'ownerId': 'alice',
+                  'repositoryUrl': 'http://127.0.0.1:3000/demo/demo-nova-catalog-api.git',
+                  'baseCommit': 'a' * 40, 'sourcePath': 'src/main/java/demo/CatalogService.java',
+                  'revision': '2'}
+        code, item = self.request('POST', '/api/brain/tasks/claim',
+                                  {'sourceRecord': source, 'expectedRevision': '2', 'ownerId': 'bob'}, key='claim')
+        self.assertEqual(code, 400)
+        code, item = self.request('POST', '/api/brain/tasks/claim',
+                                  {'sourceRecord': source, 'expectedRevision': '2'}, key='claim')
+        self.assertEqual(code, 202)
+        self.assertEqual(item['ownerId'], 'alice')
+        self.assertIsNone(item['sandboxId'])
+        self.assertEqual(item['sourceRecord'], source)
+        self.assertEqual(self.request('POST', '/api/brain/work-items/' + item['workItemId'] + '/operations',
+                                      {'expectedVersion': item['version'], 'command': 'true'}, key='run')[0], 409)
+
 
 if __name__ == '__main__':
     unittest.main()

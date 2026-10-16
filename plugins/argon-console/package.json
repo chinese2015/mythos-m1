@@ -1,0 +1,5 @@
+{
+  "name": "@local/argon-console", "version": "0.1.0", "private": true, "type": "module",
+  "exports": { ".": "./index.mjs", "./client": "./client.js" },
+  "dsh": { "client": { "platform": "web", "immediately": true, "inject": ["@deepseek-ai/dsh-client-ui-workspace"] } }
+}

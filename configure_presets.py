@@ -52,6 +52,16 @@ def make_brain_service(records):
                                           'preset': 'argon-' + owner} for owner, record in records.items()}}}
 
 
+def make_task_services(records):
+    return [
+        {'id': 'argon-workflow', 'name': str(ROOT / 'plugins/argon-workflow/service.mjs'), 'config': {
+            'baseUrl': 'http://127.0.0.1:3081', 'tokenFile': str(Path.home() / '.argon-brain/tokens.json'),
+            'owner': 'alice', 'sourceUrl': 'http://127.0.0.1:8080', 'root': str(ROOT),
+            'helperHash': records['alice']['helper_hash'], 'pollIntervalMs': 1800}},
+        {'id': 'argon-console', 'name': str(ROOT / 'plugins/argon-console/index.mjs')},
+    ]
+
+
 def main():
     import yaml
     records = json.loads((ROOT / 'state/sandboxes.json').read_text())
@@ -64,7 +74,7 @@ def main():
     backup.chmod(0o600)
     entries = yaml.safe_load(profile.read_text()) or []
     # These IDs belong only to this PoC; preserve all user settings and defaults.
-    ids = {'preset-argon-' + owner for owner in records} | {'argon-safe-host-changes', 'argon-brain-service'}
+    ids = {'preset-argon-' + owner for owner in records} | {'argon-safe-host-changes', 'argon-brain-service', 'argon-workflow', 'argon-console'}
     cleaned = []
     for entry in entries:
         if entry.get('id') in ids:
@@ -74,7 +84,7 @@ def main():
             if not entry['insert']:
                 continue
         cleaned.append(entry)
-    cleaned.append({'insert': [make_brain_service(records)] + [make_preset(owner, record) for owner, record in records.items()] + [
+    cleaned.append({'insert': [make_brain_service(records)] + make_task_services(records) + [make_preset(owner, record) for owner, record in records.items()] + [
         {'id': 'argon-safe-host-changes', 'name': str(ROOT / 'host-changes.mjs')}]})
     cleaned = [entry for entry in cleaned if entry.get('id') != 'workspace-changes']
     cleaned.append({'id': 'workspace-changes', 'disabled': True})

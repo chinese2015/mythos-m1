@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Argon · 任务工作台</title>
+  <link rel="stylesheet" href="/argon/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/argon/#/tasks" aria-label="Argon 任务工作台首页"><span class="brand-mark">A</span><span>ARGON<span class="brand-sub">TASK WORKSPACE</span></span></a>
+      <div class="side-label">工作空间</div>
+      <a class="side-link active" href="/argon/#/tasks"><span class="side-icon">▦</span>任务中心<span class="side-count" id="nav-count">—</span></a>
+      <div class="side-note"><span class="live-dot"></span>工作流服务在线</div>
+      <div class="sidebar-bottom"><div class="avatar">A</div><div><b>演示操作员</b><small>alice · 已登录</small></div><span class="chevron">⌄</span></div>
+    </aside>
+    <main class="main-area">
+      <header class="topbar"><div class="breadcrumbs" id="breadcrumbs"><span>任务中心</span></div><div class="top-actions"><span class="secure-label"><span>●</span> 安全工作区</span><button class="icon-button" id="refresh-button" title="刷新" aria-label="刷新">↻</button></div></header>
+      <div id="notice" class="notice" role="status" hidden></div>
+      <section id="view" class="view" aria-live="polite"></section>
+      <footer class="footer"><span>ARGON TASK WORKSPACE</span><span>变更始终需要人工审核</span></footer>
+    </main>
+  </div>
+  <script src="/argon/app.js" defer></script>
+</body>
+</html>

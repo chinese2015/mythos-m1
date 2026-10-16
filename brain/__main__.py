@@ -27,9 +27,13 @@ def main():
     api.add_argument('--port', type=int, default=3081)
     api.add_argument('--token-file', type=Path)
     api.add_argument('--sandbox-root', type=Path, default=Path.home() / 'argon-sandboxes')
+    api.add_argument('--per-owner-limit', type=int, default=2)
+    api.add_argument('--global-limit', type=int, default=4)
     worker = sub.add_parser('worker')
     worker.add_argument('--sandbox-root', type=Path, default=Path.home() / 'argon-sandboxes')
     worker.add_argument('--concurrency', type=int, choices=range(1, 5), default=4)
+    worker.add_argument('--per-owner-limit', type=int, default=2)
+    worker.add_argument('--global-limit', type=int, default=4)
     args = parser.parse_args()
     args.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     if args.data_dir.stat().st_mode & 0o077:
@@ -44,7 +48,9 @@ def main():
         print('Owner credentials saved to ' + str(token_file) + ' (0600)')
         return
     store = Store(args.data_dir)
-    executor = DockerExecutor(SandboxBroker(args.sandbox_root))
+    if getattr(args, 'per_owner_limit', 2) < 1 or getattr(args, 'global_limit', 4) < 1:
+        parser.error('sandbox limits must be positive')
+    executor = DockerExecutor(SandboxBroker(args.sandbox_root, args.per_owner_limit, args.global_limit))
     if args.action == 'api':
         if not ipaddress.ip_address(args.host).is_loopback:
             parser.error('API must bind a loopback address; use an SSH tunnel or authenticated proxy')
