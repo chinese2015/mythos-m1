@@ -48,16 +48,17 @@ export function apply(ctx) {
       workspaceId: { type: 'string', required: true, description: 'Task label, e.g. nova-fix-2. Lowercase letters, digits, dashes.' },
       repoUrl: { type: 'string', description: 'Optional git URL to clone into the sandbox workspace (must be on the allowed list).' }
     },
-    output: { schema: recordSchema, render: asText },
+    output: { schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }] },
     timeoutMs: BROKER_TIMEOUT_MS,
     execute(args, exec) {
       const owner = ownerOf(exec);
       const argv = ['create', '--owner', owner, '--workspace', args.workspaceId];
       if (args.repoUrl) argv.push('--source', args.repoUrl);
-      return broker(argv).then((r) => ({
+      return broker(argv).then((r) => JSON.stringify({
         sandboxId: r.sandbox_id, ownerId: r.owner_id, workspaceId: r.workspace_id,
         workspacePath: r.workspace_path, state: r.state, containerName: r.container_name
-      }));
+      }, null, 2));
     }
   }));
 
@@ -85,7 +86,9 @@ export function apply(ctx) {
     execute(args, exec) {
       const owner = ownerOf(exec);
       const timeout = Math.min(args.timeoutMs ?? 60000, EXEC_TIMEOUT_MAX_MS);
-      return broker(['exec', '--owner', owner, args.sandboxId, '--timeout', String(timeout / 1000), '--',
+      // argparse.REMAINDER swallows everything after the positional sandbox_id,
+      // so every optional flag must precede it.
+      return broker(['exec', '--owner', owner, '--timeout', String(timeout / 1000), args.sandboxId, '--',
         'sh', '-c', args.command], timeout + BROKER_TIMEOUT_MS);
     }
   }));
@@ -94,14 +97,15 @@ export function apply(ctx) {
     name: 'sandbox_stop',
     description: 'Stop your sandbox. Its container is removed; the registry record stays for audit.',
     parameters: { ...sandboxIdParam },
-    output: { schema: recordSchema, render: asText },
+    output: { schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }] },
     timeoutMs: BROKER_TIMEOUT_MS,
     execute(args, exec) {
       const owner = ownerOf(exec);
-      return broker(['stop', '--owner', owner, args.sandboxId]).then((r) => ({
+      return broker(['stop', '--owner', owner, args.sandboxId]).then((r) => JSON.stringify({
         sandboxId: r.sandbox_id, ownerId: r.owner_id, workspaceId: r.workspace_id,
         workspacePath: r.workspace_path, state: r.state, containerName: r.container_name
-      }));
+      }, null, 2));
     }
   }));
 
@@ -109,13 +113,18 @@ export function apply(ctx) {
     name: 'sandbox_status',
     description: 'Show your sandbox record(s): state, workspace path, container. Without sandboxId, lists all sandboxes owned by you.',
     parameters: { sandboxId: { type: 'string', description: sandboxIdParam.sandboxId.description + ' Omit to list all sandboxes owned by you.' } },
-    output: { schema: { type: 'json' }, render: asText },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }]
+    },
     timeoutMs: BROKER_TIMEOUT_MS,
     execute(args, exec) {
       const owner = ownerOf(exec);
       const argv = ['status', '--owner', owner];
       if (args.sandboxId) argv.push(args.sandboxId);
-      return broker(argv);
+      return broker(argv)
+        .then((result) => ({ records: Array.isArray(result) ? result : [result] }))
+        .then((value) => JSON.stringify(value, null, 2));
     }
   }));
 }

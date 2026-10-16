@@ -106,7 +106,11 @@ class SandboxBroker:
         record = self.registry.get(owner, sandbox_id)
         if record['state'] != 'running':
             raise RuntimeError('Sandbox is not running')
-        result = subprocess.run(['docker', 'exec', '--user', '1001:1000', '-w', record['workspace_path'],
+        result = subprocess.run(['docker', 'exec',
+                                 '-e', 'GIT_CONFIG_COUNT=1',
+                                 '-e', 'GIT_CONFIG_KEY_0=safe.directory',
+                                 '-e', 'GIT_CONFIG_VALUE_0=*',
+                                 '--user', '1001:1000', '-w', record['workspace_path'],
                                  record['container_name'], *argv],
                                 capture_output=True, text=True, timeout=timeout)
         return {'stdout': result.stdout, 'stderr': result.stderr, 'exitCode': result.returncode}

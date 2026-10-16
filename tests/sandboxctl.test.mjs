@@ -35,8 +35,9 @@ test('an argon preset session passes owner resolution', async () => {
   process.env.HOME = await import('node:fs/promises').then((fs) =>
     fs.mkdtemp('/tmp/argon-sandboxctl-test-'));
   try {
-    const result = await status.execute({}, execAs('argon-alice'));
-    assert.ok(Array.isArray(result), 'owner resolution passed and broker returned a list');
+    const text = await status.execute({}, execAs('argon-alice'));
+    const parsed = JSON.parse(text);
+    assert.ok(Array.isArray(parsed.records), 'owner resolution passed and broker returned a list');
   } finally {
     process.env.HOME = previous;
   }
