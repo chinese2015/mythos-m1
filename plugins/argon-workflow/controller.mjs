@@ -135,6 +135,7 @@ export class TaskWorkflow {
     const op = await this.client.request('GET', opRoute(id)); await this.snapshot(op.workItemId); return op;
   }
   async logs(id, after) { await this.operation(id); return this.client.request('GET', opRoute(id) + '/logs?after=' + after + '&limit=100'); }
+  async events(id, after) { const { workItem } = await this.snapshot(id); return this.client.request('GET', route(workItem.workItemId) + '/events?after=' + after + '&limit=200'); }
   cancel(id, body, key) { return this.serial(async () => { await this.operation(id); return this.client.request('POST', opRoute(id) + '/cancel', { body, key: this.key('cancel', id, key) }); }); }
   async ensurePreset(work, role) {
     const location = await this.workspace(work);

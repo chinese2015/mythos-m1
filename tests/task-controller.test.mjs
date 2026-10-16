@@ -115,3 +115,18 @@ test('console authenticates and fences origins before reading data or admitting 
     assert.equal(admitted, 1);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
+test('console proxies work-item events with cursor validation and auth fencing', async () => {
+  let seen = null;
+  const server = createServer(consoleHandler({ connection: { requestRejection: ({ headers }) => headers.cookie === 'session=valid' ? undefined : 401 },
+    workflow: { events: async (workId, after) => { seen = { workId, after }; return { events: [{ sequence: 7, type: 'execution.started' }], nextCursor: 7 }; } } }));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); const url = 'http://127.0.0.1:' + server.address().port;
+  try {
+    assert.equal((await fetch(url + '/argon/api/work-items/work-x/events')).status, 401);
+    assert.equal((await fetch(url + '/argon/api/work-items/work-x/events?after=-1', { headers: { cookie: 'session=valid' } })).status, 400);
+    assert.equal((await fetch(url + '/argon/api/work-items/work-x/events?after=1.5', { headers: { cookie: 'session=valid' } })).status, 400);
+    const ok = await fetch(url + '/argon/api/work-items/work-x/events?after=5', { headers: { cookie: 'session=valid' } });
+    assert.equal(ok.status, 200);
+    assert.deepEqual(await ok.json(), { events: [{ sequence: 7, type: 'execution.started' }], nextCursor: 7 });
+    assert.deepEqual(seen, { workId: 'work-x', after: 5 });
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});

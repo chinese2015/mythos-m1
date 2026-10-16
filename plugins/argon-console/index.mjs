@@ -39,6 +39,10 @@ export function consoleHandler({ connection, workflow, sdlc, assetReader = name 
           const after = Number(url.searchParams.get('after') ?? 0); if (!Number.isSafeInteger(after) || after < 0) throw failure('无效日志游标');
           return json(res, 200, await workflow.logs(parts[1], after));
         }
+        if (parts[0] === 'work-items' && parts.length === 3 && parts[2] === 'events') {
+          const after = Number(url.searchParams.get('after') ?? 0); if (!Number.isSafeInteger(after) || after < 0) throw failure('无效事件游标');
+          return json(res, 200, await workflow.events(parts[1], after));
+        }
       }
       if (req.method === 'POST') {
         const { body, key } = await bodyOf(req);
