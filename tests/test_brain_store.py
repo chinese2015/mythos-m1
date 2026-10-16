@@ -46,6 +46,18 @@ class StoreTests(unittest.TestCase):
             self.submit(key='run-1', command='different')
         self.assertEqual(self.store.operation('alice', op['operationId'])['state'], 'QUEUED')
 
+    def test_replay_uses_business_identity_when_expected_version_changes(self):
+        body = {'expectedVersion': 1, 'kind': 'COMMAND', 'command': 'echo once'}
+        first = self.store.submit('alice', self.work['workItemId'], body, 'stable-call')
+        replay = self.store.submit('alice', self.work['workItemId'], dict(body, expectedVersion=2), 'stable-call')
+        self.assertEqual(first['operationId'], replay['operationId'])
+        cancelled = self.store.cancel('alice', first['operationId'], first['version'], 'stable-cancel')
+        self.assertEqual(self.store.cancel('alice', first['operationId'], cancelled['version'], 'stable-cancel')['state'], 'CANCELLED')
+        version = self.store.snapshot('alice', self.work['workItemId'])['workItem']['version']
+        paused = self.store.set_paused('alice', self.work['workItemId'], True, version, 'stable-pause')
+        replay = self.store.set_paused('alice', self.work['workItemId'], True, paused['version'], 'stable-pause')
+        self.assertEqual(paused['version'], replay['version'])
+
     def test_other_owner_cannot_read_or_mutate_any_resource(self):
         op = self.submit()
         work_id, op_id = self.work['workItemId'], op['operationId']

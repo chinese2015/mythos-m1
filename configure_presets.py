@@ -3,7 +3,6 @@ import json
 from pathlib import Path
 import shutil
 import time
-import yaml
 
 ROOT = Path(__file__).resolve().parent
 
@@ -27,6 +26,8 @@ def make_preset(owner, record):
         {'id': 'jobs', 'name': '@deepseek-ai/dsh-tool-jobs'},
         {'id': 'sandboxctl', 'name': str(ROOT / 'plugins/argon-sandbox/index.mjs'),
          'config': {'owner': owner}},
+        {'id': 'brain', 'name': str(ROOT / 'plugins/argon-brain/index.mjs'),
+         'config': {'owner': owner}},
     ]
     return {'id': 'preset-argon-' + owner, 'name': '@deepseek-ai/dsh-agent-preset', 'config': {
         'id': 'argon-' + owner, 'name': 'Argon Sandbox ' + owner,
@@ -34,14 +35,25 @@ def make_preset(owner, record):
         'plugins': [
             {'id': 'persona', 'name': '@deepseek-ai/dsh-persona', 'config': {
                 'prefix': 'You are a coding agent. Use the provided native file and Bash tools to do real work.',
-                'suffix': 'Your Docker sandbox working directory is {{cwd}}. Do not change tests, read reference fixes, or access credentials.'}},
+                'suffix': 'Your Docker sandbox working directory is {{cwd}}. Do not change tests, read reference fixes, or access credentials. Use execution_run for monitored build/test commands; it returns an operationId, not a completed result. Use execution_status and execution_follow for facts. Stop Agent does not cancel an accepted execution; execution_cancel does. Native file tools remain available.'}},
             {'id': 'execution', 'name': 'cordis:group', 'group': True,
              'isolate': {key: True for key in ['fs', 'subprocess', 'ssh', 'sandbox', 'shell']},
              'config': plugins},
         ]}}
 
 
+def make_brain_service(records):
+    return {'id': 'argon-brain-service', 'name': str(ROOT / 'plugins/argon-brain/service.mjs'),
+            'config': {'baseUrl': 'http://127.0.0.1:3081',
+                       'tokenFile': str(Path.home() / '.argon-brain/tokens.json'),
+                       'pollIntervalMs': 1000,
+                       'owners': {owner: {'sandboxId': record['sandbox_id'],
+                                          'workspacePath': record['workspace_path'],
+                                          'preset': 'argon-' + owner} for owner, record in records.items()}}}
+
+
 def main():
+    import yaml
     records = json.loads((ROOT / 'state/sandboxes.json').read_text())
     sandbox_root = Path.home() / 'argon-sandboxes'
     if any(not Path(item['workspace_path']).is_relative_to(sandbox_root) for item in records.values()):
@@ -52,7 +64,7 @@ def main():
     backup.chmod(0o600)
     entries = yaml.safe_load(profile.read_text()) or []
     # These IDs belong only to this PoC; preserve all user settings and defaults.
-    ids = {'preset-argon-' + owner for owner in records} | {'argon-safe-host-changes'}
+    ids = {'preset-argon-' + owner for owner in records} | {'argon-safe-host-changes', 'argon-brain-service'}
     cleaned = []
     for entry in entries:
         if entry.get('id') in ids:
@@ -62,7 +74,7 @@ def main():
             if not entry['insert']:
                 continue
         cleaned.append(entry)
-    cleaned.append({'insert': [make_preset(owner, record) for owner, record in records.items()] + [
+    cleaned.append({'insert': [make_brain_service(records)] + [make_preset(owner, record) for owner, record in records.items()] + [
         {'id': 'argon-safe-host-changes', 'name': str(ROOT / 'host-changes.mjs')}]})
     cleaned = [entry for entry in cleaned if entry.get('id') != 'workspace-changes']
     cleaned.append({'id': 'workspace-changes', 'disabled': True})

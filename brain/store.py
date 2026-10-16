@@ -123,10 +123,14 @@ class Store:
     def _retry(self, db, owner, scope, key, body):
         if not isinstance(key, str) or not 1 <= len(key) <= 200:
             raise InvalidInput('Idempotency-Key is required (1..200 characters)')
-        digest = hashlib.sha256(encoded(body).encode()).hexdigest()
+        # Optimistic version is an admission precondition, not the identity of
+        # a command. A plugin recovering a lost acknowledgement may reread it.
+        business = {k: v for k, v in body.items() if k != 'expectedVersion'}
+        digest = hashlib.sha256(encoded(business).encode()).hexdigest()
         row = db.execute('SELECT hash, entity FROM idempotency WHERE owner=? AND scope=? AND key=?',
                          (owner, scope, key)).fetchone()
-        if row and row['hash'] != digest:
+        legacy_digest = hashlib.sha256(encoded(body).encode()).hexdigest()
+        if row and row['hash'] not in {digest, legacy_digest}:
             raise Conflict('Idempotency key was used with a different request')
         return row['entity'] if row else None, digest
 
