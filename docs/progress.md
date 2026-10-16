@@ -24,6 +24,8 @@ Spec: ../Argon_AI_Brain_总体方案_v2.0.md §8.1 and user-approved Sandbox/nat
 
 - sandboxctl 插件落地（2026-10-16 下午）：broker 新增 `exec`（真实 exitCode JSON）/`status` 子命令；`plugins/argon-sandbox/index.mjs` 注册 4 个 Agent 工具（sandbox_create/exec/stop/status），owner 取自 `SessionHeader.agentPreset`（持久化字段，模型不可伪造），broker 二次校验；工具随 argon-alice/argon-bob preset 加载（runtime-diagnostic 全 ok）。无头探针实测：模型在真实 session 中实际调用了 sandbox_status/sandbox_exec（session-alice seq 116/122）。缺陷一处：`exec.agent.ctx.preset` 读取报 "cannot get property ... without inject"（Cordis ctx 代理限制），已改走 `exec.agent.session.header.agentPreset`；修复已提交，**待网络恢复后同步→重启→复测**。
 
+- 全链路复测通过（v2–v8 无头探针）：status/exec/create/stop 四工具在真实 session 中全部实际调用成功——含真实 git log 输出、exitCode、**QuotaExceeded 策略门禁正确拒绝超额创建**、完整生命周期 create→exec→stop 闭环。过程中修复：argparse REMAINDER 吞尾参（optionals 必须先于位置参数）、broker exec 注入 git safe.directory、owner 解析改走 SessionHeader.agentPreset。遗留一个 DSH 行为待查：**工具返回的结构化对象在 result 投影中会被丢字段（含数组时整体变 {}），三个列表类工具已改返回 JSON 字符串规避**——M2 实现 Run Monitor 数据源时需查清该投影语义。
+
 ## 遗留（带入 M2/后续）
 
 - `guardToolCapture` 已导出并有测试，但上游 `@deepseek-ai/dsh-workspace-changes` 的 pre-execution capture 路径没有对外钩子，尚未接线；M2 自研 capture 插件时再接入。
