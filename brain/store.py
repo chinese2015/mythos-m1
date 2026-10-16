@@ -69,6 +69,10 @@ class Store:
                 CREATE TABLE IF NOT EXISTS work_sessions (
                     owner TEXT NOT NULL, session_id TEXT NOT NULL, work_id TEXT NOT NULL REFERENCES work_items(id),
                     role TEXT NOT NULL, PRIMARY KEY(owner, session_id));
+                CREATE TABLE IF NOT EXISTS source_intakes (
+                    finding_id TEXT PRIMARY KEY, owner TEXT NOT NULL, revision INTEGER NOT NULL,
+                    state TEXT NOT NULL, triage TEXT NOT NULL, notified_at TEXT, last_error TEXT,
+                    decision TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
             ''')
             if db.execute('SELECT version FROM schema_version').fetchone()[0] != 1:
                 raise RuntimeError('Unsupported brain database schema')
@@ -523,3 +527,67 @@ class Store:
             work['blocked'] = state != 'SUCCEEDED'
             self._save_work(db, work)
             self._event(db, op['workItemId'], 'execution.' + state.lower(), {'status': state, 'exitCode': exit_code, 'reason': reason}, op_id)
+
+    def _intake(self, db, finding_id, owner=None):
+        row = db.execute('SELECT * FROM source_intakes WHERE finding_id=?', (finding_id,)).fetchone()
+        if row is None or (owner is not None and row['owner'] != owner):
+            raise NotFound('Resource unavailable')
+        return {'findingId': row['finding_id'], 'owner': row['owner'], 'revision': row['revision'],
+                'state': row['state'], 'triage': json.loads(row['triage']),
+                'notifiedAt': row['notified_at'], 'lastError': row['last_error'],
+                'decision': json.loads(row['decision']) if row['decision'] else None,
+                'createdAt': row['created_at'], 'updatedAt': row['updated_at']}
+
+    def record_intake(self, owner, finding_id, revision, triage, state=None, notified=False):
+        if not isinstance(finding_id, str) or not finding_id:
+            raise InvalidInput('findingId is required')
+        if type(revision) is not int or revision < 1:
+            raise InvalidInput('revision must be a positive integer')
+        if not isinstance(triage, dict) or not isinstance(triage.get('result'), str):
+            raise InvalidInput('triage requires a result')
+        if state is not None and (not isinstance(state, str) or not state):
+            raise InvalidInput('state is invalid')
+        if type(notified) is not bool:
+            raise InvalidInput('notified must be boolean')
+        with self.connection(True) as db:
+            row = db.execute('SELECT owner, state FROM source_intakes WHERE finding_id=?', (finding_id,)).fetchone()
+            derived = state or ('AWAITING_OWNER' if triage['result'] == 'CONFIRMED' else 'NEEDS_REVIEW')
+            at = now()
+            if row is None:
+                db.execute('INSERT INTO source_intakes VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)',
+                           (finding_id, owner, revision, derived, encoded(triage),
+                            at if notified else None, at, at))
+            else:
+                if row['owner'] != owner:
+                    raise Conflict('Intake is owned by another owner')
+                if row['state'] in {'APPROVED', 'REJECTED'}:
+                    db.execute('UPDATE source_intakes SET revision=?, triage=?, updated_at=? WHERE finding_id=?',
+                               (revision, encoded(triage), at, finding_id))
+                else:
+                    db.execute('UPDATE source_intakes SET revision=?, state=?, triage=?, notified_at=coalesce(notified_at, ?), updated_at=? WHERE finding_id=?',
+                               (revision, derived, encoded(triage), at if notified else None, at, finding_id))
+            return self._intake(db, finding_id)
+
+    def intakes(self, owner):
+        with self.connection() as db:
+            return [self._intake(db, r['finding_id']) for r in db.execute('SELECT finding_id FROM source_intakes WHERE owner=? ORDER BY finding_id', (owner,))]
+
+    def decide_intake(self, owner, finding_id, decision, expected_revision, key):
+        if decision not in {'APPROVED', 'REJECTED'}:
+            raise InvalidInput('decision must be APPROVED or REJECTED')
+        with self.connection(True) as db:
+            intake = self._intake(db, finding_id, owner)
+            scope = 'intake-decide'
+            retry, digest = self._retry(db, owner, scope, key,
+                                        {'findingId': finding_id, 'expectedRevision': expected_revision, 'decision': decision})
+            if retry:
+                return self._intake(db, finding_id)
+            if str(expected_revision) != str(intake['revision']):
+                raise Conflict('Stale expectedRevision')
+            if intake['state'] != 'AWAITING_OWNER':
+                raise Conflict('Intake is not awaiting owner decision')
+            decision_doc = {'by': owner, 'at': now(), 'key': key}
+            db.execute('UPDATE source_intakes SET state=?, decision=?, updated_at=? WHERE finding_id=?',
+                       (decision, encoded(decision_doc), now(), finding_id))
+            self._remember(db, owner, scope, key, digest, finding_id)
+            return self._intake(db, finding_id)

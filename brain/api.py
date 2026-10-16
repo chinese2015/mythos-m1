@@ -2,6 +2,7 @@
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import re
 from urllib.parse import parse_qs, urlsplit
 
 from .errors import BrainError, InvalidInput, NotFound, Unauthorized
@@ -137,6 +138,19 @@ def make_server(store, executor, tokens, address=('127.0.0.1', 3081), publisher=
                 if self.command == 'POST' and len(route) == 3 and route[2] == 'cancel':
                     body = self.body({'expectedVersion'})
                     return 200, store.cancel(owner, op_id, body.get('expectedVersion'), key)
+            if route == ['source-intakes'] and self.command == 'GET':
+                return 200, {'intakes': store.intakes(owner)}
+            if len(route) in {2, 3} and route[0] == 'source-intakes':
+                finding_id = route[1]
+                if not re.fullmatch(r'FND-[0-9]{5}', finding_id):
+                    raise InvalidInput('findingId must match ^FND-[0-9]{5}$')
+                if self.command == 'PUT' and len(route) == 2:
+                    body = self.body({'revision', 'triage'})
+                    return 200, store.record_intake(owner, finding_id, body.get('revision'), body.get('triage'))
+                if self.command == 'POST' and len(route) == 3 and route[2] == 'decide':
+                    body = self.body({'expectedRevision', 'decision'})
+                    return 200, store.decide_intake(owner, finding_id, body.get('decision'),
+                                                   body.get('expectedRevision'), key)
             raise NotFound('Route unavailable')
 
         def handle_request(self):
@@ -155,5 +169,6 @@ def make_server(store, executor, tokens, address=('127.0.0.1', 3081), publisher=
 
         do_GET = handle_request
         do_POST = handle_request
+        do_PUT = handle_request
 
     return ThreadingHTTPServer(address, Handler)
