@@ -26,6 +26,9 @@ Spec: ../Argon_AI_Brain_总体方案_v2.0.md §8.1 and user-approved Sandbox/nat
 
 - 全链路复测通过（v2–v8 无头探针）：status/exec/create/stop 四工具在真实 session 中全部实际调用成功——含真实 git log 输出、exitCode、**QuotaExceeded 策略门禁正确拒绝超额创建**、完整生命周期 create→exec→stop 闭环。过程中修复：argparse REMAINDER 吞尾参（optionals 必须先于位置参数）、broker exec 注入 git safe.directory、owner 解析改走 SessionHeader.agentPreset。遗留一个 DSH 行为待查：**工具返回的结构化对象在 result 投影中会被丢字段（含数组时整体变 {}），三个列表类工具已改返回 JSON 字符串规避**——M2 实现 Run Monitor 数据源时需查清该投影语义。
 
+- **工具面交付并全链路验收（2026-10-16，v2–v10 探针）**：`sandbox_create`（含 repoUrl 克隆路径：工作区检出基线 commit、mvn 可用）→ `sandbox_exec`（真实 stdout/exitCode）→ `sandbox_stop` 全生命周期经 agent 工具闭环；QuotaExceeded 门禁实测拒绝超额。**当前运行时**：alice 活跃 sb-f4a61d0b6a3648c1（nova-poc，模型修复 commit ce4181d 所在）；bob 活跃 sb-af29940571fd4169；其余已 stop。owner 解析最终形态：preset config（operator 控制）为主、header.agentPreset 兜底。
+- DSH 0.2.0-rc.2 已确认怪癖两条（M2 需处理）：① Web UI 建会话不在 header 持久化 agentPreset（工具组合正确但 header 记 standard）→ IdentityAdapter 不能依赖 header；② 工具 execute 返回的结构化对象经 result 投影会丢字段（数组整体变 {}）→ 工具一律返回 JSON 字符串，Run Monitor 消费事件流而非工具返回值。
+
 ## 遗留（带入 M2/后续）
 
 - `guardToolCapture` 已导出并有测试，但上游 `@deepseek-ai/dsh-workspace-changes` 的 pre-execution capture 路径没有对外钩子，尚未接线；M2 自研 capture 插件时再接入。
