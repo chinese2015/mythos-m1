@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { normalizeFinding } from '../plugins/argon-workflow/source.mjs';
 import { sessionProgress, assertApproval, baselineReproduced } from '../plugins/argon-workflow/rules.mjs';
 import { taskPreset, readonlyGuard } from '../plugins/argon-workflow/session-policy.mjs';
-import { Context } from '@deepseek-ai/cordis';
+import { Context, Service } from '@deepseek-ai/cordis';
+import * as TaskPolicy from '../plugins/argon-workflow/session-policy.mjs';
 import Tools from '@deepseek-ai/dsh-tools';
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
 
@@ -74,5 +75,14 @@ test('native monotonic guard prevents a write tool body even when the model requ
     ctx.tools.guard(readonlyGuard);
     const result = await ctx.tools.execute({ name: 'write', arguments: {}, callId: 'denied-write', signal: new AbortController().signal });
     assert.equal(wrote, 0); assert.match(JSON.stringify(result), /read-only/);
+  } finally { await ctx.fiber.dispose(); }
+});
+test('CODE filesystem policy becomes read-only during PR publication and review', async () => {
+  const ctx = new Context(), work = { workflow: { phase: 'CODING' }, paused: false }, workId = 'work-' + 'a'.repeat(32);
+  class Workflow extends Service { constructor() { super(ctx, 'argonWorkflow'); this.controller = { closed: false, workState: new Map([[workId, work]]), inputRejection: () => undefined }; } }
+  try {
+    await ctx.plugin(SystemPrompt); await ctx.plugin(Tools); new Workflow(); await ctx.plugin(TaskPolicy, { role: 'CODE', workId, workspacePath: '/task' });
+    assert.equal(ctx.sandboxPolicy.resolve().mode, 'workspace-write');
+    for (const phase of ['PUBLISHING', 'PR_OPEN', 'CLOSING', 'COMPLETED']) { work.workflow.phase = phase; assert.equal(ctx.sandboxPolicy.resolve().mode, 'read-only'); }
   } finally { await ctx.fiber.dispose(); }
 });

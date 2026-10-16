@@ -25,7 +25,11 @@ export function apply(ctx, config) {
   // A task's immutable role policy does not accept native UI mode overrides.
   class TaskPolicy extends Service {
     constructor() { super(ctx, 'sandboxPolicy'); }
-    resolve() { return { mode: config.role === 'PLAN' ? 'read-only' : 'workspace-write', workspaceRoot: config.workspacePath }; }
+    resolve(request = {}) {
+      const controller = ctx.argonWorkflow.controller, work = controller.workState.get(config.workId);
+      const writable = config.role === 'CODE' && work?.workflow.phase === 'CODING' && !work.paused && !controller.closed;
+      return { mode: writable ? 'workspace-write' : 'read-only', workspaceRoot: config.workspacePath, ...(request.session ? { sessionId: request.session.id } : {}) };
+    }
     overrideOf() { return undefined; }
   }
   new TaskPolicy();

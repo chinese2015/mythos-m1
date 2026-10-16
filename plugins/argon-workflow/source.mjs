@@ -35,4 +35,19 @@ export class FindingSource {
   async claim(work) {
     return this.request('/api/findings/' + work.source.id, 'PATCH', { status: 'In Progress', workItemId: work.workItemId, remediationJobId: work.workItemId });
   }
+  async complete(work, delivery) {
+    if (!mappings[work.source.id]) throw Object.assign(new Error('409 来源不在允许列表'), { status: 409 });
+    const latest = await this.request('/api/findings/' + work.source.id), record = work.sourceRecord;
+    const bound = latest.workItemId === work.workItemId && latest.remediationJobId === work.workItemId &&
+      ['ownerId', 'repositoryUrl', 'baseCommit', 'sourcePath'].every(key => latest[key] === record[key]);
+    const target = { workItemId: work.workItemId, ownerId: record.ownerId, repositoryUrl: record.repositoryUrl,
+      baseCommit: record.baseCommit, sourcePath: record.sourcePath, codeFixCommit: delivery.candidateCommit, prUrl: delivery.pullUrl };
+    const completed = value => value.status === 'Resolved' && value.closed === 'Closed' && value.verificationResult === 'PASSED' &&
+      Object.entries(target).every(([key, expected]) => value[key] === expected) && value.remediationJobId === work.workItemId;
+    if (!bound || (latest.status !== 'In Progress' && !completed(latest))) throw Object.assign(new Error('409 来源归属、状态或仓库映射已变化，未回写关闭'), { status: 409 });
+    if (completed(latest)) return latest;
+    const result = await this.request('/api/findings/' + work.source.id + '/ai-completion', 'POST', { expectedRevision: latest.revision, ...target });
+    if (!completed(result)) throw Object.assign(new Error('409 来源原子完成回执不匹配'), { status: 409 });
+    return result;
+  }
 }

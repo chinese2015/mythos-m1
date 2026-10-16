@@ -246,7 +246,7 @@ class Store:
     def update_workflow(self, owner, work_id, expected_version, workflow, stage=None, blocked=None, key=None):
         if not isinstance(workflow, dict) or not isinstance(workflow.get('phase'), str):
             raise InvalidInput('workflow must include phase')
-        stages = {'CLAIMED','PREPARING','BASELINE','PLANNING','AWAITING_PLAN_APPROVAL','CODING','VERIFYING','AWAITING_REVIEW','BLOCKED','PAUSED'}
+        stages = {'CLAIMED','PREPARING','BASELINE','PLANNING','AWAITING_PLAN_APPROVAL','CODING','VERIFYING','AWAITING_REVIEW','PUBLISHING','PR_OPEN','CLOSING','COMPLETED','BLOCKED','PAUSED'}
         if stage is not None and stage not in stages:
             raise InvalidInput('Unsupported workflow stage')
         with self.connection(True) as db:

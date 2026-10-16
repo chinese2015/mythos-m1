@@ -114,6 +114,7 @@ export class TaskWorkflow {
     if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > 16000) throw Object.assign(new Error('请输入 1–16000 字的补充说明'), { status: 400 });
     const snap = await this.snapshot(id), work = snap.workItem, wf = work.workflow;
     if (work.paused || snap.operations.some(o => o.state === 'UNKNOWN')) throw conflict('请先检查或恢复暂停/未知的执行');
+    if (['PUBLISHING', 'PR_OPEN', 'CLOSING', 'COMPLETED'].includes(wf.phase)) throw conflict('当前候选正在交付、审核或已完成。需要修改时，请先在 Gitea 关闭未合并的 PR，再发送补充说明');
     const role = wf.approval ? 'CODE' : 'PLAN'; const sid = wf[role.toLowerCase() + 'SessionId'];
     if (!sid || !work.sessionIds.includes(sid)) throw conflict('当前还没有可接收说明的工作会话');
     const requestId = this.key('message', id, key);

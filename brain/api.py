@@ -5,13 +5,15 @@ import json
 from urllib.parse import parse_qs, urlsplit
 
 from .errors import BrainError, InvalidInput, NotFound, Unauthorized
+from .publication import GitPublisher
 from .workspace import TaskWorkspace
 
 
-def make_server(store, executor, tokens, address=('127.0.0.1', 3081)):
+def make_server(store, executor, tokens, address=('127.0.0.1', 3081), publisher=None):
     if not tokens or len(set(tokens.values())) != len(tokens):
         raise ValueError('Each owner must have a distinct bearer token')
     task_workspace = TaskWorkspace(store, executor)
+    publication = publisher or GitPublisher(store, executor)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -113,6 +115,12 @@ def make_server(store, executor, tokens, address=('127.0.0.1', 3081)):
                     if route[2] == 'workflow':
                         body = self.body({'expectedVersion', 'workflow', 'stage', 'blocked'})
                         return 200, store.update_workflow(owner, work_id, body.get('expectedVersion'), body.get('workflow'), body.get('stage'), body.get('blocked'), key)
+                    if route[2] == 'publish-branch':
+                        body = self.body({'expectedVersion', 'deliveryId'})
+                        if not isinstance(key, str) or not 1 <= len(key) <= 200:
+                            raise InvalidInput('Idempotency-Key is required (1..200 characters)')
+                        return 200, publication.publish(owner, work_id, body.get('deliveryId'), key,
+                                                        body.get('expectedVersion'))
                     if route[2] == 'operations':
                         body = self.body({'expectedVersion', 'command', 'kind', 'timeoutSeconds', 'sourceCommit'})
                         return 202, store.submit(owner, work_id, body, key)

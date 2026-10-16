@@ -1,3 +1,4 @@
+import { renderDelivery } from './delivery-view.js';
 (() => {
   'use strict';
   const API = '/argon/api';
@@ -6,7 +7,7 @@
   const crumbs = document.getElementById('breadcrumbs');
   const navCount = document.getElementById('nav-count');
   const phases = ['CLAIMED','PREPARING','BASELINE','PLANNING','AWAITING_PLAN_APPROVAL','CODING','VERIFYING','AWAITING_REVIEW'];
-  const phaseLabels = ['已接收','准备工作区','复现基线','生成方案','方案待审批','执行修改','独立验证','等待审核'];
+  const phaseLabels = ['已接收','准备工作区','复现基线','生成方案','方案待审批','执行修改','独立验证','交付与审核'];
   let timer = null, loading = false, currentWorkId = null, taskCache = [], workSnapshot = null, routeEpoch = 0, requestEpoch = 0;
 
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -94,7 +95,7 @@
   }
   const itemOf = d => d.workItem || d;
   function phaseOf(d) { return d.workflow?.phase || itemOf(d)?.workflow?.phase || itemOf(d)?.stage || 'CLAIMED'; }
-  function phaseIndex(phase) { const idx=phases.indexOf(phase); return idx<0?0:idx; }
+  function phaseIndex(phase) { if(['PUBLISHING','PR_OPEN','CLOSING','COMPLETED'].includes(phase))return phases.length-1;const idx=phases.indexOf(phase); return idx<0?0:idx; }
   function normalizeOperation(raw, evidenceRecords = []) {
     const state=String(raw.status||raw.state||'UNKNOWN').toUpperCase();
     const evidence=raw.evidence||evidenceRecords.find(e=>e.operationId===(raw.operationId||raw.id))||{};
@@ -152,7 +153,7 @@
     target.append(el('div',{class:'detail-head'})); setCrumbs(item);
     const head=target.firstElementChild; const left=el('div'); left.append(el('div',{class:'eyebrow',text:`WORK ITEM · ${item.id||currentWorkId}`}),el('h1',{text:title}),el('p',{text:`来源 ${fid} · ${source.ownerId||item.sourceRecord?.ownerId||'—'} · 版本 ${item.version??'—'}`}));
     const actions=el('div',{class:'detail-actions'});
-    if(!item.paused && phase!=='AWAITING_REVIEW' && phase!=='BLOCKED') {const pause=el('button',{class:'secondary-button',text:'暂停工作流'});pause.addEventListener('click',()=>mutateWorkflow('pause',item));actions.append(pause);}
+    if(!item.paused && !['AWAITING_REVIEW','BLOCKED','COMPLETED'].includes(phase)) {const pause=el('button',{class:'secondary-button',text:'暂停工作流'});pause.addEventListener('click',()=>mutateWorkflow('pause',item));actions.append(pause);}
     if(item.paused || phase==='PAUSED'){const resume=el('button',{class:'secondary-button',text:'恢复工作流'});resume.addEventListener('click',()=>mutateWorkflow('resume',item));actions.append(resume);}
     const refresh=el('button',{class:'secondary-button',text:'立即刷新'});refresh.addEventListener('click',()=>loadWork(true));actions.append(refresh);
     head.append(left,actions); target.append(makePhaseStrip(phase));
@@ -163,6 +164,7 @@
     const addInfo=(label,value,mono=false)=>{const x=el('div',{class:'info-item'});x.append(el('label',{text:label}),el('div',{class:mono?'mono':'',text:value||'—'}));info.append(x);};
     addInfo('来源问题',fid);addInfo('风险等级',riskName(source.risk||item.sourceRecord?.risk));addInfo('仓库',source.repositoryUrl||item.sourceRecord?.repositoryUrl);addInfo('基线提交',source.baseCommit||item.sourceRecord?.baseCommit,true);addInfo('源文件',source.sourcePath||item.sourceRecord?.sourcePath,true);addInfo('来源修订',source.revision||item.sourceRecord?.revision,true);
     sb.append(info); sourcePanel.append(sb); col1.append(sourcePanel);
+    col1.append(renderDelivery({ work:item,workflow,el,panelHead,request,reload:()=>loadWork(true),notice:showNotice }));
     const baseline=el('section',{class:'panel'});baseline.append(panelHead('基线复现','真实测试运行结果'));const bb=el('div',{class:'panel-body'});
     const operations=(d.operations||[]).map(op=>normalizeOperation(op,d.evidence||[]));
     const baselineId=workflow.baselineOperationId||workflow.baselineOperation?.operationId||item.workflow?.baselineOperationId;
@@ -182,7 +184,7 @@
     const sessionPanel=el('section',{class:'panel'});sessionPanel.append(panelHead('DSH 工作会话',session?`${session.role||'Session'} · ${session.running?'运行中':'已暂停'}`:'会话尚未建立'));const ss=el('div',{class:'panel-body'});
     if(session){const caption=el('div',{class:'session-caption'});caption.append(el('span',{text:`Session ${session.sessionId} · ${session.activity||''}`}));const sessionUrl=session.url||`/?argonSession=${encodeURIComponent(session.sessionId)}&argonEmbedded=1`;caption.append(el('a',{class:'session-link',href:sessionUrl,target:'_blank',rel:'noopener noreferrer',text:'在 DSH 中打开 ↗'}));ss.append(caption);
       if(session.url){const frame=el('iframe',{class:'session-frame',src:session.url,title:'DSH 工作会话','data-session-id':String(session.sessionId)});ss.append(frame);} else {ss.append(renderTranscript(session));}
-      const form=el('form',{class:'message-form'});const input=el('input',{type:'text',name:'text',placeholder:'向当前工作会话发送补充说明…',autocomplete:'off','aria-label':'补充说明'});input.value=draft;const send=el('button',{class:'secondary-button',type:'submit',text:'发送'});form.append(input,send);form.addEventListener('submit',async ev=>{ev.preventDefault();const activeForm=ev.currentTarget;const activeInput=activeForm.elements.namedItem('text');const activeSend=activeForm.querySelector('button[type="submit"]');const text=activeInput.value.trim();if(!text)return;activeSend.disabled=true;try{await request(`/work-items/${encodeURIComponent(currentWorkId)}/message`,{method:'POST',body:{text},mutation:true});activeInput.value='';await loadWork(true);}catch(e){showNotice(e.message,'error');}finally{if(activeForm.isConnected)activeForm.querySelector('button[type="submit"]').disabled=false;}});ss.append(form);
+      const form=el('form',{class:'message-form'});const input=el('input',{type:'text',name:'text',placeholder:'向当前工作会话发送补充说明…',autocomplete:'off','aria-label':'补充说明'});input.value=draft;const send=el('button',{class:'secondary-button',type:'submit',text:'发送'});form.append(input,send);form.addEventListener('submit',async ev=>{ev.preventDefault();const activeForm=ev.currentTarget;const activeInput=activeForm.elements.namedItem('text');const activeSend=activeForm.querySelector('button[type="submit"]');const text=activeInput.value.trim();if(!text)return;activeSend.disabled=true;try{await request(`/work-items/${encodeURIComponent(currentWorkId)}/message`,{method:'POST',body:{text},mutation:true});activeInput.value='';await loadWork(true);}catch(e){showNotice(e.message,'error');}finally{if(activeForm.isConnected)activeForm.querySelector('button[type="submit"]').disabled=false;}});if(['PUBLISHING','PR_OPEN','CLOSING','COMPLETED'].includes(phase)){ss.append(el('div',{class:'subtle',text:phase==='COMPLETED'?'任务已完成，会话保留供查阅。':'当前候选已进入交付，编码会话只读。如需修订，请先在 Gitea 关闭未合并 PR。'}));}else ss.append(form);
     }else{ss.append(el('div',{class:'plan-placeholder',text:'工作流会在对应阶段创建独立的 DSH Session。'}));}
     sessionPanel.append(ss);col2.append(sessionPanel);
     const gitPanel=el('section',{class:'panel'});gitPanel.append(panelHead('代码变更','与来源基线比较'));const gb=el('div',{class:'panel-body'});
