@@ -27,5 +27,5 @@
 ### Task 4: Trusted cache and remote acceptance
 - [x] Integrate independently warmed reproducible offline Maven image without stopping legacy containers.
 - [x] Deploy with backup; launch Nova through the console HTTP API, approve actual model plan, verify actual code/tests/diff in fresh B; duplicate-action checks.
-- [ ] Complete final restart recovery check and documentation after regression deployment.
+- [x] Complete final restart recovery check and documentation after regression deployment: same 2 Sessions / 3 operations, both native presets restored; Node41 / Linux Python63 pass.
 - [x] Independent review and regression fixes for inbox cancellation, approval admission fence, verification freshness and supplemental-message loss.

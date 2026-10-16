@@ -24,6 +24,8 @@
 - CODE Session：`session-6a6ac8df-dd57-ca10-d2dc-f92e7aca7703`。由配置中的模型实际修改并提交 `4656408a3d0a19641516a6ea719f44276619534c`，只变更 `CatalogSearchService.java`；测试、POM 未变。
 - 独立验证：`exec-43b75d8a969c4d2db9695705b73c7dbe`，新 B `sb-8a5cfd7efd054f13`，起始无 target，实际 `mvn -B -o -s .cache/settings.xml clean verify` exit 0，JUnit 2 tests / 0 failures / 0 errors。
 - 重复 Start 和相同批准请求均复用原工作项/决定。原生 SSH 文件读取、glob 搜索、PLAN 写工具拒绝及拒绝文件不存在，另有真实工具验收。
+- API/worker/DSH 重启后仍为同一任务、2 个 Session、3 个 operation；PLAN/CODE preset 均恢复，未重发编码或验证。
+- 回归：Node 41/41；Python 远程 Linux 63/63（本地 macOS 同一套件 62 pass / 1 Linux-only skip）。
 - 认证 HTTP 实测：页面/静态资源返回 200，未登录 API 返回 401，外部 Origin 返回 403；DSH 原生 client manifest 已包含工作台导航插件。
 - 自动浏览器工具被 URL 安全策略拒绝访问，本次未进行视觉和点击验收，未尝试绕过。页面布局、iframe 会话选择仍需在浏览器确认。
 

@@ -152,12 +152,11 @@
     target.append(el('div',{class:'detail-head'})); setCrumbs(item);
     const head=target.firstElementChild; const left=el('div'); left.append(el('div',{class:'eyebrow',text:`WORK ITEM · ${item.id||currentWorkId}`}),el('h1',{text:title}),el('p',{text:`来源 ${fid} · ${source.ownerId||item.sourceRecord?.ownerId||'—'} · 版本 ${item.version??'—'}`}));
     const actions=el('div',{class:'detail-actions'});
-    if(phase==='BLOCKED') {const resume=el('button',{class:'secondary-button',text:'尝试继续工作流'});resume.addEventListener('click',()=>mutateWorkflow('resume',item));actions.append(resume);}
-    else if(!item.paused && phase!=='AWAITING_REVIEW') {const pause=el('button',{class:'secondary-button',text:'暂停工作流'});pause.addEventListener('click',()=>mutateWorkflow('pause',item));actions.append(pause);}
+    if(!item.paused && phase!=='AWAITING_REVIEW' && phase!=='BLOCKED') {const pause=el('button',{class:'secondary-button',text:'暂停工作流'});pause.addEventListener('click',()=>mutateWorkflow('pause',item));actions.append(pause);}
     if(item.paused || phase==='PAUSED'){const resume=el('button',{class:'secondary-button',text:'恢复工作流'});resume.addEventListener('click',()=>mutateWorkflow('resume',item));actions.append(resume);}
     const refresh=el('button',{class:'secondary-button',text:'立即刷新'});refresh.addEventListener('click',()=>loadWork(true));actions.append(refresh);
     head.append(left,actions); target.append(makePhaseStrip(phase));
-    const warning=el('div',{class:'warning-box',text:phase==='BLOCKED'?`工作流已阻塞：${workflow.reason||'需要人工处理'}。你可以查看失败操作的日志，或尝试继续工作流。`:workflow.reason||''});warning.hidden=!workflow.reason&&phase!=='BLOCKED';target.append(warning);
+    const warning=el('div',{class:'warning-box',text:phase==='BLOCKED'?`工作流已阻塞：${workflow.reason||'需要人工处理'}。请查看失败操作日志；继续会话可从下方发送补充说明。工作区准备失败或执行状态未知，需要操作员先处理。`:workflow.reason||''});warning.hidden=!workflow.reason&&phase!=='BLOCKED';target.append(warning);
     const grid=el('div',{class:'detail-grid'}), col1=el('div',{class:'column'}), col2=el('div',{class:'column'});
     const sourcePanel=el('section',{class:'panel'}); sourcePanel.append(panelHead('来源与基线','不可变来源快照'));
     const sb=el('div',{class:'panel-body'}), info=el('div',{class:'info-grid'});
