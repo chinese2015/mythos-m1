@@ -66,4 +66,11 @@ class OwnerNotificationIntegrationTests {
         mvc.perform(post("/api/findings/FND-00015/notify-owner").contentType(MediaType.APPLICATION_JSON).content(request)).andExpect(status().isConflict());
         assertFalse(Files.exists(outbox) && Files.list(outbox).findAny().isPresent());
     }
+    @Test void retriesRecoverTheFirstReceiptAfterMutableMetadataChanges() throws Exception {
+        mvc.perform(post("/api/findings/FND-00015/notify-owner").contentType(MediaType.APPLICATION_JSON).content(body())).andExpect(status().isOk());
+        finding.name = "Updated finding title"; finding.ownerTeamsId = "renamed-team";
+        finding = findings.saveAndFlush(finding);
+        mvc.perform(post("/api/findings/FND-00015/notify-owner").contentType(MediaType.APPLICATION_JSON).content(body())).andExpect(status().isOk());
+        try (var files = Files.list(outbox)) { assertEquals(1, files.count()); }
+    }
 }

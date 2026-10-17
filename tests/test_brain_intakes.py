@@ -158,6 +158,16 @@ class SourceIntakeTests(unittest.TestCase):
         self.assertEqual(self.request('PUT', path, {**body, 'revision': 2})[0], 409)
         self.assertEqual(self.request('PUT', path, {**body, 'state': 'TYPO'})[0], 400)
 
+    def test_inflight_poll_cannot_rebind_an_approval_and_notifications_follow_binding(self):
+        original = {'result': 'CONFIRMED', 'binding': 'owner-a'}
+        self.store.record_intake('alice', 'FND-00090', 1, original, notified=True)
+        decided = self.store.decide_intake('alice', 'FND-00090', 'APPROVED', 1, 'bind-approval')
+        updated = self.store.record_intake('alice', 'FND-00090', 2, {**original, 'binding': 'owner-b'})
+        self.assertEqual(updated['state'], 'APPROVED')
+        self.assertEqual(updated['decision'].get('binding'), 'owner-a')
+        self.assertEqual(updated['decision'], decided['decision'])
+        self.assertIsNone(updated['notifiedAt'])
+
 
 if __name__ == '__main__':
     unittest.main()

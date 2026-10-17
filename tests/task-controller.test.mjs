@@ -165,7 +165,7 @@ test('console intake decisions use the same authentication and mutation fences',
 test('approved exact assets start once while changed owner bindings stay gated', async () => {
   const { controller, client } = harness();
   const task = { id: 'FND-00015', title: 'Traversal', enabled: true, revision: 2, ownerId: 'owner-pixel-01' };
-  const intake = { findingId: task.id, revision: 2, state: 'APPROVED', triage: { result: 'CONFIRMED', binding: findingBinding(task) } };
+  const intake = { findingId: task.id, revision: 2, state: 'APPROVED', triage: { result: 'CONFIRMED', binding: findingBinding(task) }, decision: { binding: findingBinding(task) } };
   let claims = 0;
   client.request = async (method, path) => {
     if (path.endsWith('/source-intakes')) return { intakes: [intake] };
@@ -176,6 +176,7 @@ test('approved exact assets start once while changed owner bindings stay gated',
   assert.equal((await controller.tasks()).tasks[0].startable, true);
   assert.equal((await controller.start(task.id, { expectedRevision: 2 }, 'approved')).workItemId, id);
   task.ownerId = 'another-owner';
+  intake.triage.binding = findingBinding(task); // In-flight poll refreshed the source after old-owner approval.
   assert.equal((await controller.tasks()).tasks[0].startable, false);
   await assert.rejects(() => controller.start(task.id, { expectedRevision: 2 }, 'changed'), e => e.status === 409);
   assert.equal(claims, 1);

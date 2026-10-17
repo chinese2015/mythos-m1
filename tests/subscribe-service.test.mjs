@@ -60,3 +60,12 @@ test('existing work is grandfathered without new claims, patches or notification
   assert.equal((await h.client.request('GET','/api/brain/source-intakes')).intakes[0].state, 'APPROVED');
   assert.equal(h.writes.length, 0);
 });
+test('pending owner change generates a new bound notification instead of reusing the old receipt', async t => {
+  const h = await fixture(t); await h.controller.syncOnce();
+  const first = (await h.client.request('GET','/api/brain/source-intakes')).intakes[0];
+  h.row.ownerId = 'owner-pixel-02'; h.row.revision++;
+  await h.controller.syncOnce();
+  const updated = (await h.client.request('GET','/api/brain/source-intakes')).intakes[0];
+  assert.equal(h.notices(), 2); assert.ok(updated.notifiedAt);
+  assert.notEqual(updated.triage.binding, first.triage.binding);
+});

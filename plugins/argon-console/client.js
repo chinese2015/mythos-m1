@@ -7,7 +7,9 @@ window.__ModuleLoader__.load({ id: '@local/argon-console', factory: () => ({
       let opened = false, disposed = false;
       const select = () => {
         if (disposed || opened || !ctx.sessions.list.getSnapshot().byId[sid]) return;
-        ctx.uiWorkspace.openSession(sid); opened = true;
+        // Retention can synchronously publish the session catalog while openSession is on the stack.
+        opened = true;
+        try { ctx.uiWorkspace.openSession(sid); } catch (error) { opened = false; throw error; }
       };
       const unsubscribe = ctx.sessions.list.subscribe(select); select();
       return () => { disposed = true; unsubscribe(); };

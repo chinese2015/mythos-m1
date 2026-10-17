@@ -26,8 +26,11 @@ export function sessionProgress(inspection, requestId) {
   const addressed = events.slice(index, endIndex < 0 ? undefined : endIndex + 1);
   const text = addressed.filter(e => e.type === 'assistant/message').map(e => plain(e.data?.message?.content)).filter(Boolean).join('\n\n');
   const end = endIndex >= 0 ? events[endIndex] : null;
+  const reason = end?.data?.reason;
+  const explanation = reason?.kind === 'error' && /usage limit|quota.{0,30}(?:exceed|limit)|insufficient.{0,10}(?:quota|credit)/i.test(reason.error?.message ?? '')
+    ? '模型服务额度已用尽，请补充额度后发送说明继续' : reason?.kind;
   return { found: true, completed: end?.data?.reason?.kind === 'completed', failed: !!end && end.data?.reason?.kind !== 'completed',
-    latestUserSequence, pendingInputs, endSequence: end?.seq, text, reason: end?.data?.reason?.kind };
+    latestUserSequence, pendingInputs, endSequence: end?.seq, text, reason: explanation };
 }
 export function assertApproval(snapshot, body, progress) {
   const w = snapshot.workflow ?? snapshot.workItem.workflow;

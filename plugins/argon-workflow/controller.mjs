@@ -54,7 +54,7 @@ export class TaskWorkflow {
   async tasks() {
     const [tasks, works, { intakes }] = await Promise.all([this.source.list(), this.listWorks(), this.client.request('GET', '/api/brain/source-intakes')]);
     return { tasks: tasks.map(task => { const work = works.find(w => w.source.id === task.id), intake = intakes.find(i => i.findingId === task.id) ?? null; return { ...task,
-      intake, startable: !!work || !!(task.enabled && intake?.state === 'APPROVED' && intake.triage?.result === 'CONFIRMED' && intake.triage.binding === findingBinding(task)),
+      intake, startable: !!work || !!(task.enabled && intake?.state === 'APPROVED' && intake.triage?.result === 'CONFIRMED' && intake.decision?.binding === findingBinding(task)),
       ...(work ? { workItemId: work.workItemId, workStage: work.paused ? 'PAUSED' : work.workflow?.phase } : {}) }; }),
       operator: { id: this.owner, label: '演示操作员 ' + this.owner } };
   }
@@ -65,7 +65,7 @@ export class TaskWorkflow {
     if (!task?.enabled) throw conflict('此来源任务暂未开放执行，或仓库基线已变化');
     const { intakes } = await this.client.request('GET', '/api/brain/source-intakes');
     const intake = intakes.find(i => i.findingId === id);
-    if (intake?.state !== 'APPROVED' || intake.triage?.result !== 'CONFIRMED' || intake.triage.binding !== findingBinding(task)) throw conflict('请等待 Owner 在任务中心批准接管');
+    if (intake?.state !== 'APPROVED' || intake.triage?.result !== 'CONFIRMED' || intake.decision?.binding !== findingBinding(task)) throw conflict('请等待 Owner 在任务中心批准接管');
     return this.client.request('POST', '/api/brain/tasks/claim', { key: this.key('claim', id, key), body: { sourceRecord: sourceRecord(task), expectedRevision: body.expectedRevision } });
   }); }
   async update(work, changes, { blocked = work.blocked, key } = {}) {

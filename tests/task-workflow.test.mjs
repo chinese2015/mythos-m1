@@ -95,3 +95,9 @@ test('each approved mapped asset uses its own expected failing security tests', 
   assert.equal(baselineReproduced(op(['unrelatedTest','leakedDemoPasswordNotPresent']), 'FND-00003'), false);
   assert.equal(baselineReproduced(op(['maliciousInputReturnsNothing']), 'FND-99999'), false);
 });
+test('provider quota failures give an actionable explanation without exposing the raw response', () => {
+  const events = [...frames.slice(0, 3), { ...frames[3], data: { turn: 1, reason: { kind: 'error', error: {
+    code: 'AUTH', message: '403 permission_error: reached your weekly (7-day) usage limit; private-response' } } } }];
+  const progress = sessionProgress({ events }, 'plan-42');
+  assert.equal(progress.failed, true); assert.match(progress.reason, /额度已用尽/); assert.ok(!progress.reason.includes('private-response'));
+});

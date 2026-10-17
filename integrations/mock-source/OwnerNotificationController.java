@@ -57,7 +57,8 @@ public class OwnerNotificationController {
             Files.writeString(temporary, body, StandardCharsets.UTF_8);
             try { Files.createLink(receipt, temporary); }
             catch (FileAlreadyExistsException ignored) {
-                if (!Files.readString(receipt).equals(body)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Preview receipt changed");
+                // This stable identity names the first successful preview, even if the title/team later changes.
+                if (!Files.isRegularFile(receipt, LinkOption.NOFOLLOW_LINKS)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Invalid preview receipt");
             }
         } finally { Files.deleteIfExists(temporary); }
         return Map.of("delivered", true, "preview", true, "to", to, "notificationId", req.notificationId());

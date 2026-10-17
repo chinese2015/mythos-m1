@@ -552,7 +552,7 @@ class Store:
         if last_error is not None and (not isinstance(last_error, str) or len(last_error) > 2000):
             raise InvalidInput('lastError must be null or bounded text')
         with self.connection(True) as db:
-            row = db.execute('SELECT owner, state, revision FROM source_intakes WHERE finding_id=?', (finding_id,)).fetchone()
+            row = db.execute('SELECT owner, state, revision, triage, notified_at FROM source_intakes WHERE finding_id=?', (finding_id,)).fetchone()
             derived = state or ('AWAITING_OWNER' if triage['result'] == 'CONFIRMED' else 'NEEDS_REVIEW')
             at = now()
             if row is None:
@@ -565,8 +565,10 @@ class Store:
                 if revision < row['revision']:
                     raise Conflict('Stale intake revision')
                 preserved = row['state'] if row['state'] in {'APPROVED', 'REJECTED'} else derived
-                db.execute('UPDATE source_intakes SET revision=?, state=?, triage=?, notified_at=coalesce(notified_at, ?), last_error=?, updated_at=? WHERE finding_id=?',
-                           (revision, preserved, encoded(triage), at if notified else None, last_error, at, finding_id))
+                same_binding = json.loads(row['triage']).get('binding') == triage.get('binding')
+                receipt = row['notified_at'] if same_binding else None
+                db.execute('UPDATE source_intakes SET revision=?, state=?, triage=?, notified_at=?, last_error=?, updated_at=? WHERE finding_id=?',
+                           (revision, preserved, encoded(triage), receipt or (at if notified else None), last_error, at, finding_id))
             return self._intake(db, finding_id)
 
     def intakes(self, owner):
@@ -587,7 +589,7 @@ class Store:
                 raise Conflict('Stale expectedRevision')
             if intake['state'] != 'AWAITING_OWNER':
                 raise Conflict('Intake is not awaiting owner decision')
-            decision_doc = {'by': owner, 'at': now(), 'key': key}
+            decision_doc = {'by': owner, 'at': now(), 'key': key, 'binding': intake['triage'].get('binding')}
             db.execute('UPDATE source_intakes SET state=?, decision=?, updated_at=? WHERE finding_id=?',
                        (decision, encoded(decision_doc), now(), finding_id))
             self._remember(db, owner, scope, key, digest, finding_id)

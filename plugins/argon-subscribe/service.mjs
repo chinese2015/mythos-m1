@@ -40,7 +40,7 @@ export class SubscribeController {
           triage = triageFinding(updated, mapping);
           await save();
         }
-        if (triage.result !== 'CONFIRMED' || previous?.notifiedAt || this.closed) continue;
+        if (triage.result !== 'CONFIRMED' || (previous?.notifiedAt && previous.triage?.binding === triage.binding) || this.closed) continue;
         const receipt = await this.mock.request('/api/findings/' + row.id + '/notify-owner', 'POST', {
           notificationId: 'intake-' + triage.binding, expectedRevision: revision, ownerId: row.ownerId });
         if (receipt.delivered !== true || receipt.preview !== true) throw new Error('Owner notification requires a local preview receipt');
