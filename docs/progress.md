@@ -112,3 +112,13 @@ Spec: ../Argon_AI_Brain_总体方案_v2.0.md §8.1 and user-approved Sandbox/nat
 - 工作台发布 Pixel Gitea PR #2，head=b4b64a6，精确 marker/分支对账匹配仅一个 PR；重复发布与 DSH 重启后仍 PR_OPEN、2 Sessions/3 operations，无重放。Orion start 409、已发布 Pixel message 409；Nova 保留、通知预览两份、Pixel 来源仍 In Progress/Open，未自动合并。
 - 页面验收发现 native restore 在 retain 发布目录后覆盖任务跳转；TDD 修复 `6fdaf99`：微任务延后选择、保留重入门、导航异常局部记录并可重试。Node 本地/远程 83/83；Python 本地 85+1 Linux skip、远程 86/86；overlay 未改，沿用 16/16。新页面实测 iframe 为 Pixel CODE，交付页显示 PR 已创建、只读和 CI 未运行。
 - 最新证据：远程 `state/m3-acceptance.json`、`state/m3-pixel-paths-{baseline,candidate}.json`，本地 artifacts 同名副本与 `m3-pixel-pr-open.png`。原额度失败证据另存 `state/m3-before-quota-restored.json`。
+
+## 2026-10-17 — Vibe Coding 生产接入只读切片（argon-vibe）
+
+- 自 `2c45762` 切出 `vibe-coding-integration`，把方案 B PoC 推进为生产插件 `plugins/argon-vibe/`（未 commit）。详见 `docs/vibe-coding-integration-2026-10-17.md`。
+- 服务端三路由：`/argon/vibe/tasks/:id/context|files|diff`，登录门禁 + 仅 GET；沙箱文件走 dsh-fs-ssh read-only + 绑定一致性核验（502 不降级 Host），行窗口分页 + version，超限 413；diff 代理 brain evidence 带 ETag/304。
+- 客户端：URL 激活外壳（`argonVibeTask=`），引用插入与反向导航沿用 poc 桥语义（generation 丢弃迟到响应）；Run Monitor 改任务作用域挂载（`renderMonitor(ctx, {container})`，向后兼容）；输入走主线 message 持久化意图 + 阶段守卫，放弃 PoC 拦截手法。
+- `configure_presets.py` 追加 `argon-vibe` 接线（helperHash 与 verify-candidate 对齐）。
+- 回归 Node 119/119；context 路由零会话调用有测试锁定。遗留：真实 SSH 沙箱与浏览器 e2e 需部署机验收；接管/CAS 保存为下一切片。
+- 远程真实验收（`tests/live_vibe_acceptance.py`，证据 `~/argon-m1/state/vibe-acceptance.json`）：插件已同步部署机并随 preset 重启；Nova 工作项 context/diff/files 全通——SSH 实读容器 CatalogSearchService.java（38 行 + version），ETag 304，401/400/404/405 守卫全部符合。浏览器 e2e 仍未跑。
+- 浏览器 e2e（SSH 隧道 + 内置浏览器，截图本地 `artifacts/vibe-e2e-*.png`）：外壳/源码/Diff/运行区全通；输入被 409 阶段守卫拒绝且服务端状态无变化。e2e 发现 client 插件因 `bridge.mjs` 资产缺失阻塞整个 web boot，已修复并测试锁定。Node 119/119。
