@@ -73,7 +73,10 @@ class GitPublisher:
             if imported_tree != tree:
                 raise Conflict('Imported bundle tree differs from verified candidate tree')
             try:
-                self._git(bare, ['push', repository, candidate + ':refs/heads/' + branch], auth=True)
+                # An empty expected ref is a create-only CAS, never permission
+                # to rewrite an existing branch (even by fast-forward).
+                self._git(bare, ['push', '--force-with-lease=refs/heads/' + branch + ':',
+                                 repository, candidate + ':refs/heads/' + branch], auth=True)
             except RuntimeError:
                 # A lost acknowledgement or concurrent create is resolved only by
                 # authoritative ref state; never retry with force.

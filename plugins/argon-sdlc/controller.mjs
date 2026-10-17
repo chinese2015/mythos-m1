@@ -46,9 +46,15 @@ export class SdlcController {
     const attempts = (d.attempts ?? 0) + 1;
     await this.save(current, { ...d, attempts, lastError: String(error.message).slice(0, 300), nextAttemptAt: new Date(Date.now() + Math.min(300000, 1000 * 2 ** Math.min(attempts, 9))).toISOString() });
   }
+  closedCurrent(work) {
+    const d = work.workflow.delivery;
+    return d?.step === 'CLOSED_UNMERGED' && work.workflow.phase === 'AWAITING_REVIEW' &&
+      d.candidateCommit === work.workflow.candidateCommit && d.verificationOperationId === work.workflow.verificationOperationId;
+  }
   async step(work) {
     const d = work.workflow.delivery;
-    if (!d || work.paused || d.step === 'COMPLETED' || d.step === 'CLOSED_UNMERGED' || !['PUBLISHING', 'PR_OPEN', 'CLOSING'].includes(work.workflow.phase)) return;
+    const closedCurrent = this.closedCurrent(work);
+    if (!d || work.paused || d.step === 'COMPLETED' || (d.step === 'CLOSED_UNMERGED' && !closedCurrent) || (!closedCurrent && !['PUBLISHING', 'PR_OPEN', 'CLOSING'].includes(work.workflow.phase))) return;
     if (d.nextAttemptAt && new Date(d.nextAttemptAt).getTime() > Date.now()) return;
     try {
       if (d.step === 'PUSH_PENDING') {
@@ -68,13 +74,16 @@ export class SdlcController {
         if (!Number.isSafeInteger(pr.number) || pr.number < 1 || pr.html_url !== `${this.forge.baseUrl}/${d.repository}/pulls/${pr.number}`) throw conflict('PR 返回了不受信任的地址');
         return this.save(work, { ...d, pullNumber: pr.number, pullUrl: pr.html_url, step: 'PR_OPEN', attempts: 0, lastError: null, nextAttemptAt: null }, 'PR_OPEN');
       }
-      if (d.step === 'PR_OPEN' || d.step === 'SYNC_SOURCE_PENDING') {
+      if (d.step === 'PR_OPEN' || d.step === 'SYNC_SOURCE_PENDING' || closedCurrent) {
         const facts = await this.forge.facts(d.repository, d), view = factsView(d, facts, this.forge.botLogin);
-        if (facts.pull.state === 'closed' && facts.pull.merged !== true) return this.save(work, { ...d, step: 'CLOSED_UNMERGED', observed: view, lastError: null, nextAttemptAt: null }, 'AWAITING_REVIEW');
-        if (d.step === 'PR_OPEN') {
-          const next = { ...d, observed: view, lastError: null, nextAttemptAt: null };
+        if (facts.pull.state === 'closed' && facts.pull.merged !== true) {
+          if (closedCurrent && JSON.stringify(view) === JSON.stringify(d.observed) && !d.lastError) return;
+          return this.save(work, { ...d, step: 'CLOSED_UNMERGED', observed: view, lastError: null, nextAttemptAt: null }, 'AWAITING_REVIEW');
+        }
+        if (d.step !== 'SYNC_SOURCE_PENDING') {
+          const next = { ...d, step: 'PR_OPEN', observed: view, lastError: null, nextAttemptAt: null };
           if (view.gate.allowed) return this.save(work, { ...next, step: 'SYNC_SOURCE_PENDING', mergeCommit: facts.pull.merge_commit_sha }, 'CLOSING');
-          if (JSON.stringify(view) !== JSON.stringify(d.observed) || d.lastError) return this.save(work, next);
+          if (closedCurrent || JSON.stringify(view) !== JSON.stringify(d.observed) || d.lastError) return this.save(work, next, 'PR_OPEN');
           return;
         }
         // A persisted closure intent still rechecks current external facts after restart.
@@ -88,6 +97,7 @@ export class SdlcController {
   refresh(id, body) { return this.workflow.serial(async () => {
     const { workItem: work } = await this.workflow.snapshot(id);
     if (work.version !== body.expectedVersion) throw conflict('任务状态已变化，请刷新后再操作');
+    if (work.workflow.delivery?.step === 'CLOSED_UNMERGED' && !this.closedCurrent(work)) throw conflict('原交付已被新的编码或验证替代，不会恢复旧候选');
     if (work.workflow.delivery?.nextAttemptAt) {
       const next = await this.save(work, { ...work.workflow.delivery, nextAttemptAt: null }); await this.step(next);
     } else await this.step(work);
@@ -97,9 +107,10 @@ export class SdlcController {
     if (this.closed) return Promise.resolve(); if (this.polling) return this.polling;
     this.polling = this.workflow.serial(async () => {
       for (const listed of await this.workflow.listWorks()) {
-        if (!listed.workflow.delivery || !['PUBLISHING', 'PR_OPEN', 'CLOSING'].includes(listed.workflow.phase)) continue;
+        const closedCurrent = this.closedCurrent(listed);
+        if (!listed.workflow.delivery || (!closedCurrent && !['PUBLISHING', 'PR_OPEN', 'CLOSING'].includes(listed.workflow.phase))) continue;
         const last = this.lastPoll.get(listed.workItemId) ?? 0;
-        if (listed.workflow.phase === 'PR_OPEN' && Date.now() - last < 10000) continue;
+        if ((closedCurrent || listed.workflow.phase === 'PR_OPEN') && Date.now() - last < 10000) continue;
         this.lastPoll.set(listed.workItemId, Date.now());
         try { await this.step((await this.workflow.snapshot(listed.workItemId)).workItem); } catch (error) { this.report(error, listed.workItemId); }
       }

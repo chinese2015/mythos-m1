@@ -73,6 +73,29 @@ class PublicationTests(unittest.TestCase):
                                                     {'phase': stage}, stage, key='stage-' + stage)
                 self.assertEqual(result['stage'], stage)
 
+    def test_first_push_cannot_fast_forward_a_ref_created_after_the_missing_ref_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);source=root/'source';remote=root/'remote.git';source.mkdir()
+            def git(*args):return subprocess.check_output(['git',*args],stderr=subprocess.DEVNULL,text=True).strip()
+            git('init',str(source));git('-C',str(source),'config','user.name','Test');git('-C',str(source),'config','user.email','test@example.invalid')
+            (source/'source.txt').write_text('base');git('-C',str(source),'add','.');git('-C',str(source),'commit','-m','base');base=git('-C',str(source),'rev-parse','HEAD')
+            (source/'source.txt').write_text('candidate');git('-C',str(source),'commit','-am','candidate');candidate=git('-C',str(source),'rev-parse','HEAD');tree=git('-C',str(source),'rev-parse','HEAD^{tree}')
+            git('init','--bare',str(remote));repository=self.source['repositoryUrl'];branch='argon/create-only-race'
+            work={'workItemId':self.work['workItemId'],'version':1,'sandboxId':'source'};intent={'id':'a'*64}
+            class RacePublisher(GitPublisher):
+                def _validate_intent(inner,*_):return intent,candidate,'exec-'+'b'*32,branch,repository
+                def _container_exec(inner,*_):return tree
+                def _export_bundle(inner,*_):
+                    bundle=root/'candidate.bundle';git('-C',str(source),'bundle','create',str(bundle),'HEAD');return bundle.read_bytes()
+                def _git(inner,cwd,args,auth=False):return super()._git(cwd,[str(remote) if a==repository else a for a in args],auth=False)
+                def _remote_commit(inner,repo,head,item):
+                    if not getattr(inner,'raced',False):
+                        inner.raced=True;git('-C',str(source),'push',str(remote),base+':refs/heads/'+branch);return None
+                    return super()._remote_commit(repo,head,item)
+            publisher=RacePublisher(type('Store',(),{'get_work_item':lambda *_:work})(),type('Executor',(),{'broker':object()})())
+            with self.assertRaises(Conflict):publisher.publish('alice',work['workItemId'],intent['id'],'race',1)
+            self.assertEqual(git('--git-dir='+str(remote),'rev-parse','refs/heads/'+branch),base)
+
     def test_rejects_verification_with_skipped_tests_before_any_git_publication_io(self):
         source = dict(self.source)
         work = self.store.claim_task('alice', source, '2', 'claim-complete')

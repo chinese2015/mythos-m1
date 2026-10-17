@@ -47,7 +47,7 @@ export class GiteaClient {
     for (let page = 1; page <= 20; page++) {
       const result = await this.request('GET', path + (path.includes('?') ? '&' : '?') + `limit=100&page=${page}`);
       if (!Array.isArray(result)) throw new GiteaError('Gitea pagination response invalid');
-      rows.push(...result); if (result.length < 100) return rows;
+      rows.push(...result); if (result.length === 0) return rows;
     }
     throw new GiteaError('Gitea 对账结果超过范围，未创建新的 PR', 503, 'INCOMPLETE_RECONCILIATION');
   }
@@ -74,15 +74,25 @@ export class GiteaClient {
     const value = await this.request('GET', this.repository(repo) + '/git/commits/' + commit), tree = value.commit?.tree?.sha;
     if (value.sha !== commit || !/^[a-f0-9]{40}$/.test(tree)) throw new GiteaError('Gitea commit tree unavailable'); return tree;
   }
+  async statuses(repo, commit) {
+    const rows = [];
+    for (let page = 1; page <= 20; page++) {
+      const value = await this.request('GET', this.repository(repo) + '/commits/' + commit + `/status?limit=100&page=${page}`);
+      const pageRows = value.statuses === null ? [] : value.statuses;
+      if (value.sha !== commit || !Number.isSafeInteger(value.total_count) || value.total_count < 0 || !Array.isArray(pageRows)) throw new GiteaError('Gitea CI 状态不完整，未推进关闭');
+      rows.push(...pageRows);
+      if (rows.length >= value.total_count) return rows;
+      if (!pageRows.length) throw new GiteaError('Gitea CI 分页未对账完成，未推进关闭');
+    }
+    throw new GiteaError('Gitea CI 状态超过对账范围，未推进关闭');
+  }
   async facts(repo, delivery) {
     const pr = this.validatePull(repo, delivery, await this.request('GET', this.repository(repo) + '/pulls/' + delivery.pullNumber), false);
-    const [reviews, combined, candidateTree, mergedTree] = await Promise.all([
+    const [reviews, statuses, candidateTree, mergedTree] = await Promise.all([
       this.pages(this.repository(repo) + '/pulls/' + pr.number + '/reviews'),
-      this.request('GET', this.repository(repo) + '/commits/' + delivery.candidateCommit + '/status?limit=100&page=1'),
+      this.statuses(repo, delivery.candidateCommit),
       this.tree(repo, delivery.candidateCommit), pr.merged ? this.tree(repo, pr.merge_commit_sha) : Promise.resolve(null),
     ]);
-    const statuses = combined.total_count === 0 && combined.statuses === null ? [] : combined.statuses;
-    if (!Array.isArray(statuses) || combined.total_count > 100) throw new GiteaError('Gitea CI 状态不完整，未推进关闭');
     return { pull: pr, reviews, statuses, candidateTree, mergedTree };
   }
   async dispose() { this.#closed = true; for (const c of this.#controllers) c.abort(); this.#auth = undefined; }

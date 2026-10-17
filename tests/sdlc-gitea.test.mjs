@@ -22,7 +22,7 @@ test('lost PR creation acknowledgement is reconciled from all states instead of 
   f = await fixture(async (req, res) => {
     assert.match(req.headers.authorization, /^Basic /);
     if (req.method === 'POST') { posts++; for await (const _ of req) {} prs.push(pull(f.baseUrl)); req.socket.destroy(); return; }
-    json(res, prs);
+    json(res, new URL(req.url,'http://fixture').searchParams.get('page')==='1'?prs:[]);
   });
   try {
     await assert.rejects(() => f.client.ensurePull(repo, delivery, 'Fix', 'Evidence'), /Gitea/);
@@ -34,7 +34,7 @@ test('lost PR creation acknowledgement is reconciled from all states instead of 
 });
 test('a colliding branch with another head/marker never authorizes creating a PR', async () => {
   let posts = 0; let f;
-  f = await fixture((req, res) => { if (req.method === 'POST') posts++; json(res, [{ ...pull(f.baseUrl), head: { ...pull(f.baseUrl).head, sha: 'c'.repeat(40) } }]); });
+  f = await fixture((req, res) => { if (req.method === 'POST') posts++; json(res, new URL(req.url,'http://fixture').searchParams.get('page')==='1'?[{ ...pull(f.baseUrl), head: { ...pull(f.baseUrl).head, sha: 'c'.repeat(40) } }]:[]); });
   try { await assert.rejects(() => f.client.ensurePull(repo, delivery, 'Fix', 'Evidence'), /不匹配|冲突/); assert.equal(posts, 0); }
   finally { await f.close(); }
 });
@@ -55,4 +55,18 @@ test('Gitea null statuses with total_count zero are shown as no CI records', asy
   });
   try {const facts=await f.client.facts(repo,{...delivery,pullNumber:1});assert.deepEqual(facts.statuses,[]);}
   finally {await f.close();}
+});
+test('server-capped pages include an existing closed delivery and the latest review', async () => {
+  let f, posts=0;
+  f=await fixture((req,res)=>{
+    const page=Number(new URL(req.url,'http://fixture').searchParams.get('page'));
+    if(req.method==='POST'){posts++;return json(res,pull(f.baseUrl));}
+    if(req.url.includes('/git/commits/'))return json(res,{sha:delivery.candidateCommit,commit:{tree:{sha:'e'.repeat(40)}}});
+    if(req.url.includes('/reviews'))return json(res,page===1?Array.from({length:50},(_,i)=>({id:i+1,state:'APPROVED',user:{login:'reviewer'},commit_id:delivery.candidateCommit})):page===2?[{id:51,state:'REQUEST_CHANGES',user:{login:'reviewer'},commit_id:delivery.candidateCommit}]:[]);
+    if(req.url.includes('/status?'))return json(res,{sha:delivery.candidateCommit,total_count:0,statuses:null});
+    if(req.url.includes('/pulls?'))return json(res,page===1?Array.from({length:50},(_,i)=>({number:i+2,head:{ref:'unrelated-'+i},body:''})):page===2?[{...pull(f.baseUrl),state:'closed'}]:[]);
+    return json(res,pull(f.baseUrl));
+  });
+  try{const pr=await f.client.ensurePull(repo,delivery,'Fix','Evidence');assert.equal(pr.state,'closed');assert.equal(posts,0);const facts=await f.client.facts(repo,{...delivery,pullNumber:1});assert.equal(facts.reviews.length,51);assert.equal(facts.reviews.at(-1).state,'REQUEST_CHANGES');}
+  finally{await f.close();}
 });
