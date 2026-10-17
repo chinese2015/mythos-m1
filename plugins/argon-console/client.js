@@ -4,14 +4,21 @@ window.__ModuleLoader__.load({ id: '@local/argon-console', factory: () => ({
     try {
     const query = new URLSearchParams(location.search), sid = query.get('argonSession');
     if (sid && /^session-[a-zA-Z0-9-]{1,140}$/.test(sid)) ctx.effect(() => {
-      let opened = false, disposed = false;
+      let opened = false, disposed = false, scheduled = false;
       const select = () => {
+        scheduled = false;
         if (disposed || opened || !ctx.sessions.list.getSnapshot().byId[sid]) return;
         // Retention can synchronously publish the session catalog while openSession is on the stack.
         opened = true;
         try { ctx.uiWorkspace.openSession(sid); } catch (error) { opened = false; throw error; }
       };
-      const unsubscribe = ctx.sessions.list.subscribe(select); select();
+      const schedule = () => {
+        if (disposed || opened || scheduled) return;
+        scheduled = true;
+        // Native restore publishes retention before finishing its selection. Let that stack settle first.
+        Promise.resolve().then(select).catch(error => console.error('argon-console session navigation failed:', error));
+      };
+      const unsubscribe = ctx.sessions.list.subscribe(schedule); schedule();
       return () => { disposed = true; unsubscribe(); };
     });
     if (query.get('argonEmbedded') !== '1') ctx.effect(() => {
