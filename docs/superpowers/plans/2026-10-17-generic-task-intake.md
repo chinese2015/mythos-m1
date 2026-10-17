@@ -102,6 +102,7 @@ Manual Work Item:
 
 **Files:** Create `tests/live_generic_intake.py`, `docs/generic-task-intake.md`; update本计划和progress；实际证据只写忽略的state/artifacts。
 
+- [ ] 先修复验收前确认的运行链路缺口并补回归：MANUAL 发布/远程查询使用冻结目标限定的凭据 helper，不沿用只接受原三仓的部署 helper；已持久化任务的 clone/verify/publish 授权以 owner 绑定的冻结 TaskSpec 为准，仓库新版本改 fullName 不使旧任务失效，legacy 默认三仓规则不变。
 - [ ] 复核运行服务/并行Vibe工作是否占用同一部署目录，使用独立远程测试目录与端口或完成可审阅集成后部署；不要覆盖其他agent的未提交代码或停止其任务。
 - [ ] 将虚构 customer-api（现有3 tests）放入当前Gitea的非Finding仓库；登记配置并由页面创建手工任务，验证真实 refs、key重放、配置冻结与owner门禁。此fixture不宣称Jira接入。
 - [ ] 真实只读方案→批准→模型改源码并补获批回归测试（至少两文件）→3+ tests真实通过→精确候选独立B→PR保持开放。若模型异常如实记录阶段，不代写修复伪造模型成功。
