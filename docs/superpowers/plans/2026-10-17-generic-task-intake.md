@@ -44,14 +44,14 @@ Manual Work Item:
 4. 无 JUnit/损坏报告/旧报告/skip/命令失败不假成功；多个文件、删除/重命名及测试修改边界在 Python 和 JS 一致。
 5. 注册/任务/发布的断线与重试不重复资源，源为 MANUAL 时不误写 Mock；legacy Finding 证据仍严格。
 
-## Task 1: TaskSpec、仓库登记与手工任务 M2 API
+### Task 1: TaskSpec、仓库登记与手工任务 M2 API
 
 **Files:** Create `brain/task_spec.py`, `brain/repository_store.py`, `brain/repositories.py`, `brain/git_host.py`, `tests/test_task_spec.py`, `tests/test_repositories.py`, `tests/fixtures/generic-task-spec.json`; modify `brain/store.py`, `brain/api.py`。
 
 **Interfaces:**
 - task_spec.py: `normalize_repository(config)->dict`, `make_task_spec(owner,repository,input,base_commit)->dict`, `validate_task_spec(spec,owner=None)->dict`, `is_manual(work)->bool`, `change_allowed(spec,paths)->bool`, `verification_passes(spec,operation,evidence=None)->bool`（精确候选、命令、报告/退出码、fresh B 关系在调用者提供时核验）。导出 legacy 对照所需纯逻辑，不导入 Store。
 - RepositoryStore mixin 提供 `register_repository(owner,config,key)`, `repositories(owner)`, `repository(owner,id)`, `revise_repository(owner,id,body,key)`, `manual_retry(owner,input,key)`, `create_manual_task(owner,input,spec,key)`。使用 Store.connection/_retry/_remember/_event；Store 初始化增量建表，原数据不变。
-- GitHostClient: `__init__(credential_file=None)`, `check(config)->{fullName,defaultBranch,pushPermission}`, `resolve(config,branch)->40hex`, `git_context(config)->dict`。默认私有文件 `~/gitea/secrets/argon-agent.json`；GET 使用 Basic、禁止重定向、超时/响应上限；仅既定 origin。懒读凭据，不打印 secret。
+- GitHostClient: `__init__(credential_file=None)`, `check(config)->{fullName,defaultBranch,pushPermission}`, `resolve(config,branch)->40hex`, `git_context(config)->{url:<canonical clone URL>,credentialFile:<private configured path>}`。默认私有文件 `~/gitea/secrets/argon-agent.json`；GET 使用 Basic、禁止重定向、超时/响应上限；仅既定 origin。懒读凭据，不打印 secret。
 - RepositoryService(store,host=None): `register(owner,body,key)`, `revise(owner,id,body,key)`, `check(owner,id)`, `create_task(owner,input,key)`。create_task 先查 manual_retry，再读当前注册版本/真实 ref，构造冻结 spec；最后事务再验 repo revision/enabled。
 - make_server 添加尾部可选 `repository_service=None`，不改变现有 positional publisher 参数。新路由 GET/POST `/api/brain/repositories`，POST `/{id}/revisions`、`/{id}/check`，POST `/api/brain/tasks/manual`。GET返回 `{repositories:[...]}`；任务 POST202。M2 owner与幂等契约沿用。
 
@@ -60,7 +60,7 @@ Manual Work Item:
 - [ ] 实现上述模块。避免继续把全部业务写入 store.py；受管任务创建与现有事务、事件、幂等共存。
 - [ ] 全部 `python3 -m unittest discover -s tests` GREEN；记录命令与数量，提交 `feat: register repositories and freeze generic manual tasks`。
 
-## Task 2: 通用 Git、执行、报告与发布后端
+### Task 2: 通用 Git、执行、报告与发布后端
 
 **Files:** Create `brain/git_credentials.py`, `tests/test_generic_runtime.py`; modify `sandbox.py`, `brain/executor.py`, `brain/workspace.py`, `brain/container_runner.py`, `brain/worker.py`, `brain/publication.py`, `brain/__main__.py`, `brain/store.py`（仅submit额外门禁）；extend `tests/test_brain_executor.py`, `tests/test_brain_evidence.py`, `tests/test_publication.py`。
 
@@ -76,7 +76,7 @@ Manual Work Item:
 - [ ] 观察 RED，再做最小实现；不扩大容器网络或挂载。
 - [ ] 跑 Python 全套 GREEN，Node套件确认未回归；提交 `feat: execute and publish task-specific verification policies`。
 
-## Task 3: Cordis 通用任务工作流与 SDLC
+### Task 3: Cordis 通用任务工作流与 SDLC
 
 **Files:** Create `plugins/argon-workflow/task-spec.mjs`, `plugins/argon-workflow/intake.mjs`, `tests/generic-workflow.test.mjs`; modify `plugins/argon-workflow/controller.mjs`, `session-policy.mjs`, `plugins/argon-brain/bridge.mjs`, `plugins/argon-sdlc/controller.mjs`, `gitea.mjs`, `policy.mjs`；extend相应Node测试。
 
@@ -87,7 +87,7 @@ Manual Work Item:
 - [ ] SDLC 对 MANUAL 使用其登记仓库身份和任务范围；GiteaClient仍仅当前连接，仓库许可由可信快照导入（task-scoped client或显式授权集合），不能接受浏览器任意repo。PR正文基于实际命令/报告类型/数量生成，不硬编码Maven或2 tests。MANUAL合并后只完成work，不写Finding；严格合并事实、代码树/人工门禁和PR重开/幂等保留。
 - [ ] 全套 `npm test` GREEN，Python兼容回归；提交 `feat: run generic manual tasks through workflow and SDLC`。
 
-## Task 4: 仓库登记与新建任务页面
+### Task 4: 仓库登记与新建任务页面
 
 **Files:** Create `plugins/argon-console/public/intake-view.js`, `tests/intake-console.test.mjs`; modify `plugins/argon-console/index.mjs`, `public/app.js`, `public/styles.css`；必要时小幅修改 `public/index.html`。
 
@@ -98,7 +98,7 @@ Manual Work Item:
 - [ ] JUnit和command结果分别如实展示；报告缺失不渲染为0项通过。保留原生Session、Diff、Run Monitor、PR面板。
 - [ ] Node全套 GREEN，页面实际检查/截图；提交 `feat: add repository registry and manual task intake UI`。
 
-## Task 5: 非预设仓库真实验收与交接
+### Task 5: 非预设仓库真实验收与交接
 
 **Files:** Create `tests/live_generic_intake.py`, `docs/generic-task-intake.md`; update本计划和progress；实际证据只写忽略的state/artifacts。
 
