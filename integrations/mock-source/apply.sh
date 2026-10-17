@@ -51,15 +51,16 @@ if "OptimisticLockingFailureException" not in errors.read_text().split("public c
 ''' + text[closing:]
     errors.write_text(text)
 
-new_controller = backend / "src/main/java/com/example/argondemo/api/AiCompletionController.java"
-source = (overlay / "AiCompletionController.java").read_text()
-if new_controller.exists() and new_controller.read_text() != source:
-    raise SystemExit(f"refusing to overwrite different file: {new_controller}")
-new_controller.write_text(source)
-
-new_test = backend / "src/test/java/com/example/argondemo/AiCompletionIntegrationTests.java"
-test = (overlay / "tests/AiCompletionIntegrationTests.java").read_text()
-if new_test.exists() and new_test.read_text() != test:
-    raise SystemExit(f"refusing to overwrite different file: {new_test}")
-new_test.write_text(test)
+for name in ['AiCompletionController.java', 'OwnerNotificationController.java']:
+    target = backend / 'src/main/java/com/example/argondemo/api' / name
+    source = (overlay / name).read_text()
+    if target.exists() and target.read_text() != source:
+        raise SystemExit(f'refusing to overwrite different file: {target}')
+    target.write_text(source)
+for name in ['AiCompletionIntegrationTests.java', 'OwnerNotificationIntegrationTests.java']:
+    target = backend / 'src/test/java/com/example/argondemo' / name
+    source = (overlay / 'tests' / name).read_text()
+    if target.exists() and target.read_text() != source:
+        raise SystemExit(f'refusing to overwrite different file: {target}')
+    target.write_text(source)
 PY
