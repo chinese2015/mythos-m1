@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { fault } from './files.mjs';
 import Policy from '@deepseek-ai/dsh-sandbox-policy';
 import * as Projections from '@deepseek-ai/dsh-session-projection';
+import { bindScopedRead } from './scoped.mjs';
 export async function readOnlyContext(workspacePath) {
   const ctx=new Context();
   try {
@@ -32,7 +33,7 @@ export class ReaderPool {
     try { reader = await entry.promise; } catch (error) { entry.refs--; if (this.entries.get(key) === entry) this.entries.delete(key); throw error; }
     if (this.closed) { entry.refs--; throw fault('文件服务已卸载', 503); }
     let released = false;
-    return { fs: reader.fs, release: () => { if (!released) { released = true; entry.refs--; } } };
+    return { fs: reader.fs, readBound: reader.readBound, release: () => { if (!released) { released = true; entry.refs--; } } };
   }
   async dispose() {
     this.closed = true;
@@ -45,13 +46,14 @@ export function createSshReaders(config) {
   const pool = new ReaderPool(async key => {
     const { work, location } = specs.get(key);
     const provider = name => import(pathToFileURL(resolve(config.root, '../dsh-run/node_modules/@deepseek-ai', name, 'lib/index.js')).href);
-    const [{ default: Ssh }, { default: Fs }] = await Promise.all([provider('dsh-ssh'), provider('dsh-fs-ssh')]);
+    const [{ default: Ssh }, { default: Fs }, {default:Subprocess}] = await Promise.all([provider('dsh-ssh'), provider('dsh-fs-ssh'),provider('dsh-subprocess-ssh')]);
     const ctx = await readOnlyContext(location.workspacePath);
     try {
       await ctx.plugin(Ssh, { host: 'argon-' + work.sandboxId, node: '/usr/bin/node', helper: '/opt/dsh-helper/node_modules/@deepseek-ai/dsh-ssh/lib/helper.js', helperHash: config.helperHash, workspace: location.workspacePath });
       await ctx.plugin(Fs);
-      if (!ctx.fs) throw fault('官方任务 SSH 文件服务未激活', 503);
-      return { fs: ctx.fs, dispose: () => ctx.fiber.dispose() };
+      await ctx.plugin(Subprocess);
+      if (!ctx.fs||!ctx.subprocess) throw fault('官方任务 SSH 文件服务未激活', 503);
+      return { fs: ctx.fs, readBound:bindScopedRead(ctx.subprocess,location.workspacePath), dispose: () => ctx.fiber.dispose() };
     } catch (error) { await ctx.fiber.dispose(); throw error; }
   });
   return {

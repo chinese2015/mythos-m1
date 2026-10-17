@@ -50,7 +50,7 @@ export class TaskWorkflow {
     this.remember(snap.workItem);
     return snap;
   }
-  async listWorks() { return (await this.client.request('GET', '/api/brain/work-items')).workItems.filter(w => w.source?.type === 'ARGON' && w.sourceRecord && w.workflow); }
+  async listWorks() { return (await this.client.request('GET', '/api/brain/work-items')).workItems.filter(w => w.ownerId === this.owner && w.source?.type === 'ARGON' && w.sourceRecord && w.workflow); }
   async tasks() {
     const [tasks, works, { intakes }] = await Promise.all([this.source.list(), this.listWorks(), this.client.request('GET', '/api/brain/source-intakes')]);
     return { tasks: tasks.map(task => { const work = works.find(w => w.source.id === task.id), intake = intakes.find(i => i.findingId === task.id) ?? null; return { ...task,

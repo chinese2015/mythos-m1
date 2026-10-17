@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({ id:'@local/argon-coding', factory:require=>{
           const inserted=props.inputActions.insertText('\n'+event.data.text+'\n',props.inputActions.captureInsertion());
           post('context.ack',{replyTo:event.data.requestId,inserted});
         };
-        window.addEventListener('message',receive);post('native.ready');
+        window.addEventListener('message',receive);if(ctx.sidebarRight.isExpanded())ctx.sidebarRight.toggleExpanded();post('native.ready');
         return()=>window.removeEventListener('message',receive);
       },[props.sessionId,props.inputActions]);
       return null;
@@ -30,16 +30,19 @@ window.__ModuleLoader__.load({ id:'@local/argon-coding', factory:require=>{
       React.useEffect(()=>{
         if(!tab.visible)return;
         const target=fileNavigation(tab.navigation.address,sessionId,tab.navigation.params?.file||tab.navigation.params||{});
-        if(target)post('file.open',target);
+        if(target)post('file.open',target);else post('native.error',{error:tab.kind==='files'?'请使用左侧任务文件树':'该文件不属于当前任务工作区'});
         tab.actions.close();if(ctx.sidebarRight.isExpanded())ctx.sidebarRight.toggleExpanded();
       },[tab.id,tab.visible,tab.navigation.revision]);
       return null;
     }
     if(parent!==window&&binding.bindingId){
       ctx.slots.inject('conversation.input.dock',()=>ctx.slots.register({name:'conversation.input.dock',id:'argon-coding-context',order:0},ContextPort));
-      const type={id:'@local/argon-coding/file',kind:'argon-coding-file',patterns:['dsh-resource://file/**'],priority:'extension',canOpen:address=>!!fileNavigation(address,sessionId),title:()=> '任务代码区'};
+      const type={id:'@local/argon-coding/file',kind:'argon-coding-file',patterns:['dsh-resource://file/**'],priority:'extension',canOpen:address=>typeof address==='string'&&address.startsWith('dsh-resource://file/'),title:()=> '任务代码区'};
       ctx.effect(()=>ctx.sidebarRightTabs.register(type));
       ctx.slots.inject('sidebar.right.pane.tab',()=>ctx.slots.register({name:'sidebar.right.pane.tab',key:type.id},FileRoute));
+      const tree={id:'@local/argon-coding/tree',kind:'files',priority:'extension',title:()=> '任务文件'};
+      ctx.effect(()=>ctx.sidebarRightTabs.register(tree));
+      ctx.slots.inject('sidebar.right.pane.tab',()=>ctx.slots.register({name:'sidebar.right.pane.tab',key:tree.id},FileRoute));
     }
     ctx.effect(()=>{let current=true;void openKnownSession(ctx.sessions,sessionId,id=>ctx.uiWorkspace.openSession(id),()=>current).catch(error=>{if(current)post('native.error',{error:error.message});});return()=>{current=false;};});
   }};

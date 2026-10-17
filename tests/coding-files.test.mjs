@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, symlink, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, symlink, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
 import LocalFs from '@deepseek-ai/dsh-fs-local';
+import LocalSubprocess from '@deepseek-ai/dsh-subprocess-local';
+import { bindScopedRead } from '../plugins/argon-coding/scoped.mjs';
 import { TaskFiles } from '../plugins/argon-coding/files.mjs';
 import { ReaderPool } from '../plugins/argon-coding/ssh.mjs';
 import * as sshReaders from '../plugins/argon-coding/ssh.mjs';
@@ -16,12 +18,13 @@ async function fixture(t) {
   const remote = join(root, 'remote'); await mkdir(join(remote, 'src'), { recursive: true });
   await writeFile(join(remote, 'src/Fix.java'), 'REMOTE workspace\nsecond line\n');
   await writeFile(join(root, 'Fix.java'), 'HOST same basename');
-  const ctx = new Context(); await ctx.plugin(LocalFs, { cwd: remote }); t.after(() => ctx.fiber.dispose());
+  const ctx = new Context(); await ctx.plugin(LocalFs, { cwd: remote }); await ctx.plugin(LocalSubprocess); t.after(() => ctx.fiber.dispose());
   let snapshots = 0, opens = 0;
   const work = { workItemId: id, ownerId: 'alice', sandboxId: 'sb-test' };
   const workflow = { snapshot: async target => { snapshots++; if (target !== id) throw Object.assign(new Error('not owned'), { status: 404 }); return { workItem: work }; }, workspace: async () => ({ workspacePath: remote }) };
-  const files = new TaskFiles({ workflow, openFs: async () => { opens++; return { fs: ctx.fs }; } });
-  return { files, root, remote, fs: ctx.fs, work, workflow, get opens() { return opens; }, get snapshots() { return snapshots; } };
+  const reader={fs:ctx.fs,readBound:bindScopedRead(ctx.subprocess,remote,'python3')};
+  const files = new TaskFiles({ workflow, openFs: async () => { opens++; return reader; } });
+  return { files, root, remote, fs: ctx.fs, reader, work, workflow, get opens() { return opens; }, get snapshots() { return snapshots; } };
 }
 test('reads only the task provider and emits stable relative content identity', async t => {
   const f = await fixture(t), file = await f.files.read(id, 'src/Fix.java');
@@ -51,10 +54,16 @@ test('refuses binary, oversized and non-regular content without truncating it in
   await assert.rejects(() => f.files.read(id, 'absent'), { status: 404 });
 });
 test('a concurrent real rewrite is a conflict and a cancelled request never returns content', async t => {
-  const f = await fixture(t), read = f.fs.streamText.bind(f.fs);
-  f.fs.streamText = async (...args) => { const stream = await read(...args); return (async function* () { for await (const chunk of stream) { yield chunk; await writeFile(join(f.remote, 'src/Fix.java'), 'changed after read, longer\n'); } })(); };
+  const f = await fixture(t), read = f.reader.readBound;
+  f.reader.readBound=async(...args)=>{const result=await read(...args);await writeFile(join(f.remote,'src/Fix.java'),'changed after read, longer\n');return result;};
   await assert.rejects(() => f.files.read(id, 'src/Fix.java'), { status: 409 });
   const controller = new AbortController(); controller.abort(); await assert.rejects(() => f.files.read(id, 'src/Fix.java', controller.signal), { name: 'AbortError' });
+});
+test('a parent swapped to an outside symlink after resolution cannot supply file content',async t=>{
+  const f=await fixture(t),outside=join(f.root,'outside');await mkdir(outside);await writeFile(join(outside,'Fix.java'),'OUTSIDE PRIVATE DATA');
+  const resolve=f.fs.resolve.bind(f.fs);let swapped=false;
+  f.fs.resolve=async(path,opts)=>{const target=await resolve(path,opts);if(path==='src/Fix.java'&&!swapped){swapped=true;await rename(join(f.remote,'src'),join(f.remote,'original-src'));await symlink(outside,join(f.remote,'src'));}return target;};
+  await assert.rejects(()=>f.files.read(id,'src/Fix.java'),error=>error.status===403||error.status===409);
 });
 test('reader pool shares concurrent acquisitions, evicts only idle readers and closes on unload', async () => {
   const disposed = [];
@@ -79,4 +88,10 @@ test('task reader composition provides the official read-only policy required by
   const ctx=await sshReaders.readOnlyContext('/task/workspace');
   try { assert.equal(ctx.sandboxPolicy.resolve().mode,'read-only'); assert.equal(ctx.sandboxPolicy.workspaceRoot,'/task/workspace'); }
   finally { await ctx.fiber.dispose(); }
+});
+test('the descriptor reader bounds concurrent file subprocesses instead of queueing without limit',async t=>{
+  const f=await fixture(t);
+  const results=await Promise.allSettled(Array.from({length:5},()=>f.reader.readBound('read','src/Fix.java')));
+  assert.equal(results.filter(result=>result.status==='fulfilled').length,4);
+  assert.equal(results.find(result=>result.status==='rejected').reason.status,503);
 });

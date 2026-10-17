@@ -1,7 +1,7 @@
 import {acceptMessage,referenceText} from './bridge.js';
 import {renderMonitor} from './monitor-view.js';
 const $=id=>document.getElementById(id),frame=$('native'),source=$('source');
-let works=[],workId,generation=0,detail,file,path='',binding,ready=false,mode='code',polling=false,fileRequest=0,contextRequest=0;
+let works=[],workId,generation=0,detail,file,path='',binding,ready=false,mode='code',polling=false,fileRequest=0,contextRequest=0,handshakeTimer;
 const pending=new Set();
 function notice(text){$('notice').textContent=text||'';$('notice').hidden=!text;}
 function el(tag,attrs={}){const node=document.createElement(tag);for(const [key,value]of Object.entries(attrs)){if(key==='text')node.textContent=value;else if(key==='class')node.className=value;else node.setAttribute(key,value);}return node;}
@@ -53,10 +53,13 @@ function bindNative(snapshot){
   const sid=snapshot.session?.sessionId;
   if(binding?.sessionId===sid&&binding.workItemId===workId)return;
   binding=null;ready=false;pending.clear();$('quote').disabled=true;
+  clearTimeout(handshakeTimer);frame.style.visibility='hidden';
   if(!sid){frame.removeAttribute('src');$('bridge-status').textContent='当前阶段尚未创建会话';$('session').textContent='';return;}
   binding={workItemId:workId,sessionId:sid,bindingId:crypto.randomUUID()};
+  const currentBinding=binding.bindingId;
   frame.src='/?'+new URLSearchParams({argonCodingWork:workId,argonCodingBinding:binding.bindingId});
   $('native-link').href='/?'+new URLSearchParams({argonCodingWork:workId});$('session').textContent=sid;$('bridge-status').textContent='正在连接原生会话';
+  handshakeTimer=setTimeout(()=>{if(binding?.bindingId===currentBinding&&!ready){$('bridge-status').textContent='原生会话连接超时';notice('原生会话暂不可用，可打开完整 DSH 查看或重新进入工作区');}},20000);
 }
 async function refreshContext(){
   if(polling)return;polling=true;const epoch=generation,id=workId,ticket=++contextRequest;
@@ -73,17 +76,20 @@ async function refreshContext(){
 async function selectWork(id){
   if(!/^work-[a-f0-9]{32}$/.test(id??'')){notice('请从任务详情进入编码工作区');return;}
   saveView();workId=id;generation++;fileRequest++;contextRequest++;detail=null;file=null;path='';binding=null;ready=false;polling=false;pending.clear();source.value='';$('tree').replaceChildren();$('quote').disabled=true;
+  clearTimeout(handshakeTimer);frame.style.visibility='hidden';frame.removeAttribute('src');$('native-link').removeAttribute('href');
+  $('session').textContent='';$('bridge-status').textContent='正在读取任务';$('task-context').textContent='正在读取当前任务…';$('status').textContent='正在读取当前任务';
+  $('diff').textContent='';$('monitor').replaceChildren();$('filename').textContent='选择文件';$('file-info').textContent='等待任务上下文';notice('');
   $('tasks').value=id;$('overview').href='/argon/#/work/'+id;location.hash='/work/'+id;
   let restore;try{restore=JSON.parse(sessionStorage.getItem('argon.coding.view.'+id)||'null');}catch{}
-  await refreshContext();if(workId!==id)return;
+  await refreshContext();if(workId!==id||!detail)return;
   path=restore?.path??detail?.source?.sourcePath??'';
   await Promise.all([listDirectory(),path?openFile(path,1,restore):Promise.resolve()]);
 }
 window.addEventListener('message',event=>{
   if(!binding||!acceptMessage(event.data,{origin:event.origin,source:event.source,expectedOrigin:location.origin,expectedSource:frame.contentWindow,binding}))return;
   const data=event.data;
-  if(data.type==='native.ready'){ready=true;$('bridge-status').textContent='已连接';renderMode();}
-  if(data.type==='native.error'){notice(data.error);$('bridge-status').textContent='会话暂不可用';}
+  if(data.type==='native.ready'){clearTimeout(handshakeTimer);ready=true;frame.style.visibility='visible';$('bridge-status').textContent='已连接';renderMode();}
+  if(data.type==='native.error'){notice(data.error);if(!ready)$('bridge-status').textContent='会话暂不可用';}
   if(data.type==='context.ack'&&pending.delete(data.replyTo))notice(data.inserted?'已加入原生草稿，尚未发送':'草稿已变化，本次引用未插入');
   if(data.type==='file.open')openFile(data.path,data.line);
 });
@@ -93,6 +99,7 @@ $('quote').onclick=()=>{
   try{const text=referenceText({path,startLine,endLine,version:file.contentHash,text:end>start?source.value.slice(start,end):source.value.split('\n')[startLine-1]||''}),requestId=crypto.randomUUID();pending.add(requestId);frame.contentWindow.postMessage({protocol:1,...binding,type:'context.insert',requestId,text},location.origin);}catch(error){notice(error.message);}
 };
 $('tasks').onchange=()=>selectWork($('tasks').value);$('reload-file').onclick=()=>path&&openFile(path);
+$('retry-task').onclick=()=>workId&&selectWork(workId);
 for(const tab of ['code','diff'])$(tab+'-tab').onclick=()=>{mode=tab;renderMode();saveView();};
 window.addEventListener('beforeunload',saveView);source.addEventListener('select',saveView);source.addEventListener('scroll',()=>{$('gutter').scrollTop=source.scrollTop;});
 window.addEventListener('hashchange',()=>{const id=location.hash.match(/^#\/work\/(work-[a-f0-9]{32})$/)?.[1];if(id&&id!==workId)void selectWork(id);});

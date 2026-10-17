@@ -31,6 +31,20 @@ function harness() {
   const controller = new TaskWorkflow({ owner: 'alice' }, { client, sessions, source: {}, workspaces: {}, presets: {} });
   return { controller, client, work, ops, events, keys, loseAck: () => { lostAck = true; } };
 }
+test('listWorks does not expose another owner’s Work Item metadata', async () => {
+  const { controller, client, work } = harness();
+  const original = client.request;
+  client.request = async (method, path, options) => {
+    if (method === 'GET' && path.endsWith('/work-items')) return { workItems: [
+      structuredClone(work),
+      { ...structuredClone(work), workItemId: 'work-' + 'b'.repeat(32), ownerId: 'bob', sourceRecord: { title: 'private other-owner metadata' } },
+    ] };
+    return original(method, path, options);
+  };
+  const listed = await controller.listWorks();
+  assert.deepEqual(listed.map(item => item.workItemId), [id]);
+});
+
 test('plan approval persists the authenticated actor before a CODE session can exist and rejects stale decisions', async () => {
   const { controller, work, events } = harness();
   work.workflow = { phase: 'AWAITING_PLAN_APPROVAL', planHash: 'hash', planEndSequence: 4, planRequestId: 'plan', planSessionId: 'session-plan' };

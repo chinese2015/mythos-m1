@@ -1,0 +1,24 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import vm from 'node:vm';
+import {webcrypto} from 'node:crypto';
+import * as bridgeModule from '../plugins/argon-coding/public/bridge.js';
+test('embedded file routing claims and refuses foreign paths instead of falling back to Host previews',async()=>{
+  let plugin,expanded=true;
+  const registered=[],components=new Map(),messages=[];
+  const workItemId='work-'+'a'.repeat(32),sessionId='session-a';
+  const parent={postMessage:data=>messages.push(data)};
+  const window={__ModuleLoader__:{load:definition=>{plugin=definition.factory(()=>({useEffect:fn=>fn()}));}}};
+  const ctx={slots:{inject:(_name,fn)=>fn(),register:(options,body)=>{components.set(options.key,body);return ()=>{};}},sidebarRightTabs:{register:type=>{registered.push(type);return ()=>{};}},sidebarRight:{isExpanded:()=>expanded,toggleExpanded:()=>{expanded=!expanded;}},uiWorkspace:{openSession:()=>{}},sessions:{refresh:async()=>{},list:{getSnapshot:()=>({byId:{[sessionId]:{}}})}},effect:fn=>fn()};
+  const source=(await readFile(new URL('../plugins/argon-coding/client.js',import.meta.url),'utf8')).replace("await import('/argon/coding/bridge.js')",'bridgeModule');
+  vm.runInNewContext(source,{window,parent,bridgeModule,URLSearchParams,crypto:webcrypto,location:{origin:'http://test.local',search:'?argonCodingWork='+workItemId+'&argonCodingBinding=current'},fetch:async()=>({ok:true,json:async()=>({workItem:{sessionIds:[sessionId]},session:{sessionId}})})});
+  await plugin.apply(ctx);
+  const type=registered.find(x=>x.kind==='argon-coding-file');
+  const foreign='dsh-resource://file/session/session-other/%2Fetc%2Fpasswd';
+  assert.equal(type.canOpen(foreign),true);
+  components.get(type.id)({useTabInfo:()=>({tab:{id:'tab',kind:type.kind,visible:true,navigation:{address:foreign,params:{},revision:1},actions:{close:()=>{}}}})});
+  assert.equal(messages.at(-1).type,'native.error');assert.equal(messages.at(-1).workItemId,workItemId);
+  assert.equal(expanded,false);
+  assert.ok(registered.some(x=>x.kind==='files'));
+});
