@@ -54,6 +54,9 @@ def make_brain_service(records):
 
 def make_task_services(records):
     return [
+        {'id': 'argon-subscribe', 'name': str(ROOT / 'plugins/argon-subscribe/index.mjs'), 'config': {
+            'baseUrl': 'http://127.0.0.1:3081', 'tokenFile': str(Path.home() / '.argon-brain/tokens.json'),
+            'owner': 'alice', 'sourceUrl': 'http://127.0.0.1:8080', 'pollIntervalMs': 30000}},
         {'id': 'argon-workflow', 'name': str(ROOT / 'plugins/argon-workflow/service.mjs'), 'config': {
             'baseUrl': 'http://127.0.0.1:3081', 'tokenFile': str(Path.home() / '.argon-brain/tokens.json'),
             'owner': 'alice', 'sourceUrl': 'http://127.0.0.1:8080', 'root': str(ROOT),
@@ -77,7 +80,7 @@ def main():
     backup.chmod(0o600)
     entries = yaml.safe_load(profile.read_text()) or []
     # These IDs belong only to this PoC; preserve all user settings and defaults.
-    ids = {'preset-argon-' + owner for owner in records} | {'argon-safe-host-changes', 'argon-brain-service', 'argon-workflow', 'argon-sdlc', 'argon-console'}
+    ids = {'preset-argon-' + owner for owner in records} | {'argon-safe-host-changes', 'argon-brain-service', 'argon-workflow', 'argon-sdlc', 'argon-console', 'argon-subscribe'}
     cleaned = []
     for entry in entries:
         if entry.get('id') in ids:

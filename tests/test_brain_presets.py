@@ -1,5 +1,5 @@
 import unittest
-from configure_presets import make_preset, make_brain_service
+from configure_presets import make_preset, make_brain_service, make_task_services
 
 
 class BrainPresetTests(unittest.TestCase):
@@ -22,6 +22,14 @@ class BrainPresetTests(unittest.TestCase):
         self.assertEqual(service['config']['owners']['alice']['preset'], 'argon-alice')
         self.assertIn('tokenFile', service['config'])
         self.assertNotIn('token', service['config']['owners']['alice'])
+
+    def test_task_services_include_subscription_with_private_operator_binding(self):
+        services = make_task_services(self.records)
+        subscribe = next((s for s in services if s['id'] == 'argon-subscribe'), None)
+        self.assertIsNotNone(subscribe)
+        self.assertEqual(subscribe['config']['owner'], 'alice')
+        self.assertEqual(subscribe['config']['pollIntervalMs'], 30000)
+        self.assertIn('tokenFile', subscribe['config'])
 
 
 if __name__ == '__main__':

@@ -1,4 +1,4 @@
-const mappings = {
+export const mappings = {
   'FND-00003': ['demo-orion-notes-api', '2ce309f4dd7a39a22fcce59ad4309a50e1df237e', 'src/main/java/com/example/notes/AppConfig.java'],
   'FND-00009': ['demo-nova-catalog-api', '7fd32b0535fac3f6ce105a8494e2dcbba7ce355b', 'src/main/java/com/example/catalog/CatalogSearchService.java'],
   'FND-00015': ['demo-pixel-reports-batch', '0a67ffc801aad448a0992ba84aabc5d47d63c478', 'src/main/java/com/example/reports/ReportImporter.java'],

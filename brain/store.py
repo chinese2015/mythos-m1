@@ -538,34 +538,35 @@ class Store:
                 'decision': json.loads(row['decision']) if row['decision'] else None,
                 'createdAt': row['created_at'], 'updatedAt': row['updated_at']}
 
-    def record_intake(self, owner, finding_id, revision, triage, state=None, notified=False):
+    def record_intake(self, owner, finding_id, revision, triage, state=None, notified=False, last_error=None):
         if not isinstance(finding_id, str) or not finding_id:
             raise InvalidInput('findingId is required')
         if type(revision) is not int or revision < 1:
             raise InvalidInput('revision must be a positive integer')
         if not isinstance(triage, dict) or not isinstance(triage.get('result'), str):
             raise InvalidInput('triage requires a result')
-        if state is not None and (not isinstance(state, str) or not state):
+        if state is not None and state not in {'AWAITING_OWNER', 'NEEDS_REVIEW', 'APPROVED', 'REJECTED'}:
             raise InvalidInput('state is invalid')
         if type(notified) is not bool:
             raise InvalidInput('notified must be boolean')
+        if last_error is not None and (not isinstance(last_error, str) or len(last_error) > 2000):
+            raise InvalidInput('lastError must be null or bounded text')
         with self.connection(True) as db:
-            row = db.execute('SELECT owner, state FROM source_intakes WHERE finding_id=?', (finding_id,)).fetchone()
+            row = db.execute('SELECT owner, state, revision FROM source_intakes WHERE finding_id=?', (finding_id,)).fetchone()
             derived = state or ('AWAITING_OWNER' if triage['result'] == 'CONFIRMED' else 'NEEDS_REVIEW')
             at = now()
             if row is None:
-                db.execute('INSERT INTO source_intakes VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)',
+                db.execute('INSERT INTO source_intakes VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)',
                            (finding_id, owner, revision, derived, encoded(triage),
-                            at if notified else None, at, at))
+                            at if notified else None, last_error, at, at))
             else:
                 if row['owner'] != owner:
                     raise Conflict('Intake is owned by another owner')
-                if row['state'] in {'APPROVED', 'REJECTED'}:
-                    db.execute('UPDATE source_intakes SET revision=?, triage=?, updated_at=? WHERE finding_id=?',
-                               (revision, encoded(triage), at, finding_id))
-                else:
-                    db.execute('UPDATE source_intakes SET revision=?, state=?, triage=?, notified_at=coalesce(notified_at, ?), updated_at=? WHERE finding_id=?',
-                               (revision, derived, encoded(triage), at if notified else None, at, finding_id))
+                if revision < row['revision']:
+                    raise Conflict('Stale intake revision')
+                preserved = row['state'] if row['state'] in {'APPROVED', 'REJECTED'} else derived
+                db.execute('UPDATE source_intakes SET revision=?, state=?, triage=?, notified_at=coalesce(notified_at, ?), last_error=?, updated_at=? WHERE finding_id=?',
+                           (revision, preserved, encoded(triage), at if notified else None, last_error, at, finding_id))
             return self._intake(db, finding_id)
 
     def intakes(self, owner):

@@ -145,8 +145,9 @@ def make_server(store, executor, tokens, address=('127.0.0.1', 3081), publisher=
                 if not re.fullmatch(r'FND-[0-9]{5}', finding_id):
                     raise InvalidInput('findingId must match ^FND-[0-9]{5}$')
                 if self.command == 'PUT' and len(route) == 2:
-                    body = self.body({'revision', 'triage'})
-                    return 200, store.record_intake(owner, finding_id, body.get('revision'), body.get('triage'))
+                    body = self.body({'revision', 'triage', 'state', 'notified', 'lastError'})
+                    return 200, store.record_intake(owner, finding_id, body.get('revision'), body.get('triage'),
+                                                   state=body.get('state'), notified=body.get('notified', False), last_error=body.get('lastError'))
                 if self.command == 'POST' and len(route) == 3 and route[2] == 'decide':
                     body = self.body({'expectedRevision', 'decision'})
                     return 200, store.decide_intake(owner, finding_id, body.get('decision'),

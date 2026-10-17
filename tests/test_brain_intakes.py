@@ -139,6 +139,25 @@ class SourceIntakeTests(unittest.TestCase):
         self.assertEqual(self.request('POST', '/api/brain/source-intakes/FND-00070/decide',
                                       {'expectedRevision': 1, 'decision': 'APPROVED'}, owner='bob', key='bob')[0], 404)
 
+    def test_notification_metadata_survives_decision_and_restart(self):
+        path = '/api/brain/source-intakes/FND-00080'
+        body = {'revision': 1, 'triage': {'result': 'CONFIRMED'}, 'lastError': 'outbox unavailable'}
+        self.assertEqual(self.request('PUT', path, body)[1]['lastError'], 'outbox unavailable')
+        self.request('POST', path + '/decide', {'expectedRevision': 1, 'decision': 'APPROVED'}, key='metadata')
+        code, saved = self.request('PUT', path, {**body, 'notified': True, 'lastError': None})
+        self.assertEqual(code, 200)
+        self.assertEqual(saved['state'], 'APPROVED')
+        self.assertIsNotNone(saved['notifiedAt'])
+        self.assertIsNone(saved['lastError'])
+        self.assertEqual(Store(self.temp.name + '/brain').intakes('alice')[0]['notifiedAt'], saved['notifiedAt'])
+
+    def test_grandfather_state_route_and_stale_poll_cannot_rewind_revision(self):
+        path = '/api/brain/source-intakes/FND-00081'
+        body = {'revision': 3, 'triage': {'result': 'CONFIRMED'}, 'state': 'APPROVED'}
+        self.assertEqual(self.request('PUT', path, body)[1]['state'], 'APPROVED')
+        self.assertEqual(self.request('PUT', path, {**body, 'revision': 2})[0], 409)
+        self.assertEqual(self.request('PUT', path, {**body, 'state': 'TYPO'})[0], 400)
+
 
 if __name__ == '__main__':
     unittest.main()
