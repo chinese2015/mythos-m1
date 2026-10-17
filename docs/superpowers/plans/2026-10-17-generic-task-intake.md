@@ -31,7 +31,7 @@ baseCommit 可省略；若给出，首版必须等于所选分支当前 HEAD，�
 
 TaskSpec:
 `{specVersion:1,ownerId,repository:{repositoryId,revision,connectionId,provider:'gitea',origin:'http://127.0.0.1:3000',fullName,cloneUrl,baseBranch},baseCommit:<40hex>,task:{title,description,acceptanceCriteria},runtimeProfile,execution:<frozen>,changePolicy:<frozen>,reviewPolicy:<frozen>,specDigest:<sha256>}`。
-specDigest=SHA256(UTF8 JSON、递归键排序、无空格、ensure_ascii=False、不含 specDigest 本身)。只允许安全字段和有限相对路径/目录前缀，任务范围只能收窄仓库范围；测试许可不能从 false 扩成 true；任务省略 allowTestChanges 时默认 false，即使仓库允许。command 模式 reportDirs=[]、minTests=0；JUnit minTests>=1。reviewPolicy 默认 minApprovals=0/requiredStatusContexts=[]，minApprovals 0..20、contexts最多20条非空<=200字；TaskSpec冻结该值，人工合并/合并树一致始终强制，不能用配置关闭。禁止 `.git`/内部 `.cache`/路径逃逸；构建配置仅在批准范围明确覆盖时允许。
+specDigest=SHA256(UTF8 JSON、递归键排序、无空格、ensure_ascii=False、不含 specDigest 本身)。只允许安全字段和有限相对路径/目录前缀，任务范围只能收窄仓库范围；测试许可不能从 false 扩成 true；任务省略 allowTestChanges 时默认 false，即使仓库允许。command 模式 reportDirs=[]、minTests=0；JUnit minTests>=1。reviewPolicy 默认 minApprovals=0/requiredStatusContexts=[]，minApprovals 0..20、contexts最多20条非空<=200字；TaskSpec冻结该值，人工合并/合并树一致始终强制，不能用配置关闭。禁止 `.git`/内部 `.cache`/路径逃逸；构建配置必须被仓库和任务两层范围分别明确覆盖；任务不能把仓库的宽目录前缀转换为构建配置许可。
 
 Manual Work Item:
 顶层 taskSpec=上述冻结值，source={type:'MANUAL',id:'TASK-<12hex>',revision:1}，sourceRecord 提供 id/title/description/ownerId/repositoryUrl/baseCommit/revision，sourcePaths=允许范围，sourcePath=''（不假冒单文件），其余结构与 ARGON 受管任务相同。
