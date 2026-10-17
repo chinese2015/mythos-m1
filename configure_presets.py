@@ -65,6 +65,7 @@ def make_task_services(records):
             'baseUrl': 'http://127.0.0.1:3000', 'credentialFile': str(Path.home() / 'gitea/secrets/argon-agent.json'),
             'botLogin': 'argon-agent', 'minApprovals': 0, 'requiredStatusContexts': []}},
         {'id': 'argon-console', 'name': str(ROOT / 'plugins/argon-console/index.mjs')},
+        {'id': 'argon-coding', 'name': str(ROOT / 'plugins/argon-coding/index.mjs')},
     ]
 
 
@@ -80,7 +81,7 @@ def main():
     backup.chmod(0o600)
     entries = yaml.safe_load(profile.read_text()) or []
     # These IDs belong only to this PoC; preserve all user settings and defaults.
-    ids = {'preset-argon-' + owner for owner in records} | {'argon-safe-host-changes', 'argon-brain-service', 'argon-workflow', 'argon-sdlc', 'argon-console', 'argon-subscribe'}
+    ids = {'preset-argon-' + owner for owner in records} | {'argon-safe-host-changes', 'argon-brain-service', 'argon-workflow', 'argon-sdlc', 'argon-console', 'argon-subscribe', 'argon-coding'}
     cleaned = []
     for entry in entries:
         if entry.get('id') in ids:
