@@ -169,6 +169,7 @@ import { renderMonitor } from './monitor-view.js';
     const actions=el('div',{class:'detail-actions'});
     if(!item.paused && !['AWAITING_REVIEW','BLOCKED','COMPLETED'].includes(phase)) {const pause=el('button',{class:'secondary-button',text:'暂停工作流'});pause.addEventListener('click',()=>mutateWorkflow('pause',item));actions.append(pause);}
     if(item.paused || phase==='PAUSED'){const resume=el('button',{class:'secondary-button',text:'恢复工作流'});resume.addEventListener('click',()=>mutateWorkflow('resume',item));actions.append(resume);}
+    actions.append(el('a',{class:'secondary-button',href:'/argon/coding/#/work/'+encodeURIComponent(item.workItemId),text:'进入编码工作区'}));
     const refresh=el('button',{class:'secondary-button',text:'立即刷新'});refresh.addEventListener('click',()=>loadWork(true));actions.append(refresh);
     head.append(left,actions); target.append(makePhaseStrip(phase));
     const warning=el('div',{class:'warning-box',text:phase==='BLOCKED'?`工作流已阻塞：${workflow.reason||'需要人工处理'}。请查看失败操作日志；继续会话可从下方发送补充说明。工作区准备失败或执行状态未知，需要操作员先处理。`:workflow.reason||''});warning.hidden=!workflow.reason&&phase!=='BLOCKED';target.append(warning);

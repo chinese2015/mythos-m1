@@ -7,6 +7,7 @@ import { Context } from '@deepseek-ai/cordis';
 import LocalFs from '@deepseek-ai/dsh-fs-local';
 import { TaskFiles } from '../plugins/argon-coding/files.mjs';
 import { ReaderPool } from '../plugins/argon-coding/ssh.mjs';
+import * as sshReaders from '../plugins/argon-coding/ssh.mjs';
 
 const id = 'work-' + 'a'.repeat(32);
 async function fixture(t) {
@@ -73,4 +74,9 @@ test('an asynchronous eviction reserves capacity before a different reader can r
   finish(); const selected = await b;
   assert.equal(c, undefined);
   selected.release(); await pool.dispose();
+});
+test('task reader composition provides the official read-only policy required by SSH fs', async () => {
+  const ctx=await sshReaders.readOnlyContext('/task/workspace');
+  try { assert.equal(ctx.sandboxPolicy.resolve().mode,'read-only'); assert.equal(ctx.sandboxPolicy.workspaceRoot,'/task/workspace'); }
+  finally { await ctx.fiber.dispose(); }
 });

@@ -2,6 +2,16 @@ import { Context } from '@deepseek-ai/cordis';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fault } from './files.mjs';
+import Policy from '@deepseek-ai/dsh-sandbox-policy';
+import * as Projections from '@deepseek-ai/dsh-session-projection';
+export async function readOnlyContext(workspacePath) {
+  const ctx=new Context();
+  try {
+    await ctx.plugin(Projections.default??Projections);
+    await ctx.plugin(Policy,{mode:'read-only',workspaceRoot:workspacePath});
+    return ctx;
+  } catch(error) { await ctx.fiber.dispose(); throw error; }
+}
 export class ReaderPool {
   constructor(create, limit = 8) { this.create = create; this.limit = limit; this.entries = new Map(); this.closed = false; }
   async open(key) {
@@ -36,7 +46,7 @@ export function createSshReaders(config) {
     const { work, location } = specs.get(key);
     const provider = name => import(pathToFileURL(resolve(config.root, '../dsh-run/node_modules/@deepseek-ai', name, 'lib/index.js')).href);
     const [{ default: Ssh }, { default: Fs }] = await Promise.all([provider('dsh-ssh'), provider('dsh-fs-ssh')]);
-    const ctx = new Context();
+    const ctx = await readOnlyContext(location.workspacePath);
     try {
       await ctx.plugin(Ssh, { host: 'argon-' + work.sandboxId, node: '/usr/bin/node', helper: '/opt/dsh-helper/node_modules/@deepseek-ai/dsh-ssh/lib/helper.js', helperHash: config.helperHash, workspace: location.workspacePath });
       await ctx.plugin(Fs);

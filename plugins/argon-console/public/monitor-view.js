@@ -13,7 +13,10 @@ function stateFor(workItemId) {
   return stateByWork.get(workItemId);
 }
 const opIdOf = op => op.operationId || op.id;
-function panelRoot() { return document.querySelector('[data-panel="monitor"]'); }
+function panelRoot(ctx) {
+  const root = (ctx.monitorHost ?? document).querySelector('[data-panel="monitor"]');
+  return root?.dataset.workItemId === ctx.workItemId ? root : null;
+}
 
 function renderStream(stream, st, ctx) {
   const { el, opLabel } = ctx;
@@ -37,14 +40,14 @@ async function pollEvents(ctx, st) {
     st.eventCursor = merged.cursor;
     st.fetchedEvents = true;
     st.lastErrorAt = null;
-    const root = panelRoot();
+    const root = panelRoot(ctx);
     const stream = root && root.querySelector('.event-stream');
     if (stream) renderStream(stream, st, ctx);
     const stale = root && root.querySelector('[data-stale-note]');
     if (stale) stale.hidden = true;
   } catch (_) {
     st.lastErrorAt = Date.now();
-    const root = panelRoot();
+    const root = panelRoot(ctx);
     const stale = root && root.querySelector('[data-stale-note]');
     if (stale) { const note = staleNote(st.lastErrorAt); if (note) { stale.textContent = note; stale.hidden = false; } }
   } finally { st.fetchingEvents = false; }
@@ -66,7 +69,7 @@ async function tailLog(ctx, st, op) {
       }
       const last = rows[rows.length - 1];
       st.logCursors.set(opId, Number.isSafeInteger(page.nextCursor) ? page.nextCursor : ((last.offset ?? after) + 1));
-      const root = panelRoot();
+      const root = panelRoot(ctx);
       const box = root && root.querySelector(`[data-monitor-log="${CSS.escape(opId)}"]`);
       if (box) { const text = st.logText.get(opId); if (box.textContent !== text) box.textContent = text; }
     }
@@ -88,7 +91,7 @@ function tailActiveLogs(ctx, st, operations) {
 export function renderMonitor(ctx) {
   const { workItemId, workflow, operations = [], session, workItem, panelHead, phaseText } = ctx;
   const st = stateFor(workItemId);
-  const panel = ctx.el('section', { class: 'panel', 'data-panel': 'monitor' });
+  const panel = ctx.el('section', { class: 'panel', 'data-panel': 'monitor', 'data-work-item-id': workItemId });
   panel.append(panelHead('运行监控', 'Work Item 阶段 · Agent 活动 · 执行事实'));
   const body = ctx.el('div', { class: 'panel-body' });
   const statusLine = ctx.el('div', { class: 'operation-details' });
