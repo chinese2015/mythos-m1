@@ -50,7 +50,7 @@ def main():
     store = Store(args.data_dir)
     if getattr(args, 'per_owner_limit', 2) < 1 or getattr(args, 'global_limit', 4) < 1:
         parser.error('sandbox limits must be positive')
-    executor = DockerExecutor(SandboxBroker(args.sandbox_root, args.per_owner_limit, args.global_limit))
+    executor = DockerExecutor(SandboxBroker(args.sandbox_root, args.per_owner_limit, args.global_limit), store)
     if args.action == 'api':
         if not ipaddress.ip_address(args.host).is_loopback:
             parser.error('API must bind a loopback address; use an SSH tunnel or authenticated proxy')

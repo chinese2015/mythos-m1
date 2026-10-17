@@ -4,6 +4,8 @@ import unittest
 
 from brain.errors import InvalidInput, NotFound, PreparationFailure
 from brain.executor import DockerExecutor, validate_repository
+from brain.git_host import GitHostClient
+from brain.store import Store
 from sandbox import SandboxBroker
 
 
@@ -29,6 +31,20 @@ class ExecutorPolicyTests(unittest.TestCase):
                 executor.validate_binding('alice', record['sandbox_id'])
             broker.registry.transition('alice', record['sandbox_id'], 'running')
             self.assertEqual(executor.validate_binding('alice', record['sandbox_id'])['owner_id'], 'alice')
+
+    def test_executor_binds_optional_store_and_host_without_changing_legacy(self):
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            broker = SandboxBroker(Path(first))
+            legacy = DockerExecutor(broker)
+            self.assertIsNone(legacy.store)
+            self.assertIsNone(legacy.host)
+            store = Store(Path(second))
+            bound = DockerExecutor(broker, store)
+            self.assertIs(bound.store, store)
+            self.assertIsInstance(bound.host, GitHostClient)
+            host = GitHostClient(Path(second) / 'argon-agent.json')
+            custom = DockerExecutor(broker, store, host)
+            self.assertIs(custom.host, host)
 
     def test_post_allocation_preparation_failure_exposes_verifier_for_cleanup(self):
         with tempfile.TemporaryDirectory() as temporary:

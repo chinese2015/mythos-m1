@@ -4,9 +4,16 @@ import subprocess
 import threading
 
 from .errors import Conflict, InvalidInput
-from .executor import SETTINGS, validate_repository
+from .executor import SETTINGS, validate_registered_repository, validate_repository
+from .git_host import GitHostClient
+from .task_spec import is_manual, repository_config_from_spec, validate_task_spec
 
 MAX_DIFF = 128 * 1024
+
+
+def parse_diff_names(value):
+    """Split NUL-separated git diff --name-only -z output into change names."""
+    return [name for name in value.split('\0') if name]
 
 
 class TaskWorkspace:
@@ -47,10 +54,21 @@ class TaskWorkspace:
             self._active.add(work_id)
         try:
             source = work['sourceRecord']
-            validate_repository(source['repositoryUrl'])
+            branch = 'main'
+            context = None
+            if is_manual(work):
+                spec = validate_task_spec(work['taskSpec'], owner)
+                self.store.repository(owner, spec['repository']['repositoryId'])
+                context = (self.executor.host or GitHostClient()).git_context(repository_config_from_spec(spec))
+                if source.get('repositoryUrl') != context['url']:
+                    raise InvalidInput('Task repository binding does not match the frozen task spec')
+                validate_registered_repository(self.store, owner, context['url'])
+                branch = spec['repository']['baseBranch']
+            else:
+                validate_repository(source['repositoryUrl'])
             if not re.fullmatch(r'[0-9a-f]{40}', source['baseCommit']):
                 raise InvalidInput('baseCommit must be a full lowercase Git SHA')
-            record = self.broker.create(owner, label, source['repositoryUrl'])
+            record = self.broker.create(owner, label, source['repositoryUrl'], branch=branch, git_context=context)
             sandbox_id = record['sandbox_id']
             self._exec(owner, sandbox_id, ['git', 'checkout', '--detach', source['baseCommit']])
             actual = self._exec(owner, sandbox_id, ['git', 'rev-parse', 'HEAD'])
@@ -111,7 +129,11 @@ class TaskWorkspace:
         head = git('rev-parse', 'HEAD')
         branch = git('branch', '--show-current')
         status = git('status', '--short')
-        names = git('diff', '--name-only', source['baseCommit']).splitlines()
+        raw_names = self.broker.execute_capture(owner, sandbox_id,
+            ['git', 'diff', '--name-only', '-z', '--no-color', source['baseCommit']], timeout=30)
+        if raw_names['exitCode']:
+            raise RuntimeError('Unable to read task change names')
+        names = parse_diff_names(raw_names['stdout'])
         tests = [name for name in names if re.search(r'(^|/)(test|tests)(/|$)|Test[^/]*\.java$', name, re.I)]
         raw = self.broker.execute_capture(owner, sandbox_id,
             ['git', 'diff', '--no-ext-diff', '--no-color', '--binary', source['baseCommit']], timeout=30)

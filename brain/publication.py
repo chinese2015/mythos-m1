@@ -10,8 +10,11 @@ import time
 
 from .errors import Conflict, InvalidInput
 from .evidence import passing_junit
-from .executor import validate_repository
+from .executor import validate_registered_repository, validate_repository
+from .git_host import GitHostClient
 from .store import ACTIVE, TERMINAL
+from .task_spec import (change_allowed, is_manual, repository_config_from_spec,
+                        validate_task_spec, verification_passes)
 from .workspace import TaskWorkspace
 
 MAX_BUNDLE = 32 * 1024 * 1024
@@ -95,11 +98,22 @@ class GitPublisher:
         source = work.get('sourceRecord')
         workflow = work.get('workflow') or {}
         intent = workflow.get('delivery')
-        if (work.get('ownerId') != owner or work.get('source', {}).get('type') != 'ARGON'
-                or not isinstance(source, dict) or not source.get('ownerId')
-                or work.get('source', {}).get('id') != source.get('id')):
-            raise Conflict('Publication requires an owner-bound Argon task')
-        repository = validate_repository(source.get('repositoryUrl'))
+        spec = None
+        if is_manual(work):
+            if work.get('ownerId') != owner or not isinstance(source, dict) or not source.get('ownerId'):
+                raise Conflict('Publication requires an owner-bound manual task')
+            spec = validate_task_spec(work['taskSpec'], owner)
+            host = getattr(self.executor, 'host', None) or GitHostClient()
+            context = host.git_context(repository_config_from_spec(spec))
+            if source.get('repositoryUrl') != context['url']:
+                raise Conflict('Task repository binding does not match the frozen task spec')
+            repository = validate_registered_repository(self.store, owner, context['url'])
+        else:
+            if (work.get('ownerId') != owner or work.get('source', {}).get('type') != 'ARGON'
+                    or not isinstance(source, dict) or not source.get('ownerId')
+                    or work.get('source', {}).get('id') != source.get('id')):
+                raise Conflict('Publication requires an owner-bound Argon task')
+            repository = validate_repository(source.get('repositoryUrl'))
         if not isinstance(intent, dict) or workflow.get('phase') != 'PUBLISHING':
             raise Conflict('No active durable publication intent')
         candidate = intent.get('candidateCommit')
@@ -114,7 +128,13 @@ class GitPublisher:
                 or intent.get('step') != 'PUSH_PENDING'
                 or workflow.get('candidateCommit') != candidate):
             raise Conflict('Publication request does not match the durable delivery intent')
-        if work.get('stage') != 'PUBLISHING' or work.get('paused') or not workflow.get('approval'):
+        if work.get('stage') != 'PUBLISHING' or work.get('paused'):
+            raise Conflict('Task is not approved and ready for publication')
+        approval = workflow.get('approval')
+        if spec is not None:
+            if not isinstance(approval, dict) or approval.get('specDigest') != spec['specDigest']:
+                raise Conflict('Approval does not match the frozen task specification')
+        elif not approval:
             raise Conflict('Task is not approved and ready for publication')
         snapshot = self.store.snapshot(owner, work['workItemId'])
         operations = snapshot['operations']
@@ -122,30 +142,40 @@ class GitPublisher:
                for op in operations):
             raise Conflict('Task has an active, uncertain, or queued operation')
         verify = next((op for op in operations if op['operationId'] == verify_id), None)
-        if (not verify or verify.get('kind') != 'VERIFY' or verify.get('state') != 'SUCCEEDED'
-                or verify.get('sourceCommit') != candidate or verify.get('sandboxId') != work.get('sandboxId')
-                or type(verify.get('exitCode')) is not int or verify.get('exitCode') != 0):
+        if not verify:
             raise Conflict('Fresh successful verification for the exact candidate is required')
         verified = self.store.operation(owner, verify_id)
-        evidence = verified.get('evidence') or {}
-        runtime = verified.get('runtime') or {}
-        junit = evidence.get('junit') or {}
-        if (evidence.get('sourceCommit') != candidate or evidence.get('sourceDirty') is not False
-                or type(evidence.get('exitCode')) is not int or evidence.get('exitCode') != 0
-                or evidence.get('sandboxId') != runtime.get('sandboxId')
-                or not passing_junit(junit) or junit.get('tests') != 2 or junit.get('failures') != 0
-                or junit.get('errors') != 0 or junit.get('skipped') != 0 or junit.get('invalidReports')
-                or runtime.get('freshTargetAbsent') is not True
-                or runtime.get('sandboxId') in {None, work.get('sandboxId')}):
-            raise Conflict('Verification evidence is incomplete or does not match publication policy')
+        if spec is not None:
+            if (verified.get('sandboxId') != work.get('sandboxId')
+                    or not verification_passes(spec, verified, verified.get('evidence'))):
+                raise Conflict('Fresh successful verification for the exact candidate is required')
+        else:
+            evidence = verified.get('evidence') or {}
+            runtime = verified.get('runtime') or {}
+            junit = evidence.get('junit') or {}
+            if (verify.get('kind') != 'VERIFY' or verify.get('state') != 'SUCCEEDED'
+                    or verify.get('sourceCommit') != candidate or verify.get('sandboxId') != work.get('sandboxId')
+                    or type(verify.get('exitCode')) is not int or verify.get('exitCode') != 0
+                    or evidence.get('sourceCommit') != candidate or evidence.get('sourceDirty') is not False
+                    or type(evidence.get('exitCode')) is not int or evidence.get('exitCode') != 0
+                    or evidence.get('sandboxId') != runtime.get('sandboxId')
+                    or not passing_junit(junit) or junit.get('tests') != 2 or junit.get('failures') != 0
+                    or junit.get('errors') != 0 or junit.get('skipped') != 0 or junit.get('invalidReports')
+                    or runtime.get('freshTargetAbsent') is not True
+                    or runtime.get('sandboxId') in {None, work.get('sandboxId')}):
+                raise Conflict('Verification evidence is incomplete or does not match publication policy')
         git = self.workspace.evidence(owner, work['workItemId'])['git']
-        if (git['headCommit'] != candidate or git['status'] or git['diffTruncated']
-                or git['changedFiles'] != [source['sourcePath']] or git['testsChanged']):
+        if git['headCommit'] != candidate or git['status'] or git['diffTruncated']:
+            raise Conflict('Source workspace is not the clean exact verified candidate')
+        if spec is not None:
+            if not change_allowed(spec, git['changedFiles']):
+                raise Conflict('Candidate changes are outside the frozen task scope')
+        elif git['changedFiles'] != [source['sourcePath']] or git['testsChanged']:
             raise Conflict('Source workspace is not the clean exact verified candidate')
         self._container_exec(owner, work['sandboxId'],
                              ['git', 'merge-base', '--is-ancestor', source['baseCommit'], candidate])
         remote = self._container_exec(owner, work['sandboxId'], ['git', 'remote', 'get-url', 'origin'])
-        if validate_repository(remote) != repository:
+        if validate_registered_repository(self.store, owner, remote) != repository:
             raise Conflict('Task workspace repository binding changed')
         return intent, candidate, verify_id, branch, repository
 
@@ -257,7 +287,7 @@ class GitPublisher:
         return b''.join(chunks).decode('utf-8', errors='replace')
 
     def _remote_commit(self, repository, branch, work):
-        validate_repository(repository)
+        validate_registered_repository(self.store, work.get('ownerId'), repository)
         # A private temporary directory provides a sanitized HOME and Git config.
         with tempfile.TemporaryDirectory(prefix='argon-publish-query-') as temp:
             output = self._git(Path(temp), ['ls-remote', '--heads', repository,

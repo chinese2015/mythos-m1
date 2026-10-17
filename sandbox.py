@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import time
@@ -12,6 +13,25 @@ from registry import Registry
 from ssh_config import register_include
 
 IMAGE = 'argon-dsh-sandbox:0.2.0-rc.2'
+
+CLONE_URL = re.compile(r'http://127\.0\.0\.1:3000/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\.git')
+
+
+def validate_clone_target(url, branch, git_context):
+    """Reject unsafe branches, URLs, or contexts before any Git or Docker I/O."""
+    from brain.task_spec import branch_name
+    from brain.errors import InvalidInput
+    branch_name(branch)
+    if git_context is None:
+        if not isinstance(url, str) or not CLONE_URL.fullmatch(url):
+            raise InvalidInput('Unsafe Git clone URL')
+        return url, branch, None
+    if (not isinstance(git_context, dict) or set(git_context) != {'url', 'credentialFile'}
+            or not isinstance(git_context['url'], str) or not isinstance(git_context['credentialFile'], str)):
+        raise InvalidInput('Git context must provide exactly url and credentialFile')
+    if url != git_context['url'] or not CLONE_URL.fullmatch(url):
+        raise InvalidInput('Git clone URL does not match the approved context')
+    return url, branch, git_context
 
 
 def run(argv, **kwargs):
@@ -25,7 +45,9 @@ class SandboxBroker:
     def __init__(self, root, per_owner_limit=2, global_limit=4):
         self.registry = Registry(root, per_owner_limit=per_owner_limit, global_limit=global_limit)
 
-    def create(self, owner, workspace, source=None):
+    def create(self, owner, workspace, source=None, *, branch='main', git_context=None):
+        if source:
+            source, branch, git_context = validate_clone_target(source, branch, git_context)
         record = self.registry.allocate(owner, workspace)
         folder = Path(record['workspace_path']).parent
         secret = folder / 'private'
@@ -34,7 +56,16 @@ class SandboxBroker:
         try:
             run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(key)])
             if source:
-                run(['git', 'clone', '--single-branch', '--branch', 'main', source, record['workspace_path']])
+                if git_context is None:
+                    run(['git', 'clone', '--single-branch', '--branch', branch, source, record['workspace_path']])
+                else:
+                    from brain.git_credentials import helper_command
+                    environment = dict(os.environ, GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull,
+                                       GIT_TERMINAL_PROMPT='0', GIT_ASKPASS='/bin/false')
+                    run(['git', '-c', 'credential.helper=' + helper_command(git_context['credentialFile'], source),
+                         '-c', 'credential.useHttpPath=true',
+                         'clone', '--single-branch', '--branch', branch, source, record['workspace_path']],
+                        env=environment)
                 run(['git', '-C', record['workspace_path'], 'config', 'core.sharedRepository', 'group'])
             for directory, _, files in os.walk(record['workspace_path']):
                 os.chmod(directory, 0o2770)

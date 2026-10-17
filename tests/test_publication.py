@@ -1,12 +1,15 @@
 import hashlib
+import json
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
 
 from brain.errors import Conflict, NotFound
+from brain.git_host import GitHostClient
 from brain.publication import delivery_id, publication_branch, GitPublisher
 from brain.store import Store
+from brain.task_spec import make_task_spec
 
 
 class PublicationTests(unittest.TestCase):
@@ -177,6 +180,179 @@ class PublicationTests(unittest.TestCase):
         with self.assertRaises(NotFound):
             publisher.publish('owner-nova-01', work['workItemId'], intent_id,
                               'wrong-authenticated-owner', current['version'])
+
+
+class ManualPublicationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.store = Store(self.temp.name)
+        self.candidate = 'b' * 40
+        self.tree = 'c' * 40
+        self.secret = Path(self.temp.name) / 'argon-agent.json'
+        self.secret.write_text(json.dumps({'username': 'argon-agent', 'password': 'p' * 24}))
+        self.secret.chmod(0o600)
+
+    def make_work(self, evidence=None, input_extra=None, change_policy=None):
+        config = {'displayName': 'Demo Customer API', 'connectionId': 'local-gitea',
+                  'fullName': 'demo/demo-customer-api', 'defaultBranch': 'main',
+                  'runtimeProfile': 'java17-maven-offline-v1',
+                  'execution': {'baselineCommand': 'mvn -q test', 'verificationCommand': 'mvn -q verify',
+                                'baselineMode': 'record', 'timeoutSeconds': 300,
+                                'evidence': evidence or {'format': 'junit', 'reportDirs': ['target/surefire-reports'],
+                                                         'minTests': 1, 'allowSkipped': False}},
+                  'changePolicy': change_policy or {'allowedPaths': ['src/'], 'allowTestChanges': False, 'maxFiles': 100}}
+        repo = self.store.register_repository('alice', config, 'register-manual')
+        task_input = {'repositoryId': repo['repositoryId'], 'repositoryRevision': repo['revision'],
+                      'title': 'Add customer endpoint', 'description': 'Add it', 'acceptanceCriteria': 'Works'}
+        task_input.update(input_extra or {})
+        spec = make_task_spec('alice', repo, task_input, 'a' * 40)
+        work = self.store.create_manual_task('alice', task_input, spec, 'task-manual')
+        return spec, self.store.finish_prepare('alice', work['workItemId'], 'sb-a')
+
+    def verify_operation(self, work, command='mvn -q verify', sandbox='sb-fresh-b', command_mode=False):
+        version = self.store.get_work_item('alice', work['workItemId'])['version']
+        op = self.store.submit('alice', work['workItemId'],
+                               {'expectedVersion': version, 'kind': 'VERIFY', 'command': command,
+                                'timeoutSeconds': 300, 'sourceCommit': self.candidate}, 'verify-' + op_nonce())
+        self.store.claim_next()
+        self.store.record_runtime(op['operationId'], {'sandboxId': sandbox, 'freshTargetAbsent': True})
+        evidence = {'kind': 'VERIFY', 'sandboxId': sandbox, 'sourceCommit': self.candidate,
+                    'sourceDirty': False, 'exitCode': 0}
+        if not command_mode:
+            evidence['junit'] = {'reports': [{'path': 'target/surefire-reports/TEST-demo.xml'}],
+                                 'invalidReports': [], 'tests': 3, 'failures': 0, 'errors': 0,
+                                 'skipped': 0, 'failedTests': []}
+        self.store.finish(op['operationId'], 'SUCCEEDED', exit_code=0, evidence=evidence)
+        return op['operationId']
+
+    def ready(self, work, spec, verify_id, approval_digest=None, changed=None, tests_changed=None):
+        current = self.store.get_work_item('alice', work['workItemId'])
+        intent_id = delivery_id(work['workItemId'], self.candidate, verify_id)
+        branch = publication_branch(work['source']['id'], work['workItemId'], self.candidate)
+        approval = {'actor': 'alice'}
+        if approval_digest is not None:
+            approval['specDigest'] = approval_digest
+        workflow = {'phase': 'PUBLISHING', 'candidateCommit': self.candidate, 'approval': approval,
+                    'delivery': {'id': intent_id, 'candidateCommit': self.candidate,
+                                 'verificationOperationId': verify_id, 'headBranch': branch,
+                                 'repositoryUrl': spec['repository']['cloneUrl'],
+                                 'step': 'PUSH_PENDING', 'policy': {}}}
+        current = self.store.update_workflow('alice', work['workItemId'], current['version'],
+                                             workflow, 'PUBLISHING', key='intent-' + op_nonce())
+        publisher = GitPublisher(self.store, self.executor_stub(spec))
+        publisher.workspace.evidence = lambda owner, work_id: {'git': {
+            'headCommit': self.candidate, 'status': '', 'diffTruncated': False,
+            'changedFiles': changed if changed is not None else ['src/main/java/demo/CustomerApi.java'],
+            'testsChanged': tests_changed if tests_changed is not None else []}}
+        publisher._remote_commit = lambda repository, head, item: self.candidate
+        return publisher, intent_id, current['version']
+
+    def executor_stub(self, spec):
+        url = spec['repository']['cloneUrl']
+        candidate, tree, base = self.candidate, self.tree, 'a' * 40
+
+        class BrokerStub:
+            def execute_capture(self, owner, sandbox_id, argv, timeout=None):
+                if argv == ['git', 'remote', 'get-url', 'origin']:
+                    return {'exitCode': 0, 'stdout': url}
+                if argv == ['git', 'merge-base', '--is-ancestor', base, candidate]:
+                    return {'exitCode': 0, 'stdout': ''}
+                if argv == ['git', 'rev-parse', candidate + '^{tree}']:
+                    return {'exitCode': 0, 'stdout': tree}
+                raise AssertionError('Unexpected container command: ' + repr(argv))
+
+        return type('ExecutorStub', (), {'broker': BrokerStub(),
+                                         'host': GitHostClient(self.secret)})()
+
+    def test_manual_multi_file_candidate_publishes_from_frozen_repository(self):
+        spec, work = self.make_work()
+        verify_id = self.verify_operation(work)
+        publisher, intent_id, version = self.ready(
+            work, spec, verify_id, approval_digest=spec['specDigest'],
+            changed=['src/main/java/demo/CustomerApi.java', 'src/main/java/demo/Store.java'])
+        result = publisher.publish('alice', work['workItemId'], intent_id, 'publish-manual', version)
+        self.assertEqual((result['remoteCommit'], result['candidateTree']), (self.candidate, self.tree))
+        self.assertTrue(result['reconciled'])
+
+    def test_manual_publication_requires_approval_spec_digest(self):
+        spec, work = self.make_work()
+        verify_id = self.verify_operation(work)
+        publisher, intent_id, version = self.ready(work, spec, verify_id, approval_digest='0' * 64)
+        with self.assertRaises(Conflict):
+            publisher.publish('alice', work['workItemId'], intent_id, 'publish-digest', version)
+
+    def test_manual_publication_rejects_verifier_that_is_not_a_fresh_independent_b(self):
+        spec, work = self.make_work()
+        verify_id = self.verify_operation(work, sandbox='sb-a')
+        publisher, intent_id, version = self.ready(work, spec, verify_id, approval_digest=spec['specDigest'])
+        with self.assertRaises(Conflict):
+            publisher.publish('alice', work['workItemId'], intent_id, 'publish-stale-b', version)
+
+    def test_manual_publication_rejects_tampered_verify_command(self):
+        spec, work = self.make_work()
+        op = self.store.submit('alice', work['workItemId'],
+                               {'expectedVersion': self.store.get_work_item('alice', work['workItemId'])['version'],
+                                'kind': 'VERIFY', 'command': 'mvn -q verify', 'timeoutSeconds': 300,
+                                'sourceCommit': self.candidate}, 'verify-tamper')
+        self.store.claim_next()
+        self.store.record_runtime(op['operationId'], {'sandboxId': 'sb-fresh-b', 'freshTargetAbsent': True})
+        self.store.finish(op['operationId'], 'SUCCEEDED', exit_code=0, evidence={
+            'kind': 'VERIFY', 'sandboxId': 'sb-fresh-b', 'sourceCommit': self.candidate,
+            'sourceDirty': False, 'exitCode': 0,
+            'junit': {'reports': [{'path': 'target/surefire-reports/TEST-demo.xml'}], 'invalidReports': [],
+                      'tests': 3, 'failures': 0, 'errors': 0, 'skipped': 0, 'failedTests': []}})
+        with self.store.connection(True) as db:
+            tampered = dict(self.store.operation('alice', op['operationId']), command='mvn test')
+            db.execute('UPDATE operations SET data=? WHERE id=?',
+                       (json.dumps(tampered, sort_keys=True), op['operationId']))
+        publisher, intent_id, version = self.ready(work, spec, op['operationId'],
+                                                   approval_digest=spec['specDigest'])
+        with self.assertRaises(Conflict):
+            publisher.publish('alice', work['workItemId'], intent_id, 'publish-tamper', version)
+
+    def test_manual_publication_rejects_changes_outside_the_frozen_scope(self):
+        spec, work = self.make_work()
+        verify_id = self.verify_operation(work)
+        publisher, intent_id, version = self.ready(work, spec, verify_id, approval_digest=spec['specDigest'],
+                                                   changed=['src/main/java/demo/CustomerApi.java', 'README.md'])
+        with self.assertRaises(Conflict):
+            publisher.publish('alice', work['workItemId'], intent_id, 'publish-scope', version)
+
+    def test_manual_publication_rejects_test_changes_without_permission(self):
+        spec, work = self.make_work()
+        verify_id = self.verify_operation(work)
+        publisher, intent_id, version = self.ready(
+            work, spec, verify_id, approval_digest=spec['specDigest'],
+            changed=['src/main/java/demo/CustomerApi.java', 'src/test/java/demo/CustomerApiTest.java'])
+        with self.assertRaises(Conflict):
+            publisher.publish('alice', work['workItemId'], intent_id, 'publish-tests', version)
+
+    def test_manual_publication_allows_approved_test_changes(self):
+        policy = {'allowedPaths': ['src/'], 'allowTestChanges': True, 'maxFiles': 100}
+        spec, work = self.make_work(change_policy=policy, input_extra={'allowTestChanges': True})
+        verify_id = self.verify_operation(work)
+        publisher, intent_id, version = self.ready(
+            work, spec, verify_id, approval_digest=spec['specDigest'],
+            changed=['src/main/java/demo/CustomerApi.java', 'src/test/java/demo/CustomerApiTest.java'])
+        result = publisher.publish('alice', work['workItemId'], intent_id, 'publish-allowed-tests', version)
+        self.assertEqual(result['remoteCommit'], self.candidate)
+
+    def test_manual_command_mode_publishes_without_junit_reports(self):
+        command_mode = {'format': 'command', 'reportDirs': [], 'minTests': 0, 'allowSkipped': False}
+        spec, work = self.make_work(evidence=command_mode)
+        verify_id = self.verify_operation(work, command_mode=True)
+        publisher, intent_id, version = self.ready(work, spec, verify_id, approval_digest=spec['specDigest'])
+        result = publisher.publish('alice', work['workItemId'], intent_id, 'publish-command', version)
+        self.assertEqual(result['remoteCommit'], self.candidate)
+
+
+_nonce = [0]
+
+
+def op_nonce():
+    _nonce[0] += 1
+    return str(_nonce[0])
 
 
 if __name__ == '__main__':

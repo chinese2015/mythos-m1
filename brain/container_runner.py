@@ -53,9 +53,29 @@ def alive(meta):
         return False
 
 
-def capture_reports(workspace):
+def _report_directories(workspace, report_dirs):
     workspace = Path(workspace).resolve()
-    paths = sorted((workspace / 'target/surefire-reports').glob('TEST-*.xml'))
+    if report_dirs is None:
+        report_dirs = ['target/surefire-reports']
+    if not isinstance(report_dirs, list) or len(report_dirs) > 100:
+        raise ValueError('Invalid report directories')
+    directories = []
+    for name in report_dirs:
+        if (not isinstance(name, str) or not name or name.startswith('/') or '\\' in name
+                or any(part in {'', '.', '..'} for part in Path(name).parts)):
+            raise ValueError('Report directory escapes workspace or is unsafe')
+        directory = (workspace / name).resolve()
+        if not directory.is_relative_to(workspace):
+            raise ValueError('Report directory escapes workspace')
+        directories.append(directory)
+    return workspace, directories
+
+
+def capture_reports(workspace, report_dirs=None):
+    workspace, directories = _report_directories(workspace, report_dirs)
+    paths = []
+    for directory in directories:
+        paths.extend(sorted(directory.glob('TEST-*.xml')))
     reports = []
     for path in paths[:8]:
         name = str(path.relative_to(workspace))
@@ -83,13 +103,11 @@ def capture_reports(workspace):
     return reports
 
 
-def clear_reports(workspace):
-    workspace = Path(workspace).resolve()
-    directory = workspace / 'target/surefire-reports'
-    if directory.exists() and not directory.resolve().is_relative_to(workspace):
-        raise ValueError('JUnit directory escapes workspace')
-    for path in directory.glob('TEST-*.xml'):
-        path.unlink()
+def clear_reports(workspace, report_dirs=None):
+    workspace, directories = _report_directories(workspace, report_dirs)
+    for directory in directories:
+        for path in directory.glob('TEST-*.xml'):
+            path.unlink()
 
 
 def commit_state(workspace, expected):
@@ -188,7 +206,7 @@ def supervise(root, spec):
         try:
             enable_subreaper()
             result.update(commit_state(spec['workspace'], spec.get('sourceCommit')))
-            clear_reports(spec['workspace'])
+            clear_reports(spec['workspace'], spec.get('reportDirs'))
             environment = os.environ.copy()
             environment.update(GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='safe.directory',
                                GIT_CONFIG_VALUE_0=spec['workspace'])
@@ -245,7 +263,7 @@ def supervise(root, spec):
                 selector.close()
                 for stream in files.values():
                     stream.close()
-            result['reports'] = capture_reports(spec['workspace'])
+            result['reports'] = capture_reports(spec['workspace'], spec.get('reportDirs'))
         except Exception as error:
             if process is not None:
                 try:

@@ -4,6 +4,13 @@ import fcntl
 import time
 
 from .evidence import passing_junit, summarize_junit
+from .task_spec import is_manual, validate_task_spec, verification_passes
+
+
+def _junit_policy_passes(policy, junit):
+    return bool(junit and junit['reports'] and not junit['invalidReports'] and not junit['failures']
+                and not junit['errors'] and junit['tests'] - junit['skipped'] >= policy['minTests']
+                and (not junit['skipped'] or policy['allowSkipped']))
 
 
 class Worker:
@@ -71,17 +78,37 @@ class Worker:
         except Exception as error:
             self.store.finish(op['operationId'], 'UNKNOWN', reason='Executor observation lost: ' + str(error)[:700])
 
+    def _frozen_spec(self, op):
+        store = getattr(self.executor, 'store', None)
+        if store is None:
+            return None
+        work = store.get_work_item(op['ownerId'], op['workItemId'])
+        if not is_manual(work):
+            return None
+        return validate_task_spec(work['taskSpec'], op['ownerId'])
+
     def _complete(self, op, result):
         code = result['exitCode']
-        junit = summarize_junit(result.get('reports', []))
+        spec = self._frozen_spec(op)
+        policy = spec['execution']['evidence'] if spec is not None else None
+        command_mode = policy is not None and policy['format'] == 'command'
+        junit = None if command_mode else summarize_junit(result.get('reports', []))
         reason = result.get('reason')
         if code is None or result.get('containmentConfirmed') is False:
             state = 'UNKNOWN'
             reason = result.get('error') or reason or 'Descendant termination could not be confirmed'
         elif code == 0:
             state = 'SUCCEEDED'
-            if op['kind'] in {'UNIT_TEST', 'VERIFY'} and not passing_junit(junit):
-                state, reason = 'FAILED', 'Exit 0 but passing JUnit evidence is missing or invalid'
+            if op['kind'] in {'UNIT_TEST', 'VERIFY'}:
+                if spec is None:
+                    if not passing_junit(junit):
+                        state, reason = 'FAILED', 'Exit 0 but passing JUnit evidence is missing or invalid'
+                elif command_mode:
+                    pass
+                elif op['kind'] == 'VERIFY':
+                    pass
+                elif not _junit_policy_passes(policy, junit):
+                    state, reason = 'FAILED', 'Exit 0 but JUnit evidence does not satisfy the frozen task policy'
         elif reason == 'cancelled':
             state = 'CANCELLED'
         else:
@@ -90,6 +117,11 @@ class Worker:
                     'expectedSourceCommit': op['sourceCommit'], 'command': op['command'], 'exitCode': code,
                     'kind': op['kind'], 'sandboxId': op['runtime']['sandboxId'],
                     'junit': junit, 'truncated': result.get('truncated', {})}
+        if command_mode:
+            evidence['validation'] = {'format': 'command', 'exitCode': code}
+        if (state == 'SUCCEEDED' and spec is not None and op['kind'] == 'VERIFY'
+                and not verification_passes(spec, {**op, 'state': state, 'exitCode': code}, evidence)):
+            state, reason = 'FAILED', 'Exit 0 but verification does not satisfy the frozen task policy'
         self.store.finish(op['operationId'], state, exit_code=code, evidence=evidence, reason=reason)
 
     def run(self, stop=None, interval=.25):

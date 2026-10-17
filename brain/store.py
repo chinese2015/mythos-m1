@@ -11,6 +11,7 @@ import uuid
 
 from .errors import Conflict, InvalidInput, NotFound
 from .repository_store import RepositoryStore
+from .task_spec import is_manual, validate_task_spec
 
 TERMINAL = {'SUCCEEDED', 'FAILED', 'CANCELLED', 'UNKNOWN'}
 ACTIVE = {'STARTING', 'RUNNING', 'CANCEL_REQUESTED'}
@@ -347,6 +348,13 @@ class Store(RepositoryStore):
                 return self._op(db, retry, owner)
             if not work.get('sandboxId'):
                 raise Conflict('Workspace must be prepared before execution')
+            if is_manual(work):
+                spec = validate_task_spec(work['taskSpec'], owner)
+                if kind == 'VERIFY':
+                    if command != spec['execution']['verificationCommand']:
+                        raise InvalidInput('VERIFY must use the frozen verification command')
+                    if timeout > spec['execution']['timeoutSeconds']:
+                        raise InvalidInput('timeoutSeconds exceeds the frozen maximum')
             self._version(work, body.get('expectedVersion'))
             op = {'operationId': identifier('exec'), 'workItemId': work_id, 'ownerId': owner,
                   'sandboxId': work['sandboxId'], 'kind': kind, 'command': command,
