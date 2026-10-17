@@ -207,6 +207,15 @@ class VerifierContextTests(unittest.TestCase):
                 {'ownerId': 'alice', 'workItemId': self.work['workItemId']},
                 'http://127.0.0.1:3000/demo/unregistered-api.git')
 
+    def test_unregistered_remote_is_rejected_before_the_credential_file_is_opened(self):
+        missing = Path(self.temp.name) / 'missing' / 'argon-agent.json'
+        executor = DockerExecutor(self.broker, self.store, GitHostClient(missing))
+        with self.assertRaises(InvalidInput) as raised:
+            executor._verifier_context(
+                {'ownerId': 'alice', 'workItemId': self.work['workItemId']},
+                'http://127.0.0.1:3000/demo/unregistered-api.git')
+        self.assertIn('frozen task repository', str(raised.exception))
+
     def test_legacy_operation_keeps_demo_allowlist_and_default_branch(self):
         executor = self.executor(with_store=False)
         legacy = 'http://127.0.0.1:3000/demo/demo-nova-catalog-api.git'

@@ -146,7 +146,8 @@ class GitPublisher:
             raise Conflict('Fresh successful verification for the exact candidate is required')
         verified = self.store.operation(owner, verify_id)
         if spec is not None:
-            if (verified.get('sandboxId') != work.get('sandboxId')
+            if (verified.get('sourceCommit') != candidate
+                    or verified.get('sandboxId') != work.get('sandboxId')
                     or not verification_passes(spec, verified, verified.get('evidence'))):
                 raise Conflict('Fresh successful verification for the exact candidate is required')
         else:

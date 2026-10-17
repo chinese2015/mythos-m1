@@ -210,14 +210,16 @@ class ManualPublicationTests(unittest.TestCase):
         work = self.store.create_manual_task('alice', task_input, spec, 'task-manual')
         return spec, self.store.finish_prepare('alice', work['workItemId'], 'sb-a')
 
-    def verify_operation(self, work, command='mvn -q verify', sandbox='sb-fresh-b', command_mode=False):
+    def verify_operation(self, work, command='mvn -q verify', sandbox='sb-fresh-b', command_mode=False,
+                         source_commit=None):
+        source_commit = source_commit or self.candidate
         version = self.store.get_work_item('alice', work['workItemId'])['version']
         op = self.store.submit('alice', work['workItemId'],
                                {'expectedVersion': version, 'kind': 'VERIFY', 'command': command,
-                                'timeoutSeconds': 300, 'sourceCommit': self.candidate}, 'verify-' + op_nonce())
+                                'timeoutSeconds': 300, 'sourceCommit': source_commit}, 'verify-' + op_nonce())
         self.store.claim_next()
         self.store.record_runtime(op['operationId'], {'sandboxId': sandbox, 'freshTargetAbsent': True})
-        evidence = {'kind': 'VERIFY', 'sandboxId': sandbox, 'sourceCommit': self.candidate,
+        evidence = {'kind': 'VERIFY', 'sandboxId': sandbox, 'sourceCommit': source_commit,
                     'sourceDirty': False, 'exitCode': 0}
         if not command_mode:
             evidence['junit'] = {'reports': [{'path': 'target/surefire-reports/TEST-demo.xml'}],
@@ -281,6 +283,13 @@ class ManualPublicationTests(unittest.TestCase):
         publisher, intent_id, version = self.ready(work, spec, verify_id, approval_digest='0' * 64)
         with self.assertRaises(Conflict):
             publisher.publish('alice', work['workItemId'], intent_id, 'publish-digest', version)
+
+    def test_manual_publication_rejects_verify_of_a_different_commit_than_the_candidate(self):
+        spec, work = self.make_work()
+        verify_id = self.verify_operation(work, source_commit='d' * 40)
+        publisher, intent_id, version = self.ready(work, spec, verify_id, approval_digest=spec['specDigest'])
+        with self.assertRaises(Conflict):
+            publisher.publish('alice', work['workItemId'], intent_id, 'publish-wrong-commit', version)
 
     def test_manual_publication_rejects_verifier_that_is_not_a_fresh_independent_b(self):
         spec, work = self.make_work()

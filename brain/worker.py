@@ -4,7 +4,7 @@ import fcntl
 import time
 
 from .evidence import passing_junit, summarize_junit
-from .task_spec import is_manual, validate_task_spec, verification_passes
+from .task_spec import frozen_task_spec, verification_passes
 
 
 def _junit_policy_passes(policy, junit):
@@ -79,13 +79,7 @@ class Worker:
             self.store.finish(op['operationId'], 'UNKNOWN', reason='Executor observation lost: ' + str(error)[:700])
 
     def _frozen_spec(self, op):
-        store = getattr(self.executor, 'store', None)
-        if store is None:
-            return None
-        work = store.get_work_item(op['ownerId'], op['workItemId'])
-        if not is_manual(work):
-            return None
-        return validate_task_spec(work['taskSpec'], op['ownerId'])
+        return frozen_task_spec(getattr(self.executor, 'store', None), op)
 
     def _complete(self, op, result):
         code = result['exitCode']

@@ -8,6 +8,7 @@ operation after the configured helper arguments).
 import json
 import os
 from pathlib import Path
+import shlex
 import stat
 import sys
 
@@ -20,7 +21,6 @@ except ImportError:  # Standalone execution: python3 brain/git_credentials.py ..
 
 def helper_command(credential_file, url):
     """Build the git config value for this scoped helper."""
-    import shlex
     script = Path(__file__).resolve()
     return '!' + ' '.join(shlex.quote(part) for part in
                           (sys.executable, str(script), str(credential_file), url))

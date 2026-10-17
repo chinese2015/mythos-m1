@@ -192,6 +192,19 @@ def is_manual(work):
     return isinstance(work, dict) and isinstance(work.get('source'), dict) and work['source'].get('type') == 'MANUAL'
 
 
+def frozen_task_spec(store, op):
+    """Frozen TaskSpec of a MANUAL Work Item for an operation, else None.
+
+    The spec always comes from the persisted Work Item, never from the op.
+    """
+    if store is None:
+        return None
+    work = store.get_work_item(op['ownerId'], op['workItemId'])
+    if not is_manual(work):
+        return None
+    return validate_task_spec(work['taskSpec'], op['ownerId'])
+
+
 def _test_path(path):
     return any(p.lower() in {'test', 'tests', '__tests__', 'spec', 'specs'} for p in path.split('/')) or bool(
         re.search(r'(^test[_.]|^Test|^Spec|(_test|_tests|_spec|\.test|\.spec)\.|(Test|Tests|Spec)\.)', path.split('/')[-1]))

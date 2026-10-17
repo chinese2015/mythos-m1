@@ -10,7 +10,7 @@ from registry import AccessDenied
 from . import container_runner
 from .errors import InvalidInput, NotFound, PreparationFailure
 from .git_host import GitHostClient
-from .task_spec import is_manual, repository_config_from_spec, validate_task_spec
+from .task_spec import frozen_task_spec, repository_config_from_spec
 
 REPOSITORIES = {'http://127.0.0.1:3000/demo/' + name + '.git' for name in [
     'demo-orion-notes-api', 'demo-nova-catalog-api', 'demo-pixel-reports-batch']}
@@ -80,12 +80,7 @@ class DockerExecutor:
 
     def _work_spec(self, op):
         """Frozen TaskSpec from the persisted Work Item; never from the op."""
-        if self.store is None:
-            return None
-        work = self.store.get_work_item(op['ownerId'], op['workItemId'])
-        if not is_manual(work):
-            return None
-        return validate_task_spec(work['taskSpec'], op['ownerId'])
+        return frozen_task_spec(self.store, op)
 
     def _verifier_context(self, op, remote):
         """Resolve the clone origin, branch, and credential context for fresh B.
@@ -96,11 +91,10 @@ class DockerExecutor:
         spec = self._work_spec(op)
         if spec is None:
             return validate_repository(remote), 'main', None
-        config = repository_config_from_spec(spec)
-        context = self.host.git_context(config)
-        if remote != context['url']:
+        if remote != spec['repository']['cloneUrl']:
             raise InvalidInput('Verification remote does not match the frozen task repository')
         validate_registered_repository(self.store, op['ownerId'], remote)
+        context = self.host.git_context(repository_config_from_spec(spec))
         return context['url'], spec['repository']['baseBranch'], context
 
     def _report_dirs(self, op):
