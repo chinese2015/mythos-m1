@@ -2,15 +2,19 @@
 
 2026-10-17。额度恢复后已完成 Pixel 的真实 PLAN → 方案审批 → 模型编码 → 新 B 容器独立验证 → PR 交付。Pixel PR #2 保持开放等待人工审核合并，来源仍为 In Progress / Open。此前的 Kimi 额度阻塞已解除。
 
+2026-10-17 追加：FND-00003 / Orion 已按同一链路完成 intake 批准 → 启动 → 基线 → PLAN → 方案审批 → 模型编码 → 新 B 独立验证 → PR 交付（[Orion PR #2](http://127.0.0.1:3000/demo/demo-orion-notes-api/pulls/2)，候选 `77568ed7d406323e5bdbb78b1ebb2751e1eee876`，仅改 AppConfig.java，mvn clean verify 2/2）。三个演示 Finding 全部走完修复闭环，PR 均保持开放等待人工审核合并。证据见 `artifacts/orion-fnd-00003-acceptance.json`。
+
 ## 使用与当前状态
 
 入口 `http://127.0.0.1:3080/argon/#/tasks`，复用 DSH 登录。本机已恢复 3080、3081、3000 的 SSH 转发。
 
 | 来源 | 当前状态 | 已验证事实 |
 | --- | --- | --- |
-| FND-00003 / Orion | 待 Owner 批准 | CONFIRMED；本地通知预览已生成；未领取、未创建工作区；直接启动返回 409 |
+| FND-00003 / Orion | PR_OPEN | 候选 77568ed7，仅改 AppConfig.java（硬编码口令改读 ORION_ADMIN_PASSWORD）；新 B clean verify 2/2；Gitea PR #2 开放待审 |
 | FND-00009 / Nova | PR_OPEN | 原任务、原会话、原 PR #2 保留；没有重复创建 |
 | FND-00015 / Pixel | PR_OPEN | 模型提交 b4b64a6，仅修改 ReportImporter.java；新 B clean verify 2/2；补充边界检查 8/8；Gitea PR #2 开放待审 |
+
+Orion 工作项 `work-d8552ae6758249de8e18be53d23311e4`；PLAN Session `session-ab6a77dd-55ed-5e7f-8d93-37113b716be3`；CODE Session `session-c5b81abf-59b5-b743-c11d-a4c6387967c3`；新 B 沙箱 `sb-7e6501051767438c`（freshTargetAbsent=true）；交付 `e9ffb78d642339c6993dc8fed3aa3ce2874533e06f383230b55aee3fe29487e5`。交付后禁止直接发送编码说明；需要修订时先关闭未合并 PR，再明确继续并重新验证。
 
 Pixel 工作项 `work-466690061b6c4ed492e2f41ab94f8dda`；PLAN Session `session-aaa641ca-5de9-fccb-30ab-7e2001a6f50c`；基线操作 `exec-f2eeac4a94cb406e94635f9411f107d3`。CODE Session 为 `session-1faae69e-95eb-cbb1-5fdd-19afd5b86f37`；候选为 `b4b64a6998caac8d4aacaca38b87b82528251148`；[Pixel PR #2](http://127.0.0.1:3000/demo/demo-pixel-reports-batch/pulls/2)。交付后禁止直接发送编码说明；需要修订时先关闭未合并 PR，再明确继续并重新验证。
 
