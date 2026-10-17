@@ -102,3 +102,13 @@ Spec: ../Argon_AI_Brain_总体方案_v2.0.md §8.1 and user-approved Sandbox/nat
 - 真实 M3 前半程：Orion/Pixel 自动 CONFIRMED，各生成一个本地 outbox 预览；浏览器批准并启动 Pixel；Orion 直接 start 409，仍 Not Started 无工作项；重复启动 Pixel 同一 Work Item；服务重启后无重复预览，Nova 原交付保留。
 - Pixel `work-466690061b6c4ed492e2f41ab94f8dda`：真实 Maven 基线 2 tests/1 traversal failure/exit 1 后进入只读 PLAN；Kimi 首轮返回 403 周额度耗尽，0 model tokens，流程保持 BLOCKED，Git 干净且 HEAD 等于基线。未完成模型方案/修复/独立验证/Pixel PR，不作端到端完成宣称。
 - 证据：远程 `~/argon-m1/state/m3-acceptance.json`；本地 `artifacts/m3-task-center.png` 与 `artifacts/m3-pixel-blocked.png`。实现与恢复说明见 `docs/m3-proactive-workflow.md`。通知仅本地预览、未向真人投递；真实多用户认证仍未实现。
+
+## 2026-10-17 — 额度恢复后 M3 全链路完成
+
+- 继续同一 Pixel Work Item 和 PLAN Session，显式补充说明恢复分析；评审后修订方案覆盖相对根目录与真实路径/符号链接边界。审批持久化绑定 version 19 和 planHash，重复审批同一决定。
+- DSH CODE Session `session-1faae69e-95eb-cbb1-5fdd-19afd5b86f37` 实际修改并提交 `b4b64a6998caac8d4aacaca38b87b82528251148`，仅 ReportImporter.java，未修改测试/POM/构建配置。原有 JUnit 2/2 通过。
+- 新 B `sb-7faca107f3604f52` 的独立 VERIFY `exec-49deeccddc4343f784c81f0223131a4f`：freshTargetAbsent=true、sourceCommit 精确一致，clean verify SUCCEEDED/0、JUnit 2/2，B 已按原流程清理。
+- 新增仓库外补充验收探针 `tests/fixtures/PixelPathProbe.java` 与 operator driver `tests/live_pixel_paths.py`：同一探针基线 4 pass/4 fail，候选 8/8，通过符号链接、相对目录和错误包装检查，Git 始终未受探针改动。独立源码审查无阻塞；并发恶意文件系统写入的 TOCTOU 不在本演示安全结论内。
+- 工作台发布 Pixel Gitea PR #2，head=b4b64a6，精确 marker/分支对账匹配仅一个 PR；重复发布与 DSH 重启后仍 PR_OPEN、2 Sessions/3 operations，无重放。Orion start 409、已发布 Pixel message 409；Nova 保留、通知预览两份、Pixel 来源仍 In Progress/Open，未自动合并。
+- 页面验收发现 native restore 在 retain 发布目录后覆盖任务跳转；TDD 修复 `6fdaf99`：微任务延后选择、保留重入门、导航异常局部记录并可重试。Node 本地/远程 83/83；Python 本地 85+1 Linux skip、远程 86/86；overlay 未改，沿用 16/16。新页面实测 iframe 为 Pixel CODE，交付页显示 PR 已创建、只读和 CI 未运行。
+- 最新证据：远程 `state/m3-acceptance.json`、`state/m3-pixel-paths-{baseline,candidate}.json`，本地 artifacts 同名副本与 `m3-pixel-pr-open.png`。原额度失败证据另存 `state/m3-before-quota-restored.json`。

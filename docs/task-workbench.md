@@ -47,3 +47,7 @@ SQLite 任务事实、API/worker、Docker 沙箱、已受理执行和日志证�
 ## M3 接管验收（2026-10-17）
 
 订阅、规则研判、本地通知预览、持久化审批与启动门已部署。浏览器实际批准并启动 Pixel，Orion 仍待批准；Pixel 基线真实复现后因 Kimi 周额度耗尽（403）停在 BLOCKED，源码未修改。原生 iframe 的同步目录回调递归已修复，并验证当前任务与会话一致。完整事实、限制与恢复方式见 [M3 主动漏洞工作流](m3-proactive-workflow.md)。
+
+## M3 完整链路验收补充（2026-10-17，额度恢复后）
+
+Pixel 已完成模型只读方案、审批、真实编码提交 `b4b64a6`、新 B `clean verify`（2/2）和 [Gitea PR #2](http://127.0.0.1:3000/demo/demo-pixel-reports-batch/pulls/2)。补充路径/符号链接检查由基线 4 项失败变为候选 8/8 通过，原演示测试和 POM 未改。重启 DSH 后仍为同一 PR、同一候选、2 个 Session、3 个 operation。Orion 保持待 Owner 批准，Nova 原 PR 保留，Pixel 来源等待人工合并后才可关闭。页面初始会话恢复竞态已修复并实测显示 Pixel CODE。详情见 `m3-proactive-workflow.md`。

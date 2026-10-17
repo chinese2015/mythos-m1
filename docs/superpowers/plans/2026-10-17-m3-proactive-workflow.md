@@ -112,8 +112,8 @@
 - [x] **Step 1: 三套件全绿**（node + python + overlay mvn）。
 - [x] **Step 2: 部署**——tar 同步 m1；重启 M2 api+worker（brain 代码变更）+ DSH（插件变更）+ Mock（新 jar：overlay apply → mvn package → 备份旧 jar → 换 jar → 重启，流水线仿既有 build-release）。
 - [x] **Step 3: 订阅验收**——≤60s 内 FND-00003 与 FND-00015 出现在 intakes（AWAITING_OWNER，triage CONFIRMED）；Mock 侧 `triageResult=CONFIRMED`；`~/argon-backend/data/outbox/` 出现两封 owner 邮件（含 finding id 与链接）；console 任务卡显示 '待 Owner 批准' + Owner 建议；FND-00009 卡不退化。
-- [ ] **Step 4: 审批验收**——console 批准 FND-00015 → 卡变 '开始处理' → 点击启动 → 既有链路跑通到基线复现与只读方案（模型真实执行）；批准后 FND-00003 保持 '待 Owner 批准'（门生效证明）。
-- [ ] **Step 5: 全链验收（时间盒）**——FND-00015 走完 plan 审批 → 编码 → 独立验证 → 发布 PR（复用 publish 链路），PR 保持开放；证据写 `~/argon-m1/state/m3-acceptance.json`。若模型会话异常，如实记录停在哪个阶段。
+- [x] **Step 4: 审批验收**——console 批准 FND-00015 → 卡变 '开始处理' → 点击启动 → 既有链路跑通到基线复现与只读方案（模型真实执行）；批准后 FND-00003 保持 '待 Owner 批准'（门生效证明）。
+- [x] **Step 5: 全链验收（时间盒）**——FND-00015 走完 plan 审批 → 编码 → 独立验证 → 发布 PR（复用 publish 链路），PR 保持开放；证据写 `~/argon-m1/state/m3-acceptance.json`。若模型会话异常，如实记录停在哪个阶段。
 - [x] **Step 6: ledger**——progress.md 记 M3 条目 + 限制；交接文档更新；Commit docs。
 
 ## Self-Review 结论
@@ -124,3 +124,7 @@
 ## 执行交接（2026-10-17）
 
 Task 1–4 已实现、审查修复并部署。Task 5 已完成回归、通知与批准门禁、真实基线、浏览器点击和记录；Step 4 的只读方案及 Step 5 的模型修复/独立验证/Pixel PR 因 Kimi 403 周额度耗尽未完成。未重放模型请求，任务保留 BLOCKED，恢复步骤见 `docs/m3-proactive-workflow.md`。
+
+## 额度恢复后最终交接（2026-10-17）
+
+Task 5 的 Step 4/5 已完成：Pixel 由真实模型生成方案、审批后编码并提交 b4b64a6；新 B clean verify 2/2；补充仓库外边界探针 8/8；工作台发布 PR #2 开放待审。独立 Gitea 对账和 DSH 重启均确认单一交付、2 Sessions/3 operations；Orion 保持未批准。新增发现的会话初始化时序缺陷已 TDD 修复并在浏览器复测 CODE 绑定正确。详见 `docs/m3-proactive-workflow.md`，此前额度阻塞记录作为历史保留。
