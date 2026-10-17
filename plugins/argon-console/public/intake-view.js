@@ -260,7 +260,7 @@ export function renderIntake({ el, panelHead, request, notice, goWork }) {
     const policy = repo.config ? policySummary(repo.config) : null;
     if (policy) content.append(el('p', { class: 'task-description', text: policy }));
     const check = checkResults.get(repo.repositoryId);
-    if (check) content.append(el('p', { class: check.ok ? 'subtle' : 'task-description', text: check.message }));
+    if (check && check.revision === repo.revision && check.configFingerprint === fingerprintOf(repo.config)) content.append(el('p', { class: check.ok ? 'subtle' : 'task-description', text: check.message }));
     const side = el('div', { class: 'task-side' });
     const actions = el('div', { class: 'intake-actions' });
     const checkButton = el('button', { class: 'secondary-button', type: 'button', text: '连接检查' });
@@ -268,9 +268,9 @@ export function renderIntake({ el, panelHead, request, notice, goWork }) {
       checkButton.disabled = true; checkButton.textContent = '检查中…';
       try {
         const result = await request(`/repositories/${encodeURIComponent(repo.repositoryId)}/check`, { method: 'POST', body: {}, mutation: true });
-        checkResults.set(repo.repositoryId, { ok: true, message: `连接正常：${result.fullName} · 默认分支 ${result.defaultBranch} · 推送权限${result.pushPermission ? '已确认' : '缺失'}` });
+        checkResults.set(repo.repositoryId, { revision: repo.revision, configFingerprint: fingerprintOf(repo.config), ok: true, message: `连接正常：${result.fullName} · 默认分支 ${result.defaultBranch} · 推送权限${result.pushPermission ? '已确认' : '缺失'}` });
       } catch (error) {
-        checkResults.set(repo.repositoryId, { ok: false, message: `连接检查失败：${error.message}` });
+        checkResults.set(repo.repositoryId, { revision: repo.revision, configFingerprint: fingerprintOf(repo.config), ok: false, message: `连接检查失败：${error.message}` });
       }
       renderList();
     });

@@ -55,11 +55,11 @@ function environment(t, storage = memoryStorage(), storageGetter = null) {
     if (content) node.textContent = content; return node;
   };
   const notices = [], calls = [], opened = [];
-  const mount = async (mutate = async () => work) => {
+  const mount = async (mutate = async () => work, repositories = () => [repo]) => {
     const root = el('main'); document.body.append(root);
     const page = renderIntake({ el, panelHead: () => el('header'), notice: (...args) => notices.push(args), goWork: id => opened.push(id),
-      request: async (path, options) => { if (path === '/repositories' && !options) return { repositories: [repo] }; calls.push({ path, ...options }); return mutate(path, options); } });
-    page.mount(root); await page.load(); return root;
+      request: async (path, options) => { if (path === '/repositories' && !options) return { repositories: repositories() }; calls.push({ path, ...options }); return mutate(path, options); } });
+    page.mount(root); await page.load(); root.reload = () => page.load(true); return root;
   };
   return { mount, notices, calls, opened, storage };
 }
@@ -157,4 +157,17 @@ test('corrupt mounted intent remains untouched until explicit abandonment', asyn
   assert.equal(env.calls.length, 0); assert.equal(storage.getItem('argon-intent:manual-task'), '{broken');
   await button(root, '放弃当前意向').fire('click'); await form.fire('submit');
   assert.equal(env.calls.length, 1); assert.equal(storage.getItem('argon-intent:manual-task'), null);
+});
+
+
+test('a reloaded repository revision cannot retain an older healthy connection verdict', async t => {
+  let current = repo;
+  const env = environment(t); const root = await env.mount(async () => ({ fullName: repo.config.fullName, defaultBranch: 'main', pushPermission: true }), () => [current]);
+  await button(root, '连接检查').fire('click');
+  assert.ok(root.textContent.includes('连接正常：' + repo.config.fullName));
+  current = { ...repo, revision: 2, enabled: false, config: { ...repo.config, fullName: 'demo/replacement-api' } };
+  await root.reload();
+  assert.ok(root.textContent.includes('demo/replacement-api'));
+  assert.ok(root.textContent.includes('已停用 · 版本 2'));
+  assert.equal(root.textContent.includes('连接正常：' + repo.config.fullName), false, 'R1 check does not certify the changed R2 repository');
 });
