@@ -14,6 +14,16 @@ function stateFor(workItemId) {
 }
 const opIdOf = op => op.operationId || op.id;
 function panelRoot() { return document.querySelector('[data-panel="monitor"]'); }
+// A late poll must write only inside the container of its own render. Without
+// an explicit container the legacy global selector keeps the old behavior.
+function makeScope(mount = {}) {
+  return () => {
+    const root = mount.container ?? panelRoot();
+    if (!root) return null;
+    if (mount.container && root.isConnected === false) return null;
+    return root;
+  };
+}
 
 function renderStream(stream, st, ctx) {
   const { el, opLabel } = ctx;
@@ -27,7 +37,7 @@ function renderStream(stream, st, ctx) {
   else { const box = el('div'); box.textContent = lines.join('\n'); stream.append(box); }
 }
 
-async function pollEvents(ctx, st) {
+async function pollEvents(ctx, st, scope) {
   if (st.fetchingEvents) return;
   st.fetchingEvents = true;
   try {
@@ -37,20 +47,20 @@ async function pollEvents(ctx, st) {
     st.eventCursor = merged.cursor;
     st.fetchedEvents = true;
     st.lastErrorAt = null;
-    const root = panelRoot();
+    const root = scope();
     const stream = root && root.querySelector('.event-stream');
     if (stream) renderStream(stream, st, ctx);
     const stale = root && root.querySelector('[data-stale-note]');
     if (stale) stale.hidden = true;
   } catch (_) {
     st.lastErrorAt = Date.now();
-    const root = panelRoot();
+    const root = scope();
     const stale = root && root.querySelector('[data-stale-note]');
     if (stale) { const note = staleNote(st.lastErrorAt); if (note) { stale.textContent = note; stale.hidden = false; } }
   } finally { st.fetchingEvents = false; }
 }
 
-async function tailLog(ctx, st, op) {
+async function tailLog(ctx, st, op, scope) {
   const opId = opIdOf(op);
   if (st.fetchingLogs.has(opId)) return;
   st.fetchingLogs.add(opId);
@@ -66,7 +76,7 @@ async function tailLog(ctx, st, op) {
       }
       const last = rows[rows.length - 1];
       st.logCursors.set(opId, Number.isSafeInteger(page.nextCursor) ? page.nextCursor : ((last.offset ?? after) + 1));
-      const root = panelRoot();
+      const root = scope();
       const box = root && root.querySelector(`[data-monitor-log="${CSS.escape(opId)}"]`);
       if (box) { const text = st.logText.get(opId); if (box.textContent !== text) box.textContent = text; }
     }
@@ -76,16 +86,16 @@ async function tailLog(ctx, st, op) {
   } finally { st.fetchingLogs.delete(opId); }
 }
 
-function tailActiveLogs(ctx, st, operations) {
+function tailActiveLogs(ctx, st, operations, scope) {
   for (const op of operations) {
     const opId = opIdOf(op);
     const active = ACTIVE.has(String(op.status || '').toUpperCase());
-    if (active) { if (shouldAutoExpand(true, st.collapsed.has(opId))) { st.expanded.add(opId); tailLog(ctx, st, op); } }
-    else if (!st.terminalFetched.has(opId)) { st.terminalFetched.add(opId); if (st.expanded.has(opId)) tailLog(ctx, st, op); }
+    if (active) { if (shouldAutoExpand(true, st.collapsed.has(opId))) { st.expanded.add(opId); tailLog(ctx, st, op, scope); } }
+    else if (!st.terminalFetched.has(opId)) { st.terminalFetched.add(opId); if (st.expanded.has(opId)) tailLog(ctx, st, op, scope); }
   }
 }
 
-export function renderMonitor(ctx) {
+export function renderMonitor(ctx, mount = {}) {
   const { workItemId, workflow, operations = [], session, workItem, panelHead, phaseText } = ctx;
   const st = stateFor(workItemId);
   const panel = ctx.el('section', { class: 'panel', 'data-panel': 'monitor' });
@@ -108,7 +118,8 @@ export function renderMonitor(ctx) {
   renderStream(stream, st, ctx);
   body.append(stream);
   panel.append(body);
-  queueMicrotask(() => { tailActiveLogs(ctx, st, ops); pollEvents(ctx, st); });
+  const scope = makeScope(mount);
+  queueMicrotask(() => { tailActiveLogs(ctx, st, ops, scope); pollEvents(ctx, st, scope); });
   return panel;
 }
 
