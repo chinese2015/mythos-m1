@@ -2,6 +2,7 @@
 import re
 import subprocess
 import threading
+import hashlib
 
 from .errors import Conflict, InvalidInput
 from .executor import SETTINGS, validate_registered_repository, validate_repository
@@ -129,7 +130,7 @@ class TaskWorkspace:
         branch = git('branch', '--show-current')
         status = git('status', '--short')
         raw_names = self.broker.execute_capture(owner, sandbox_id,
-            ['git', 'diff', '--name-only', '-z', '--no-color', source['baseCommit']], timeout=30)
+            ['git', 'diff', '--name-only', '-z', '--no-color', '--no-renames', source['baseCommit']], timeout=30)
         if raw_names['exitCode']:
             raise RuntimeError('Unable to read task change names')
         names = parse_diff_names(raw_names['stdout'])
@@ -139,9 +140,10 @@ class TaskWorkspace:
         if raw['exitCode']:
             raise RuntimeError('Unable to read task diff')
         diff_bytes = raw['stdout'].encode()
+        diff_hash = hashlib.sha256(diff_bytes).hexdigest()
         truncated = len(diff_bytes) > MAX_DIFF
         diff = diff_bytes[:MAX_DIFF].decode('utf8', errors='replace')
         return {'sandboxId': sandbox_id, 'workspacePath': self.broker.registry.get(owner, sandbox_id)['workspace_path'],
                 'git': {'baseCommit': source['baseCommit'], 'headCommit': head, 'branch': branch,
-                        'status': status, 'diff': diff, 'changedFiles': names,
+                        'status': status, 'diff': diff, 'diffHash': diff_hash, 'changedFiles': names,
                         'testsChanged': tests, 'diffTruncated': truncated}}

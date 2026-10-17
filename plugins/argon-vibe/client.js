@@ -36,6 +36,7 @@ window.__ModuleLoader__.load({ id: '@local/argon-vibe', factory: require => {
         let fileSeq = 0;
         let activeTab = 'source';
         let diffCache = { etag: null, body: null };
+        let diffSeq = 0;
         const dockActions = new Map(); // sessionId -> 原生 inputActions
 
         const enc = encodeURIComponent;
@@ -162,7 +163,7 @@ window.__ModuleLoader__.load({ id: '@local/argon-vibe', factory: require => {
             if (epoch === generation) setStatus('上下文读取失败：' + error.message);
           }
         }
-        const refreshTimer = setInterval(() => { if (!document.hidden) { void loadContext(); if (activeTab === 'run') renderRun(); } }, 2000);
+        const refreshTimer = setInterval(() => { if (!document.hidden) { void loadContext(); void loadDiff(); if (activeTab === 'run') renderRun(); } }, 2000);
 
         // ---- 文件列表与只读源码 ------------------------------------------
         function knownFiles() {
@@ -255,11 +256,12 @@ window.__ModuleLoader__.load({ id: '@local/argon-vibe', factory: require => {
         // ---- Diff ---------------------------------------------------------
         async function loadDiff(force = false) {
           const epoch = generation;
+          const requestSeq = ++diffSeq;
           try {
             const headers = {};
             if (!force && diffCache.etag) headers['If-None-Match'] = diffCache.etag;
             const response = await fetch('/argon/vibe/tasks/' + enc(binding.workItemId) + '/diff', { cache: 'no-store', credentials: 'same-origin', headers });
-            if (epoch !== generation) return;
+            if (epoch !== generation || requestSeq !== diffSeq) return;
             if (response.status === 304) return;
             const data = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(data.error || ('请求失败（HTTP ' + response.status + '）'));

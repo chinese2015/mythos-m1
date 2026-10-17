@@ -193,7 +193,10 @@ import { renderIntake, sourceFacts, evidenceLine } from './intake-view.js';
     const baselineId=workflow.baselineOperationId||workflow.baselineOperation?.operationId||item.workflow?.baselineOperationId;
     const baseOp=operations.find(o=>o.operationId===baselineId);
     const reproduced=workflow.baselineReproduced===true||item.workflow?.baselineReproduced===true;
-    const baselineLabel=reproduced?'已复现预期失败':baseOp?statusText(baseOp):(phaseIndex(phase)>=2?'正在准备或运行基线测试':'等待基线测试');
+    const manualBaseline=item.source?.type==='MANUAL'&&item.taskSpec?.execution?.baselineMode;
+    const baselineLabel=manualBaseline&&reproduced&&baseOp
+      ? (manualBaseline==='record'?`已记录基线：${baseOp.status==='SUCCEEDED'?'通过':'失败'}`:manualBaseline==='must-pass'?'基线通过':'基线失败符合要求')
+      : reproduced?'已复现预期失败':baseOp?statusText(baseOp):(phaseIndex(phase)>=2?'正在准备或运行基线测试':'等待基线测试');
     const junit=baseOp?.junit;
     const evidenceFmt = item.taskSpec?.execution?.evidence?.format ?? (junit ? 'junit' : null);
     const baselineLine = evidenceLine(evidenceFmt, junit);

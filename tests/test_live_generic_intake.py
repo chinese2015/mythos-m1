@@ -8,7 +8,7 @@ import tempfile
 
 from brain.publication import delivery_id, publication_branch
 from brain.task_spec import make_task_spec
-from live_generic_intake import assess_work, loopback_origin, ReadClient, ProbeError, console_client
+from live_generic_intake import assess_work, baseline_evidence_ready, loopback_origin, ReadClient, ProbeError, console_client
 import live_generic_intake as live_probe
 
 
@@ -73,6 +73,76 @@ class GenericEvidenceProbeTests(unittest.TestCase):
         self.assertEqual(assess_work(work, op, git, pulls, 'alice', registry=registry, operations=[op] if op else [])['status'], 'PASSED')
         op['evidence']['junit'] = {'tests': 0}
         self.assertEqual(assess_work(work, op, git, pulls, 'alice', registry=registry, operations=[op] if op else [])['status'], 'NOT_READY')
+
+    def test_frozen_baseline_evidence_requires_bound_command_and_valid_junit(self):
+        work, _, _, _ = self.fixtures()
+        work['workflow']['baselineOperationId'] = 'exec-' + 'c' * 32
+        spec = work['taskSpec']
+        baseline = {'operationId': work['workflow']['baselineOperationId'], 'workItemId': work['workItemId'],
+                    'ownerId': 'alice', 'sandboxId': work['sandboxId'], 'kind': 'UNIT_TEST', 'state': 'FAILED',
+                    'exitCode': 1, 'command': spec['execution']['baselineCommand'], 'timeoutSeconds': 60,
+                    'sourceCommit': spec['baseCommit'], 'reason': None}
+        baseline['evidence'] = {'sourceCommit': spec['baseCommit'], 'expectedSourceCommit': spec['baseCommit'],
+                                'sourceDirty': False, 'command': baseline['command'], 'exitCode': 1,
+                                'kind': 'UNIT_TEST', 'sandboxId': work['sandboxId'],
+                                'junit': {'reports': [{'path': 'target/surefire-reports/TEST-baseline.xml'}],
+                                          'invalidReports': [], 'tests': 4, 'failures': 1, 'errors': 0, 'skipped': 0}}
+        self.assertTrue(baseline_evidence_ready(spec, work, baseline))
+        for mutate in [
+            lambda op: op.update(command='mvn -q verify'),
+            lambda op: op.update(sourceCommit='d' * 40),
+            lambda op: op.update(reason='preflight_or_supervisor_error'),
+            lambda op: op['evidence'].update(junit={'reports': [], 'invalidReports': [], 'tests': 0, 'failures': 0, 'errors': 0, 'skipped': 0}),
+            lambda op: op['evidence']['junit'].update(invalidReports=[{'path': 'TEST-broken.xml'}]),
+            lambda op: op['evidence']['junit'].update(reports=[{'path': 'outside/TEST-pass.xml'}]),
+        ]:
+            probe = copy.deepcopy(baseline); mutate(probe)
+            with self.subTest(probe=probe): self.assertFalse(baseline_evidence_ready(spec, work, probe))
+
+    def test_live_receipt_cannot_pass_without_valid_baseline_observation(self):
+        work, op, git, pulls = self.fixtures()
+        work['workflow']['baselineOperationId'] = 'exec-' + 'c' * 32
+        baseline = {'operationId': work['workflow']['baselineOperationId'], 'workItemId': work['workItemId'],
+                    'ownerId': 'alice', 'sandboxId': work['sandboxId'], 'kind': 'UNIT_TEST', 'state': 'FAILED',
+                    'exitCode': 127, 'command': work['taskSpec']['execution']['baselineCommand'], 'timeoutSeconds': 60,
+                    'sourceCommit': work['taskSpec']['baseCommit'], 'reason': None,
+                    'evidence': {'sourceCommit': work['taskSpec']['baseCommit'], 'expectedSourceCommit': work['taskSpec']['baseCommit'],
+                                 'sourceDirty': False, 'command': work['taskSpec']['execution']['baselineCommand'],
+                                 'exitCode': 127, 'kind': 'UNIT_TEST', 'sandboxId': work['sandboxId'],
+                                 'junit': {'reports': [], 'invalidReports': [], 'tests': 0, 'failures': 0, 'errors': 0, 'skipped': 0}}}
+        self.assertFalse(baseline_evidence_ready(work['taskSpec'], work, baseline))
+
+        baseline['evidence']['junit'] = {'reports': [{'path': 'target/surefire-reports/TEST-baseline.xml'}],
+                                         'invalidReports': [], 'tests': 4, 'failures': 1, 'errors': 0, 'skipped': 0}
+        baseline.update(state='FAILED', exitCode=1)
+        baseline['evidence']['exitCode'] = 1
+
+        class Brain:
+            def get(self, path):
+                if path.endswith('/operations/' + baseline['operationId']): return copy.deepcopy(baseline)
+                if path.endswith('/operations/' + op['operationId']): return copy.deepcopy(op)
+                if path.endswith('/workspace'): return {'git': copy.deepcopy(git)}
+                if path.endswith('/repositories'): return {'repositories': []}
+                if path.endswith('/work-items/' + work['workItemId']):
+                    return {'workItem': copy.deepcopy(work), 'operations': [copy.deepcopy(op), copy.deepcopy(baseline)]}
+                raise AssertionError(path)
+        class Console:
+            def get(self, path): return {'workItem': copy.deepcopy(work)}
+        class Forge:
+            def pulls(self, spec, delivery): return copy.deepcopy(pulls)
+
+        registry = {op['runtime']['sandboxId']: 'stopped'}
+        valid = live_probe.capture('alice', work['workItemId'], Brain(), Console(), Forge(), registry)
+        baseline_check = next(check for check in valid['checks'] if check['name'] == 'frozenBaselineEvidence')
+        self.assertEqual(baseline_check['status'], 'PASS')
+        self.assertEqual(valid['status'], 'PASSED')
+
+        baseline['evidence']['junit'] = {'reports': [], 'invalidReports': [], 'tests': 0,
+                                         'failures': 0, 'errors': 0, 'skipped': 0}
+        invalid = live_probe.capture('alice', work['workItemId'], Brain(), Console(), Forge(), registry)
+        baseline_check = next(check for check in invalid['checks'] if check['name'] == 'frozenBaselineEvidence')
+        self.assertEqual(baseline_check['status'], 'FAIL')
+        self.assertEqual(invalid['status'], 'NOT_READY')
 
     def test_blocked_or_uncertain_work_and_foreign_verify_are_not_ready(self):
         for change in ['blocked', 'paused', 'coding', 'unknown', 'foreign-operation']:

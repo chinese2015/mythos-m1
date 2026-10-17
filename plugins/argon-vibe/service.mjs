@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { safePath } from './shared/bridge.mjs';
 import { makeSandboxOpener } from './sandbox.mjs';
 
@@ -129,7 +130,13 @@ async function diffBody(workflow, id, req) {
   const work = (await snapshotOf(workflow, id)).workItem;
   const evidence = await workspaceEvidence(workflow, work);
   const git = evidence.git ?? {};
-  const etag = `"${String(work.version)}-${git.headCommit ?? 'none'}"`;
+  const fingerprint = createHash('sha256').update(JSON.stringify({
+    branch: git.branch ?? null,
+    status: git.status ?? null,
+    diffHash: git.diffHash ?? git.diff ?? null,
+    changedFiles: Array.isArray(git.changedFiles) ? git.changedFiles : [],
+  })).digest('hex');
+  const etag = `"${String(work.version)}-${git.headCommit ?? 'none'}-${fingerprint}"`;
   if (req.headers?.['if-none-match'] === etag) return { etag, notModified: true };
   const wf = work.workflow ?? {};
   return {

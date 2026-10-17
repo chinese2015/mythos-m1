@@ -83,8 +83,42 @@ export function candidateAllowed(work, git) {
 
 const normalFailure = op => op?.state === 'FAILED' && Number.isInteger(op.exitCode);
 
+function validBaselineEvidence(work, operation) {
+  const spec = work.taskSpec, execution = spec.execution, policy = execution.evidence;
+  const base = work.sourceRecord?.baseCommit, evidence = operation?.evidence;
+  if (!operation || !['SUCCEEDED', 'FAILED'].includes(operation.state) || operation.reason != null ||
+      operation.kind !== 'UNIT_TEST' || operation.command !== execution.baselineCommand ||
+      !Number.isInteger(operation.timeoutSeconds) || operation.timeoutSeconds < 1 ||
+      operation.timeoutSeconds > execution.timeoutSeconds || operation.sourceCommit !== base ||
+      !operation.sandboxId || operation.sandboxId !== work.sandboxId || !evidence ||
+      evidence.sourceCommit !== base || evidence.expectedSourceCommit !== base || evidence.sourceDirty !== false ||
+      evidence.command !== execution.baselineCommand || evidence.kind !== 'UNIT_TEST' ||
+      evidence.sandboxId !== work.sandboxId || evidence.exitCode !== operation.exitCode ||
+      !Number.isInteger(operation.exitCode)) return false;
+
+  if (policy.format === 'command') {
+    return evidence.validation?.format === 'command' && evidence.validation.exitCode === operation.exitCode &&
+      ((operation.state === 'SUCCEEDED' && operation.exitCode === 0) ||
+        (operation.state === 'FAILED' && operation.exitCode !== 0));
+  }
+
+  const junit = evidence.junit;
+  if (!junit || !Array.isArray(junit.reports) || !junit.reports.length ||
+      !Array.isArray(junit.invalidReports) || junit.invalidReports.length !== 0 ||
+      !['tests', 'failures', 'errors', 'skipped'].every(key => Number.isInteger(junit[key]) && junit[key] >= 0) ||
+      junit.failures + junit.errors + junit.skipped > junit.tests ||
+      junit.tests - junit.skipped < policy.minTests ||
+      (junit.skipped > 0 && !policy.allowSkipped) ||
+      !junit.reports.every(report => report && typeof report.path === 'string' && safePath(report.path) &&
+        policy.reportDirs.some(dir => within(report.path, trimSlash(dir) + '/')))) return false;
+
+  if (operation.state === 'SUCCEEDED') return operation.exitCode === 0 && junit.failures === 0 && junit.errors === 0;
+  return operation.exitCode !== 0 && junit.failures + junit.errors > 0;
+}
+
 export function baselineReady(work, operation) {
   if (!isManagedWork(work)) return baselineReproduced(operation, work?.source?.id);
+  if (!validBaselineEvidence(work, operation)) return false;
   const mode = work.taskSpec.execution.baselineMode;
   if (operation?.state === 'UNKNOWN') return false;
   if (mode === 'must-pass') return operation?.state === 'SUCCEEDED' && operation.exitCode === 0;

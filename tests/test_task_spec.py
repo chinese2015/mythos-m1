@@ -64,6 +64,11 @@ class TaskSpecTest(unittest.TestCase):
             data = config(); data[part][field] = value
             with self.assertRaises(InvalidInput): normalize_repository(data)
 
+    def test_junit_report_directories_reject_trailing_slash_aliases(self):
+        data = config()
+        data['execution']['evidence']['reportDirs'] = ['target/surefire-reports', 'target/surefire-reports/']
+        with self.assertRaises(InvalidInput): normalize_repository(data)
+
     def test_review_policy_defaults_validates_and_freezes_into_digest(self):
         self.assertEqual(normalize_repository(config())['reviewPolicy'], {'minApprovals': 0, 'requiredStatusContexts': []})
         repo = repository(); repo['config']['reviewPolicy'] = {'minApprovals': 2, 'requiredStatusContexts': ['ci/build']}

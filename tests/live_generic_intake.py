@@ -24,8 +24,9 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from brain.git_host import GitHostClient
+from brain.errors import InvalidInput
 from brain.publication import delivery_id, publication_branch
-from brain.task_spec import change_allowed, repository_config_from_spec, validate_task_spec, verification_passes
+from brain.task_spec import change_allowed, relative_path, repository_config_from_spec, validate_task_spec, verification_passes
 
 WORK = re.compile(r'work-[a-f0-9]{32}')
 SHA = re.compile(r'[a-f0-9]{40}')
@@ -216,6 +217,61 @@ def assess_work(work, operation, git, pulls, owner, registry=None, expected_dige
     return summary
 
 
+def baseline_evidence_ready(spec, work, operation):
+    """Require the frozen baseline command and real evidence before the live receipt can pass."""
+    try:
+        validate_task_spec(spec, work.get('ownerId'))
+        execution = spec['execution']; policy = execution['evidence']; wf = work.get('workflow') or {}
+        evidence = (operation or {}).get('evidence') or {}; base = spec['baseCommit']
+        if (not operation or operation.get('operationId') != wf.get('baselineOperationId')
+                or operation.get('workItemId') != work.get('workItemId')
+                or operation.get('ownerId') != work.get('ownerId')
+                or operation.get('sandboxId') != work.get('sandboxId')
+                or operation.get('kind') != 'UNIT_TEST'
+                or operation.get('command') != execution['baselineCommand']
+                or type(operation.get('timeoutSeconds')) is not int
+                or not 1 <= operation['timeoutSeconds'] <= execution['timeoutSeconds']
+                or operation.get('sourceCommit') != base or operation.get('reason') is not None
+                or operation.get('state') not in {'SUCCEEDED', 'FAILED'}
+                or type(operation.get('exitCode')) is not int
+                or evidence.get('sourceCommit') != base or evidence.get('expectedSourceCommit') != base
+                or evidence.get('sourceDirty') is not False
+                or evidence.get('command') != execution['baselineCommand']
+                or evidence.get('kind') != 'UNIT_TEST'
+                or evidence.get('sandboxId') != work.get('sandboxId')
+                or evidence.get('exitCode') != operation['exitCode']):
+            return False
+        state, code = operation['state'], operation['exitCode']
+        if policy['format'] == 'command':
+            valid_run = evidence.get('validation') == {'format': 'command', 'exitCode': code} and (
+                (state == 'SUCCEEDED' and code == 0) or (state == 'FAILED' and code != 0))
+        else:
+            junit = evidence.get('junit')
+            if (not isinstance(junit, dict) or not isinstance(junit.get('reports'), list) or not junit['reports']
+                    or junit.get('invalidReports') != []
+                    or any(type(junit.get(key)) is not int or junit[key] < 0
+                           for key in ['tests', 'failures', 'errors', 'skipped'])
+                    or junit['failures'] + junit['errors'] + junit['skipped'] > junit['tests']
+                    or junit['tests'] - junit['skipped'] < policy['minTests']
+                    or (junit['skipped'] and not policy['allowSkipped'])):
+                return False
+            for report in junit['reports']:
+                if not isinstance(report, dict) or not isinstance(report.get('path'), str):
+                    return False
+                path = relative_path(report['path'], directory=False)
+                if not any(path.startswith(directory.rstrip('/') + '/') for directory in policy['reportDirs']):
+                    return False
+            if state == 'SUCCEEDED': valid_run = code == 0 and junit['failures'] == 0 and junit['errors'] == 0
+            else: valid_run = code != 0 and junit['failures'] + junit['errors'] > 0
+        if not valid_run: return False
+        mode = execution['baselineMode']
+        if mode == 'must-pass': return state == 'SUCCEEDED' and code == 0
+        if mode == 'must-fail': return state == 'FAILED' and code != 0
+        return True
+    except (InvalidInput, KeyError, TypeError, ValueError):
+        return False
+
+
 def registry_states(root, owner):
     database = root / 'sandboxes.sqlite3'
     if not database.is_file(): return None
@@ -372,11 +428,14 @@ def capture(owner, work_id, brain, console, forge, registry, expected=None):
     if work.get('sandboxId'):
         git = brain.get('/api/brain/work-items/' + work_id + '/workspace').get('git')
     pulls = forge.pulls(spec, wf['delivery']) if wf.get('delivery') else None
-    result = assess_work(work, operation, git, pulls, owner, registry, expected, snap.get('operations'))
     baseline_id = wf.get('baselineOperationId')
     baseline = brain.get('/api/brain/operations/' + baseline_id) if isinstance(baseline_id, str) and re.fullmatch(r'exec-[a-f0-9]{32}', baseline_id) else None
+    result = assess_work(work, operation, git, pulls, owner, registry, expected, snap.get('operations'))
+    result['checks'].append({'name': 'frozenBaselineEvidence', 'status': 'PASS' if baseline_evidence_ready(spec, work, baseline) else 'FAIL'})
     result['baselineObservation'] = None if baseline is None else {'operationId': baseline['operationId'], 'state': baseline['state'], 'exitCode': baseline.get('exitCode'),
-        'command': baseline.get('command'), 'junit': None if (baseline.get('evidence') or {}).get('junit') is None else {key: value for key, value in baseline['evidence']['junit'].items() if key not in {'reports', 'failedTests'}}}
+        'kind': baseline.get('kind'), 'sourceCommit': baseline.get('sourceCommit'), 'timeoutSeconds': baseline.get('timeoutSeconds'),
+        'reason': baseline.get('reason'), 'command': baseline.get('command'),
+        'junit': None if (baseline.get('evidence') or {}).get('junit') is None else {key: value for key, value in baseline['evidence']['junit'].items() if key not in {'reports', 'failedTests'}}}
     detail = console.get('/argon/api/work-items/' + work_id)
     console_work = detail.get('workItem') or {}
     result['checks'].append({'name': 'authenticatedConsoleBinding', 'status': 'PASS' if console_work.get('workItemId') == work_id

@@ -89,8 +89,12 @@ def normalize_repository(config):
     if evidence['format'] == 'command':
         if evidence['reportDirs'] != [] or type(evidence['minTests']) is not int or evidence['minTests'] != 0:
             raise InvalidInput('Command evidence requires empty reportDirs and minTests=0')
+        normalized_report_dirs = []
     elif evidence['format'] == 'junit':
-        _paths(evidence['reportDirs']); _integer(evidence['minTests'], 1, 1000000)
+        report_dirs = _paths(evidence['reportDirs']); _integer(evidence['minTests'], 1, 1000000)
+        normalized_report_dirs = [path.rstrip('/') for path in report_dirs]
+        if len(set(normalized_report_dirs)) != len(normalized_report_dirs):
+            raise InvalidInput('JUnit report directories must be unique after normalization')
     else:
         raise InvalidInput('Unsupported evidence format')
     policy = _object(config['changePolicy'], {'allowedPaths', 'allowTestChanges', 'maxFiles'})
@@ -105,6 +109,7 @@ def normalize_repository(config):
     if len(set(contexts)) != len(contexts):
         raise InvalidInput('Required status contexts must be unique')
     result = copy.deepcopy(config)
+    result['execution']['evidence']['reportDirs'] = normalized_report_dirs
     result['reviewPolicy'] = copy.deepcopy(review)
     return result
 

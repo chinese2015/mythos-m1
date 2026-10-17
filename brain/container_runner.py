@@ -60,6 +60,7 @@ def _report_directories(workspace, report_dirs):
     if not isinstance(report_dirs, list) or len(report_dirs) > 100:
         raise ValueError('Invalid report directories')
     directories = []
+    seen_directories = set()
     for name in report_dirs:
         if (not isinstance(name, str) or not name or name.startswith('/') or '\\' in name
                 or any(part in {'', '.', '..'} for part in Path(name).parts)):
@@ -67,6 +68,9 @@ def _report_directories(workspace, report_dirs):
         directory = (workspace / name).resolve()
         if not directory.is_relative_to(workspace):
             raise ValueError('Report directory escapes workspace')
+        if directory in seen_directories:
+            raise ValueError('Duplicate report directories after canonicalization')
+        seen_directories.add(directory)
         directories.append(directory)
     return workspace, directories
 
@@ -74,8 +78,13 @@ def _report_directories(workspace, report_dirs):
 def capture_reports(workspace, report_dirs=None):
     workspace, directories = _report_directories(workspace, report_dirs)
     paths = []
+    seen_paths = set()
     for directory in directories:
-        paths.extend(sorted(directory.glob('TEST-*.xml')))
+        for path in sorted(directory.glob('TEST-*.xml')):
+            canonical = path.resolve()
+            if canonical not in seen_paths:
+                seen_paths.add(canonical)
+                paths.append(path)
     reports = []
     for path in paths[:8]:
         name = str(path.relative_to(workspace))

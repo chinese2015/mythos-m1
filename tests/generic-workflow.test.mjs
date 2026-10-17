@@ -45,6 +45,16 @@ test('Node and Python agree on every shared fixture change gate', () => {
     assert.equal(candidateAllowed(manualWork(), { headCommit: fixture.taskSpec.baseCommit, status: '', changedFiles: c.paths, testsChanged: [] }), c.allowed, c.paths.join(','));
 });
 
+test('a rename out of tests still includes and rejects the deleted test source path', () => {
+  const work = manualWork();
+  assert.equal(candidateAllowed(work, {
+    headCommit: candidate,
+    status: '',
+    changedFiles: ['src/hidden.java', 'tests/test_hidden.py'],
+    testsChanged: [],
+  }), false);
+});
+
 test('Node and Python agree on every shared fixture verification case', () => {
   const work = manualWork({ taskSpec: { ...fixture.taskSpec, changePolicy: { ...fixture.taskSpec.changePolicy, allowTestChanges: true } } });
   work.workflow.candidateCommit = candidate;
@@ -99,16 +109,40 @@ test('legacy works keep the original single-file policy and baseline contract', 
 
 test('baseline readiness follows the frozen baselineMode and rejects UNKNOWN or environment loss', () => {
   const mode = m => manualWork({ taskSpec: { ...fixture.taskSpec, execution: { ...fixture.taskSpec.execution, baselineMode: m } } });
-  const ok = { state: 'SUCCEEDED', exitCode: 0 }, fail = { state: 'FAILED', exitCode: 1 }, env = { state: 'FAILED' }, unknown = { state: 'UNKNOWN' };
+  const op = (work, state, exitCode, { tests = 4, failures = state === 'FAILED' ? 1 : 0, errors = 0, ...changes } = {}) => {
+    const command = work.taskSpec.execution.baselineCommand;
+    const sourceCommit = work.sourceRecord.baseCommit;
+    const junit = { reports: [{ path: 'target/surefire-reports/TEST-baseline.xml' }], invalidReports: [],
+      tests, failures, errors, skipped: 0 };
+    return { operationId: 'exec-' + 'd'.repeat(32), kind: 'UNIT_TEST', state, exitCode, command,
+      timeoutSeconds: work.taskSpec.execution.timeoutSeconds, sourceCommit, sandboxId: work.sandboxId, reason: null,
+      evidence: { sourceCommit, expectedSourceCommit: sourceCommit, sourceDirty: false, command, exitCode,
+        kind: 'UNIT_TEST', sandboxId: work.sandboxId, junit }, ...changes };
+  };
+  const rec = mode('record'), pass = mode('must-pass'), failMode = mode('must-fail');
+  const ok = op(pass, 'SUCCEEDED', 0), fail = op(rec, 'FAILED', 1), env = { ...op(rec, 'FAILED', 127), reason: 'preflight_or_supervisor_error' }, unknown = { state: 'UNKNOWN' };
   assert.equal(baselineReady(mode('record'), ok), true);
   assert.equal(baselineReady(mode('record'), fail), true);
-  assert.equal(baselineReady(mode('record'), env), false);
-  assert.equal(baselineReady(mode('record'), unknown), false);
-  assert.equal(baselineReady(mode('must-pass'), ok), true);
-  assert.equal(baselineReady(mode('must-pass'), fail), false);
-  assert.equal(baselineReady(mode('must-fail'), fail), true);
-  assert.equal(baselineReady(mode('must-fail'), ok), false);
-  assert.equal(baselineReady(mode('must-fail'), unknown), false);
+  assert.equal(baselineReady(rec, env), false);
+  assert.equal(baselineReady(rec, unknown), false);
+  assert.equal(baselineReady(pass, ok), true);
+  assert.equal(baselineReady(pass, fail), false);
+  assert.equal(baselineReady(failMode, op(failMode, 'FAILED', 1)), true);
+  assert.equal(baselineReady(failMode, ok), false);
+  assert.equal(baselineReady(failMode, unknown), false);
+
+  const invalidReports = op(rec, 'FAILED', 127);
+  invalidReports.evidence.junit = { reports: [], invalidReports: [], tests: 0, failures: 0, errors: 0, skipped: 0 };
+  const invalidXml = op(rec, 'FAILED', 0);
+  invalidXml.evidence.junit = { reports: [], invalidReports: [{ path: 'TEST-broken.xml' }], tests: 0, failures: 0, errors: 0, skipped: 0 };
+  const wrongCommand = op(rec, 'FAILED', 1, { command: 'mvn -q test' });
+  const wrongSource = op(rec, 'FAILED', 1, { sourceCommit: 'c'.repeat(40) });
+  const passingExitFailure = op(rec, 'FAILED', 1, { failures: 0, errors: 0 });
+  assert.equal(baselineReady(rec, invalidReports), false);
+  assert.equal(baselineReady(rec, invalidXml), false);
+  assert.equal(baselineReady(rec, wrongCommand), false);
+  assert.equal(baselineReady(rec, wrongSource), false);
+  assert.equal(baselineReady(rec, passingExitFailure), false);
 });
 
 // ---- Workflow harness for MANUAL works ----
@@ -169,6 +203,14 @@ test('BASELINE submits the frozen command and timeout, then advances per record/
     assert.equal(h.posted[0].body.timeoutSeconds, fixture.taskSpec.execution.timeoutSeconds);
     assert.equal(h.posted[0].body.sourceCommit, fixture.taskSpec.baseCommit);
     const op = h.ops.get(h.work.workflow.baselineOperationId); Object.assign(op, terminal);
+    if (terminal.state !== 'UNKNOWN') {
+      op.sandboxId = h.work.sandboxId; op.reason = null;
+      op.evidence = { sourceCommit: fixture.taskSpec.baseCommit, expectedSourceCommit: fixture.taskSpec.baseCommit,
+        sourceDirty: false, command: fixture.taskSpec.execution.baselineCommand, exitCode: terminal.exitCode,
+        kind: 'UNIT_TEST', sandboxId: h.work.sandboxId,
+        junit: { reports: [{ path: 'target/surefire-reports/TEST-baseline.xml' }], invalidReports: [],
+          tests: 4, failures: terminal.state === 'FAILED' ? 1 : 0, errors: 0, skipped: 0 } };
+    }
     await h.controller.step(structuredClone(h.work));
     assert.equal(h.work.workflow.phase, expected, mode + ' ' + terminal.state);
   }

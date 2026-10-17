@@ -517,6 +517,12 @@ class FrozenReportDirTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             container_runner.clear_reports(str(self.workspace), ['limit/../escape'])
 
+    def test_duplicate_report_directory_aliases_are_rejected_before_capture(self):
+        self.report('target/surefire-reports', 'TEST-once.xml')
+        with self.assertRaises(ValueError):
+            container_runner.capture_reports(str(self.workspace),
+                                             ['target/surefire-reports', 'target/surefire-reports/'])
+
 
 if __name__ == '__main__':
     unittest.main()

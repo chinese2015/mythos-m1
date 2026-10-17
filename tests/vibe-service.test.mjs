@@ -246,7 +246,7 @@ test('diff proxies the brain evidence and passes diffTruncated through untouched
   assert.equal(data.diffTruncated, true);
   assert.equal(data.sandboxId, 'sb-demo-1');
   assert.equal(data.workspacePath, ROOT);
-  assert.match(headers.ETag, /^"\d+-[0-9a-f]{40}"$/);
+  assert.match(headers.ETag, /^"\d+-[0-9a-f]{40}-[0-9a-f]{64}"$/);
 });
 
 test('diff answers 304 when If-None-Match matches the evidence etag', async () => {
@@ -254,6 +254,22 @@ test('diff answers 304 when If-None-Match matches the evidence etag', async () =
   const first = await invoke(handler, { path: `/argon/vibe/tasks/${WORK_ID}/diff` });
   const second = await invoke(handler, { path: `/argon/vibe/tasks/${WORK_ID}/diff`, headers: { authorization: 'ok', 'if-none-match': first.headers.ETag } });
   assert.equal(second.status, 304);
+});
+
+test('diff ETag changes when working-tree evidence changes without a new commit or work-item version', async () => {
+  const firstEvidence = { ...evidence, git: { ...git, diffHash: 'a'.repeat(64), status: ' M src/A.java' } };
+  const secondEvidence = { ...evidence, git: { ...git, diffHash: 'b'.repeat(64), status: ' M src/A.java' } };
+  let current = firstEvidence;
+  const workflow = makeWorkflow();
+  workflow.workspace = async () => structuredClone(current);
+  const { handler } = makeHandler({ workflow });
+  const first = await invoke(handler, { path: `/argon/vibe/tasks/${WORK_ID}/diff` });
+  current = secondEvidence;
+  const second = await invoke(handler, { path: `/argon/vibe/tasks/${WORK_ID}/diff`,
+    headers: { authorization: 'ok', 'if-none-match': first.headers.ETag } });
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 200);
+  assert.notEqual(first.headers.ETag, second.headers.ETag);
 });
 
 test('unknown routes return 404 and the task-not-found check precedes routing payloads', async () => {
