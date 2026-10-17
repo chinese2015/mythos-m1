@@ -185,7 +185,7 @@ test('intent keys are well formed for the console mutation gate', () => {
 // ---- truthful rendering helpers ----
 test('evidence lines stay truthful: missing JUnit reports never render as zero passed', () => {
   assert.equal(evidenceLine('junit', null), '未产出 JUnit 报告');
-  assert.equal(evidenceLine('junit', { tests: 3, failures: 0, errors: 0 }), 'JUnit：3 项 · 0 失败 · 0 错误');
+  assert.equal(evidenceLine('junit', { reports: [{ path: 'TEST-customer.xml' }], invalidReports: [], tests: 3, failures: 0, errors: 0 }), 'JUnit：3 项 · 0 失败 · 0 错误');
   assert.equal(evidenceLine('command', null), null, 'command evidence must not fabricate a JUnit line');
 });
 test('manual work items expose scope and evidence without fake risk or a single source file', () => {
@@ -233,4 +233,60 @@ test('task list keeps legacy finding rows intact and lists manual work items wit
   assert.equal(legacy.startable, true);
   // The manual row is already a work item: opening it must not offer a re-Start action.
   assert.ok(manual.workItemId && manual.startable);
+});
+
+test('both form builders reject every unsafe Git branch prefix and suffix', () => {
+  const repository = { repositoryId: REPO_ID, revision: 1, config: fixture.repositoryConfig };
+  for (const branch of ['-main', '/main', '.main', 'main/', 'main.', 'main.lock']) {
+    assert.throws(() => buildRepositoryConfig({ ...validForm, defaultBranch: branch }), /分支/, branch);
+    assert.throws(() => buildManualInput({ title: 't', description: 'd', acceptanceCriteria: 'a', baseBranch: branch }, repository), /分支/, branch);
+  }
+});
+
+test('intent storage read errors never overwrite an unresolved key after a lost acknowledgement', () => {
+  const storage = memoryStorage();
+  const original = new IntentLedger('manual-task', storage).intent('same-business-input');
+  const persisted = storage.getItem('argon-intent:manual-task');
+  const broken = { ...storage, getItem() { throw new Error('read failed'); } };
+  const reopened = new IntentLedger('manual-task', broken);
+  assert.throws(() => reopened.intent('same-business-input'), error => error.code === 'INTENT_STORAGE');
+  assert.equal(storage.getItem('argon-intent:manual-task'), persisted);
+  assert.equal(new IntentLedger('manual-task', storage).intent('same-business-input').key, original.key);
+});
+
+test('corrupt or invalid pending intent records fail closed without replacement', () => {
+  for (const raw of ['', '{bad', 'null', '[]', '{}', '{"key":"bad key","fingerprint":"fp"}',
+    '{"key":"safe-key","fingerprint":17}', '{"key":"safe-key","fingerprint":"fp","extra":true}']) {
+    const storage = memoryStorage(); storage.setItem('argon-intent:manual-task', raw);
+    const ledger = new IntentLedger('manual-task', storage);
+    assert.throws(() => ledger.intent('fp'), error => error.code === 'INTENT_CORRUPT', raw);
+    assert.equal(storage.getItem('argon-intent:manual-task'), raw);
+    ledger.reset();
+    assert.match(ledger.intent('fp').key, /^[A-Za-z0-9_-]{1,150}$/);
+  }
+});
+
+test('an intent must be durably written and readable before it can authorize a mutation', () => {
+  const storage = memoryStorage();
+  const throwing = { ...storage, setItem() { throw new Error('write failed'); } };
+  assert.throws(() => new IntentLedger('manual-task', throwing).intent('fp'), error => error.code === 'INTENT_STORAGE');
+  const dropping = { ...storage, setItem() {} };
+  assert.throws(() => new IntentLedger('manual-task', dropping).intent('fp'), error => error.code === 'INTENT_STORAGE');
+  let wrote = false;
+  const lostRead = { ...storage, getItem(key) { if (wrote) throw new Error('read after write failed'); return storage.getItem(key); },
+    setItem(key, value) { storage.setItem(key, value); wrote = true; } };
+  assert.throws(() => new IntentLedger('manual-task', lostRead).intent('fp'), error => error.code === 'INTENT_STORAGE');
+  const saved = JSON.parse(storage.getItem('argon-intent:manual-task'));
+  assert.equal(new IntentLedger('manual-task', storage).intent('fp').key, saved.key);
+});
+
+test('actual-shaped missing and invalid JUnit summaries do not display fabricated zero counters', () => {
+  const empty = { reports: [], invalidReports: [], tests: 0, failures: 0, errors: 0, skipped: 0, failedTests: [] };
+  assert.equal(evidenceLine('junit', empty), '未产出 JUnit 报告');
+  const invalid = { ...empty, invalidReports: [{ path: 'target/surefire-reports/TEST-broken.xml', error: 'Invalid JUnit counts' }] };
+  assert.equal(evidenceLine('junit', invalid), 'JUnit 报告无效（1 份）');
+  const valid = { ...empty, reports: [{ path: 'target/surefire-reports/TEST-customer.xml', sha256: 'a'.repeat(64), xml: '<testsuite tests="3" failures="0" errors="0"/>', tests: 3, failures: 0, errors: 0, skipped: 0 }], tests: 3 };
+  assert.equal(evidenceLine('junit', valid), 'JUnit：3 项 · 0 失败 · 0 错误');
+  assert.equal(evidenceLine('junit', { ...valid, invalidReports: invalid.invalidReports }), 'JUnit 报告无效（1 份）');
+  assert.equal(evidenceLine('command', invalid), null);
 });

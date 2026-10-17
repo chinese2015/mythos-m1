@@ -21,7 +21,7 @@ function requireInt(value, lower, upper, label) {
 }
 function requireBranch(value, label) {
   const branch = requireText(String(value ?? ''), 200, label);
-  if (branch.startsWith(('-', '/', '.')) || branch.endsWith(('/', '.', '.lock')) || branch.includes('..') || branch.includes('@{')
+  if (['-', '/', '.'].some(prefix => branch.startsWith(prefix)) || ['/', '.', '.lock'].some(suffix => branch.endsWith(suffix)) || branch.includes('..') || branch.includes('@{')
       || /[\s~^:?*[\\]/.test(branch) || branch === '@' || branch.includes('//')
       || branch.split('/').some(part => part.startsWith('.') || part.endsWith('.lock'))) fail(`${label}不是安全的 Git 分支名`);
   return branch;
@@ -110,21 +110,39 @@ function canonical(value) {
 }
 export function fingerprintOf(value) { return canonical(value); }
 
+function intentStorageError(corrupt = false) {
+  const error = new Error(corrupt
+    ? '提交意向存储已损坏，无法确认原提交标识。请先核对原结果；只有显式放弃当前意向后才能重新提交。'
+    : '提交意向存储不可用，无法可靠保存或读取原提交标识。为避免重复创建，请恢复存储后重试。');
+  error.code = corrupt ? 'INTENT_CORRUPT' : 'INTENT_STORAGE';
+  return error;
+}
+
 export class IntentLedger {
   constructor(scope, storage) {
     if (typeof scope !== 'string' || !scope) fail('Intent scope is required');
-    if (!storage || typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function') fail('Intent storage adapter is required');
+    if (!storage || ['getItem', 'setItem', 'removeItem'].some(method => typeof storage[method] !== 'function')) throw intentStorageError();
     this.itemKey = 'argon-intent:' + scope;
     this.storage = storage;
   }
   peek() {
-    try { const raw = this.storage.getItem(this.itemKey); return raw ? JSON.parse(raw) : null; }
-    catch { return null; }
+    let raw;
+    try { raw = this.storage.getItem(this.itemKey); }
+    catch { throw intentStorageError(); }
+    if (raw === null) return null;
+    let current;
+    try { current = JSON.parse(raw); }
+    catch { throw intentStorageError(true); }
+    if (typeof raw !== 'string' || !current || typeof current !== 'object' || Array.isArray(current)
+        || Object.keys(current).length !== 2 || typeof current.key !== 'string' || !KEY_FORMAT.test(current.key)
+        || typeof current.fingerprint !== 'string' || !current.fingerprint) throw intentStorageError(true);
+    return current;
   }
   // Reuses the unacknowledged key for the same business input; refuses silent reuse after a change.
   intent(fingerprint) {
+    if (typeof fingerprint !== 'string' || !fingerprint) fail('Intent fingerprint is required');
     const current = this.peek();
-    if (current && typeof current.key === 'string' && typeof current.fingerprint === 'string') {
+    if (current) {
       if (current.fingerprint === fingerprint) return { key: current.key, reused: true };
       const error = new Error('表单内容已变化，而上一次提交的确认尚未收到。请先核对原任务结果，或显式“放弃当前意向”后再修改重试。');
       error.code = 'INTENT_CHANGED';
@@ -132,20 +150,29 @@ export class IntentLedger {
       throw error;
     }
     const key = createIntentKey();
-    this.storage.setItem(this.itemKey, JSON.stringify({ key, fingerprint }));
+    try { this.storage.setItem(this.itemKey, JSON.stringify({ key, fingerprint })); }
+    catch { throw intentStorageError(); }
+    const saved = this.peek();
+    if (!saved || saved.key !== key || saved.fingerprint !== fingerprint) throw intentStorageError();
     return { key, reused: false };
   }
   // Acknowledged: the original task/result is confirmed, so the intent is spent.
-  succeed() { this.storage.removeItem(this.itemKey); }
+  succeed() { this.reset(); }
   // Explicit operator decision to abandon an unacknowledged intent and start a new one.
-  reset() { this.storage.removeItem(this.itemKey); }
+  reset() {
+    try { this.storage.removeItem(this.itemKey); }
+    catch { throw intentStorageError(); }
+  }
 }
 
 // ---- Truthful rendering helpers shared with the work detail ----
 export function evidenceLine(format, junit) {
   if (format === 'command') return null;
   if (!junit || typeof junit !== 'object') return format === 'junit' ? '未产出 JUnit 报告' : null;
-  return `JUnit：${junit.tests ?? '?'} 项 · ${junit.failures ?? '?'} 失败 · ${junit.errors ?? '?'} 错误`;
+  if (Array.isArray(junit.invalidReports) && junit.invalidReports.length) return `JUnit 报告无效（${junit.invalidReports.length} 份）`;
+  if (!Array.isArray(junit.reports) || !junit.reports.length) return '未产出 JUnit 报告';
+  if (!Array.isArray(junit.invalidReports) || ['tests', 'failures', 'errors'].some(key => !Number.isInteger(junit[key]) || junit[key] < 0)) return 'JUnit 报告无效';
+  return `JUnit：${junit.tests} 项 · ${junit.failures} 失败 · ${junit.errors} 错误`;
 }
 const RISK_LABELS = { HIGH: '高风险', MEDIUM: '中风险', LOW: '低风险', high: '高风险', medium: '中风险', low: '低风险' };
 export function sourceFacts(sourceRecord = {}, taskSpec = null) {
@@ -177,8 +204,10 @@ export function renderIntake({ el, panelHead, request, notice, goWork }) {
     task: new IntentLedger('manual-task', storage),
     revise: id => new IntentLedger('revise:' + id, storage),
   } : null;
-  const noLedger = { intent: fp => ({ key: createIntentKey(), reused: false }), succeed() {}, reset() {}, peek: () => null };
-  const ledgerFor = kind => (ledgers ? (typeof kind === 'function' ? kind() : ledgers[kind]) : noLedger);
+  const ledgerFor = kind => {
+    if (!ledgers) throw intentStorageError();
+    return typeof kind === 'function' ? kind() : ledgers[kind];
+  };
 
   const view = el('div');
   const listBox = el('div', { class: 'task-list' });
@@ -202,10 +231,13 @@ export function renderIntake({ el, panelHead, request, notice, goWork }) {
   const intentGuard = (ledger, hint, run) => {
     try { return run(); }
     catch (error) {
-      if (error?.code === 'INTENT_CHANGED') {
+      if (['INTENT_CHANGED', 'INTENT_CORRUPT'].includes(error?.code)) {
         hint.replaceChildren();
         const abandon = el('button', { class: 'text-button', type: 'button', text: '放弃当前意向' });
-        abandon.addEventListener('click', () => { ledger.reset(); hint.replaceChildren(); notice('已放弃未确认的提交意向，可以修改后重新提交。', 'info'); });
+        abandon.addEventListener('click', () => {
+          try { ledger.reset(); hint.replaceChildren(); notice('已放弃未确认的提交意向，可以修改后重新提交。', 'info'); }
+          catch (error) { notice(error.message, 'error'); }
+        });
         hint.append(abandon);
       }
       throw error;
@@ -387,9 +419,9 @@ export function renderIntake({ el, panelHead, request, notice, goWork }) {
     catch (error) { notice(error.message, 'error'); return; }
     const revising = regMode.repository;
     const body = revising ? { expectedRevision: revising.revision, config } : config;
-    const ledger = ledgerFor(revising ? (() => ledgers.revise(revising.repositoryId)) : 'register');
     busy = true; regSubmit.disabled = true;
     try {
+      const ledger = ledgerFor(revising ? (() => ledgers.revise(revising.repositoryId)) : 'register');
       const { key } = intentGuard(ledger, regIntentHint, () => ledger.intent(fingerprintOf(body)));
       if (revising) await request(`/repositories/${encodeURIComponent(revising.repositoryId)}/revisions`, { method: 'POST', body, mutation: true, idempotencyKey: key });
       else await request('/repositories', { method: 'POST', body, mutation: true, idempotencyKey: key });
@@ -458,7 +490,7 @@ export function renderIntake({ el, panelHead, request, notice, goWork }) {
   const taskForm = el('form', { class: 'form-grid' });
   taskForm.append(
     field('仓库', task.repo, 'full'), field('标题', task.title, 'full'),
-    field('描述', task.description, 'full'), field('验收标准', task.acceptanceCriteria, 'full'),
+    field('描述', task.description, 'full'), field('验收标准', task.acceptance, 'full'),
     field('基线分支（可选）', task.baseBranch), field('基线提交（可选）', task.baseCommit),
     field('允许范围（可选，逗号或换行分隔）', task.allowedPaths, 'full'),
     (() => { const wrap = el('div', { class: 'check-row full' }); wrap.append(task.allowTestChanges.box); return wrap; })(),
@@ -477,9 +509,9 @@ export function renderIntake({ el, panelHead, request, notice, goWork }) {
       allowTestChanges: task.allowTestChanges.input.checked,
     }, repo); }
     catch (error) { notice(error.message, 'error'); return; }
-    const ledger = ledgerFor('task');
     busy = true; taskSubmit.disabled = true;
     try {
+      const ledger = ledgerFor('task');
       const { key, reused } = intentGuard(ledger, taskIntentHint, () => ledger.intent(fingerprintOf(input)));
       const work = await request('/tasks/manual', { method: 'POST', body: input, mutation: true, idempotencyKey: key });
       ledger.succeed();
