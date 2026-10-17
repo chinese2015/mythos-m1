@@ -70,7 +70,7 @@ Manual Work Item:
 - TaskWorkspace prepare/evidence 支持 MANUAL 分支/范围；Git改动名用NUL结果，显示列表与策略可正确处理删除/重命名/奇异文件名。
 - supervisor `capture_reports(workspace, report_dirs=None)` / `clear_reports` 支持冻结目录并保留原默认；不放松8份/256KiB、常规文件、symlink/FIFO/DTD约束。避免旧报告污染与路径逃逸。
 - Worker 按 Work Item 策略判断 UNIT_TEST/VERIFY；command模式 evidence.junit=null，并保存 `validation:{format:'command',...}`，不伪造用例；legacy JUnit规则不变。未知/取消/清理语义不变。
-- Manual VERIFY 提交/发布要求实际命令等于冻结 verificationCommand，精确 SHA、fresh B、合格报告/退出码及允许改动范围；私有 bare staging/create-only push与原幂等保持。
+- Manual 审批对象复用 workflow.approval 并增加 specDigest，发布必须与 Work Item 的冻结 digest 相等。Manual VERIFY 提交/发布要求实际命令等于冻结 verificationCommand，精确 SHA、fresh B、合格报告/退出码及允许改动范围；私有 bare staging/create-only push与原幂等保持。
 
 - [ ] 写失败测试：第四仓库通过登记可clone/verify/push、未登记/错误owner/恶意URL在I/O前拒绝；配置变更不改旧执行；3+ JUnit及command无报告成功/非零失败；超额/损坏/旧报告/skip拒绝；多文件/测试许可/越界/rename/delete路径一致；伪造VERIFY命令和A冒B拒绝；凭据helper用私有fixture按目标输出、未知目标无secret。
 - [ ] 观察 RED，再做最小实现；不扩大容器网络或挂载。
@@ -80,7 +80,7 @@ Manual Work Item:
 
 **Files:** Create `plugins/argon-workflow/task-spec.mjs`, `plugins/argon-workflow/intake.mjs`, `tests/generic-workflow.test.mjs`; modify `plugins/argon-workflow/controller.mjs`, `session-policy.mjs`, `plugins/argon-brain/bridge.mjs`, `plugins/argon-sdlc/controller.mjs`, `gitea.mjs`, `policy.mjs`；extend相应Node测试。
 
-**Interfaces:** Consume canonical fixture及 M2 API。`task-spec.mjs` 导出 `isManagedWork(work)`, `effectivePolicy(work)`, `candidateAllowed(work,git)`, `baselineReady(work,operation)`, `verifiedTaskCandidate(work,operation,git)`；legacy调用原规则，不重写三条Finding契约。`intake.mjs` 的 `TaskIntake(client)` 封装 repositories/register/revise/check/create；TaskWorkflow 暴露 intake。
+**Interfaces:** Consume canonical fixture及 M2 API。`task-spec.mjs` 导出 `isManagedWork(work)`, `effectivePolicy(work)`, `candidateAllowed(work,git)`, `baselineReady(work,operation)`, `verifiedTaskCandidate(work,operation,git)`；legacy调用原规则，不重写三条Finding契约。`intake.mjs` 的 `TaskIntake(client)` 封装 repositories/register/revise/check/create；TaskWorkflow 暴露 intake。Manual 审批沿用 workflow.approval 并增加 specDigest；审批/重放/进入编码/发布均匹配冻结 taskSpec.specDigest，与Task2字段相同。
 
 - [ ] 失败测试：MANUAL进入列表/detail/PLAN/CODE并绑定正确Session；BASELINE按record/must-pass/must-fail推进；taskSpec摘要绑定审批和重启；多文件及获批测试进入B、越界阻塞；泛化prompt不再声称单文件/禁止全部测试；manual closure不调用Mock complete；Node/Python shared fixture结论一致。
 - [ ] 修改状态机使用冻结命令、超时和报告策略；Baseline正常失败可进入只读研判但环境/UNKNOWN拒绝。CODE结束仍需提交和干净树，操作ID稳定。
