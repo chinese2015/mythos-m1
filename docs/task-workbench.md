@@ -5,9 +5,9 @@
 
 ## 目前可以怎么用
 
-1. 任务中心显示 Mock Findings 中三个已映射的真实问题。当前只开放 Nova `FND-00009`；另外两个为预览。
+1. 任务中心显示 Mock Findings 中三个已映射的真实问题。新 High/Critical 问题自动做规则研判并生成本地 Owner 通知预览；在卡片批准接管后才开放“开始处理”。拒绝、未登记或需复核的来源不能启动。
 2. 点击“开始处理”，创建唯一 Work Item 和新的任务沙箱，从固定漏洞基线检出。重复点击、刷新会返回同一个任务。
-3. 查看真实基线测试。只有预期的 SQL 注入回归失败被复现，才创建只读 PLAN 会话。
+3. 查看真实基线测试。只有对应来源的预期安全回归失败被复现，才创建只读 PLAN 会话（Nova：SQL 注入；Pixel：路径遍历；Orion：硬编码密钥）。
 4. 审查模型方案，点击“批准方案并开始执行”。批准记录绑定当前版本和方案摘要；随后才创建 CODE 会话。PLAN 的工具守卫阻止所有非只读工具。
 5. 查看原生 DSH 会话、命令日志、代码差异和 JUnit 结果。候选代码必须已提交、工作区干净，且只修改指定源码，才能进入新的 B 容器执行 `clean verify`。
 6. 全部通过后停在“等待审核”。点击“发布 PR”把已验证候选推为 Gitea PR：只推固定候选 SHA（create-only，不 force、不覆盖已有分支），PR 保持开放等待人工审核合并；不自动合并、不写回来源问题。PR 被外部关闭未合并时回到“等待审核”，可经补充说明产生新候选后再次发布。
@@ -43,3 +43,7 @@ SQLite 任务事实、API/worker、Docker 沙箱、已受理执行和日志证�
 远程证据（不入 Git）：`~/argon-m1/artifacts/task-before-approval.json`、`task-acceptance.json`、`task-native-acceptance.json`。验收脚本为 `tests/live_task_workflow.py` 和 `tests/live_task_native.mjs`，在 operator host 运行；从私有配置读取现有凭据，不输出令牌。
 
 后端 task-demo 启动参数：API 和 worker 都使用 `--per-owner-limit 3 --global-limit 4`，容纳原 alice/bob 沙箱、新任务 A 和临时验证 B；默认配额仍为 2/4。首次新建需使用已预热离线缓存的镜像，见 `maven-cache.md`。
+
+## M3 接管验收（2026-10-17）
+
+订阅、规则研判、本地通知预览、持久化审批与启动门已部署。浏览器实际批准并启动 Pixel，Orion 仍待批准；Pixel 基线真实复现后因 Kimi 周额度耗尽（403）停在 BLOCKED，源码未修改。原生 iframe 的同步目录回调递归已修复，并验证当前任务与会话一致。完整事实、限制与恢复方式见 [M3 主动漏洞工作流](m3-proactive-workflow.md)。

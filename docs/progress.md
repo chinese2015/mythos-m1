@@ -92,3 +92,13 @@ Spec: ../Argon_AI_Brain_总体方案_v2.0.md §8.1 and user-approved Sandbox/nat
 - 真实验收（证据 `~/argon-m1/state/run-monitor-acceptance.json`）：① 实时日志尾随（tick 每 3s 增长）+ 输出事件折叠（"已折叠 N 条输出事件"）；② 运行中关标签页 15s → 全新页面恢复观察（运行中 + 取消按钮 + 事件流续载）；③ 浏览器取消 → 已取消 + 退出码 -9，QUEUED 取消 → "Cancelled before dispatch"（CANCEL_REQUESTED 亚秒窗口由单测+事件流锚定）；④ worker SIGTERM+重启 mid-RUNNING → 容器命令存活、新 worker 对账续观察、最终 SUCCEEDED/0、零重复执行；⑤ 失败不假成功：监控内基线 FAILED/退出码 1 红色实况 + M2 `exit 23` → FAILED/23。
 - 验收中发现既有行为（非本功能引入）：PR_OPEN 期间 Nova 工作项 `blocked=True`（PLANNING 时代 block() 遗留，`update()` 默认保留旧值），`claim_next` 跳过其新操作；worker 重启对账因此改在 PoC 工作项验证（机制相同）。console 工作详情只服务控制台创建的工作项（既有边界）。
 - 明确不做（本切片）：多任务监控大盘、主动通知/审批页（M3 剩余）、Cordis 推送订阅、SSE/WebSocket。
+
+## 2026-10-17 — M3 订阅、规则研判与 Owner 审批接管
+
+- 接续登记簿提交 `487e78f` 完成订阅插件、通知预览 overlay、控制台审批与 fail-closed 启动门（`4ff234b`、`390033e`、`1c028b8`）。API 补持久化通知结果、lastError 和 revision 防倒退。
+- 独立审查 3 项 Important 均以 RED→GREEN 修复（`63d8e12`）：审批绑定不可变；通知绑定变化后重新生成；预览已落盘但响应丢失时，文案变化不使重试永久冲突。浏览器实测还定位并修复原生会话 catalog 同步回调递归，Pixel iframe 已正确显示 Pixel 计划。
+- 之前 agent 遗留的 PR 加固也已验证并提交 `25d4615`：分页 cap、关闭重开对账、首次分支 push CAS；原 Nova PR #2 仍为 PR_OPEN。
+- 最终回归：本地 Node 81/81、Python 86（85 pass + Linux-only 1 skip）；远程 Node 81/81、Python 86/86；Java 16/16，部署 JAR 与受测 JAR 一致。
+- 真实 M3 前半程：Orion/Pixel 自动 CONFIRMED，各生成一个本地 outbox 预览；浏览器批准并启动 Pixel；Orion 直接 start 409，仍 Not Started 无工作项；重复启动 Pixel 同一 Work Item；服务重启后无重复预览，Nova 原交付保留。
+- Pixel `work-466690061b6c4ed492e2f41ab94f8dda`：真实 Maven 基线 2 tests/1 traversal failure/exit 1 后进入只读 PLAN；Kimi 首轮返回 403 周额度耗尽，0 model tokens，流程保持 BLOCKED，Git 干净且 HEAD 等于基线。未完成模型方案/修复/独立验证/Pixel PR，不作端到端完成宣称。
+- 证据：远程 `~/argon-m1/state/m3-acceptance.json`；本地 `artifacts/m3-task-center.png` 与 `artifacts/m3-pixel-blocked.png`。实现与恢复说明见 `docs/m3-proactive-workflow.md`。通知仅本地预览、未向真人投递；真实多用户认证仍未实现。

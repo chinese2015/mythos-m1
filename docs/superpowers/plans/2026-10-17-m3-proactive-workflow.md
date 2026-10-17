@@ -1,6 +1,6 @@
 # M3 主动漏洞工作流 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 新 High/Critical 已映射漏洞自动研判、通知 Owner，Owner 在任务中心批准接管后才进入既有修复流水线。
 
@@ -43,11 +43,11 @@
   - `Store.decide_intake(owner, finding_id, decision: str, expected_revision, key) -> dict`——幂等（idempotency scope `intake-decide`）；仅 `AWAITING_OWNER` 可决定（否则 409）；写 `state=APPROVED|REJECTED`、`decision={by: owner, at: now(), key}`。
   - 路由：`GET /api/brain/source-intakes` → `{intakes}`；`PUT /api/brain/source-intakes/{findingId}`（body `{revision, triage}`，findingId 需 `^FND-[0-9]{5}$`）；`POST /api/brain/source-intakes/{findingId}/decide`（body `{expectedRevision, decision}`，需 Idempotency-Key）。
 
-- [ ] **Step 1: 写失败测试**（`tests/test_brain_intakes.py`，参照 `tests/test_brain_api.py` 的临时目录 Store/服务器 fixture）——覆盖 Review Focus #1/#2/#4：登记幂等（同 finding 两次 → 一条）、修订变化保留 APPROVED、decide 幂等重放同结果、非 AWAITING_OWNER decide 409、路由 401（无 bearer）/400（非法 findingId/decision）。
-- [ ] **Step 2: 跑测试确认失败**（ImportError/AttributeError）。Expected: FAIL。
-- [ ] **Step 3: 实现** store.py + api.py（schema 加 `CREATE TABLE IF NOT EXISTS source_intakes (finding_id TEXT PRIMARY KEY, owner TEXT NOT NULL, revision INTEGER NOT NULL, state TEXT NOT NULL, triage TEXT NOT NULL, notified_at TEXT, last_error TEXT, decision TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`；schema_version 保持 1，增量表）。
-- [ ] **Step 4: 跑测试确认通过**；`python3 -m unittest discover -s tests -p 'test_*.py'` 全绿。
-- [ ] **Step 5: Commit** `feat: durable source intake registry with owner decision gate`。
+- [x] **Step 1: 写失败测试**（`tests/test_brain_intakes.py`，参照 `tests/test_brain_api.py` 的临时目录 Store/服务器 fixture）——覆盖 Review Focus #1/#2/#4：登记幂等（同 finding 两次 → 一条）、修订变化保留 APPROVED、decide 幂等重放同结果、非 AWAITING_OWNER decide 409、路由 401（无 bearer）/400（非法 findingId/decision）。
+- [x] **Step 2: 跑测试确认失败**（ImportError/AttributeError）。Expected: FAIL。
+- [x] **Step 3: 实现** store.py + api.py（schema 加 `CREATE TABLE IF NOT EXISTS source_intakes (finding_id TEXT PRIMARY KEY, owner TEXT NOT NULL, revision INTEGER NOT NULL, state TEXT NOT NULL, triage TEXT NOT NULL, notified_at TEXT, last_error TEXT, decision TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`；schema_version 保持 1，增量表）。
+- [x] **Step 4: 跑测试确认通过**；`python3 -m unittest discover -s tests -p 'test_*.py'` 全绿。
+- [x] **Step 5: Commit** `feat: durable source intake registry with owner decision gate`。
 
 ---
 
@@ -64,10 +64,10 @@
   - `export function triageFinding(row, mapping) -> {result: 'CONFIRMED'|'NEEDS_REVIEW', reasons: string[]}`——CONFIRMED 需：`repositoryUrl/baseCommit/sourcePath` 与 mapping 逐字一致、`risk ∈ {HIGH, CRITICAL}`、`status === 'Not Started'`、`closed !== 'Closed'`、无 `workItemId`；否则 NEEDS_REVIEW + 人类可读理由（中文）。
   - `export class SubscribeController`：`constructor(config, {client /* M2 */, mock /* finding source */, report})`；`async syncOnce()`——mock 全量列表 → 过滤映射内候选 → 对每个候选：已有 work item（`GET /api/brain/work-items/{...}` 不行——work item 按 finding 关联走 `GET /api/brain/work-items` 列表按 `source.id` 匹配，已有则 PUT intake `{revision, triage:{result:'CONFIRMED', reasons:['existing-work-item']}}` 且 state 直接 APPROVED grandfathered）→ 否则 triageFinding → `PUT intake` → 成功后外部写：`PATCH /api/findings/{id} {triageResult}` → result==='CONFIRMED' 时 `POST /api/findings/{id}/notify-owner` → 成功后回写 intake `notifiedAt`（PUT 带 `{notified: true}` 或专用字段，implementer 定，保持幂等）。任一步失败：`report` + intake `lastError`（PUT 带 triage 理由外字段），下轮重试。全部 Finding 处理完返回摘要 `{seen, registered, notified, errors}`。
   - Cordis Service：`inject ['argonBrain']` 不需要——直接 `new M2Client`；`ctx.effect` setInterval(`syncOnce`, pollIntervalMs)，dispose clearInterval；`apply(ctx, config)`。
-- [ ] **Step 1: 失败测试**——triageFinding 各分支（Review Focus #5 映射漂移→NEEDS_REVIEW）；syncOnce fixture：假 mock（列表含 FND-00015 可候选 + FND-00009 已有 work item）+ 假 client 记录请求序列——断言 **PUT intake 先于 PATCH triageResult 先于 notify-owner**（红线）、grandfathered 路径、外部写失败时 lastError 落库且状态保持。
-- [ ] **Step 2: 确认失败。** Step 3: 实现三文件 + configure_presets.py 注册（仿 argon-workflow 条目格式）。
-- [ ] **Step 4: 测试通过 + `node --test tests/*.test.mjs` 全绿。**
-- [ ] **Step 5: Commit** `feat: argon-subscribe plugin with triage-first intake orchestration`。
+- [x] **Step 1: 失败测试**——triageFinding 各分支（Review Focus #5 映射漂移→NEEDS_REVIEW）；syncOnce fixture：假 mock（列表含 FND-00015 可候选 + FND-00009 已有 work item）+ 假 client 记录请求序列——断言 **PUT intake 先于 PATCH triageResult 先于 notify-owner**（红线）、grandfathered 路径、外部写失败时 lastError 落库且状态保持。
+- [x] **Step 2: 确认失败。** Step 3: 实现三文件 + configure_presets.py 注册（仿 argon-workflow 条目格式）。
+- [x] **Step 4: 测试通过 + `node --test tests/*.test.mjs` 全绿。**
+- [x] **Step 5: Commit** `feat: argon-subscribe plugin with triage-first intake orchestration`。
 
 ---
 
@@ -81,9 +81,9 @@
 **Interfaces:**
 - Consumes: Mock 既有 `MailDelivery`（`deliver(to, subject, body)`，preview 落 `data/outbox/*.eml`）、`OWNERS`/`FindingRepository`。
 - Produces: `POST /api/findings/{id}/notify-owner`——仅 loopback（非 127.0.0.1/::1 → 403）；finding 不存在 404；收件人 `{ownerId}@argon.demo`；主题 `[Argon] 批准请求：{id} {name}`；正文含 risk/category/ownerTeamsId/研判结论（从 `triageResult` 读）/控制台链接；返回 `{delivered: true, to}`。
-- [ ] **Step 1: 失败测试**（Java：loopback 403、404、outbox .eml 生成且含 finding id）。Step 2: 确认失败。Step 3: 实现。
-- [ ] **Step 4: `cd argon-security-platform/backend && mvn -q test`（对本机；若无 mvn 则远程构建机跑，记录事实）通过。**
-- [ ] **Step 5: Commit** `feat: notify-owner endpoint in mock overlay`。
+- [x] **Step 1: 失败测试**（Java：loopback 403、404、outbox .eml 生成且含 finding id）。Step 2: 确认失败。Step 3: 实现。
+- [x] **Step 4: `cd argon-security-platform/backend && mvn -q test`（对本机；若无 mvn 则远程构建机跑，记录事实）通过。**
+- [x] **Step 5: Commit** `feat: notify-owner endpoint in mock overlay`。
 
 ---
 
@@ -103,20 +103,24 @@
   - `controller.start()`：无 work item 且 intake 存在且非 APPROVED → 409 '请等待 Owner 在任务中心批准接管'。
   - console 卡：`startable` false 时——AWAITING_OWNER → pill '待 Owner 批准' + Owner 建议行（task.ownerId/ownerTeamsId，ownerTeamsId 需 tasks() 透传 finding 字段）+ 按钮 '批准接管'/'拒绝'；NEEDS_REVIEW → pill '需人工复核' + triage 理由；REJECTED → '已拒绝接管'。decide 按钮 → POST `/argon/api/tasks/{id}/decide {decision:'APPROVE'|'REJECT'}`（mutation:true）。
   - `nav-count` 显示 `tasks.filter(t=>t.intake?.state==='AWAITING_OWNER').length`，0 时回退 enabled 计数。
-- [ ] **Step 1: 失败测试**——start() intake 门 409；tasks() startable/intake 合并；console decide 路由 202/401/409。Step 2: 失败。Step 3: 实现。Step 4: 全绿。Step 5: Commit `feat: owner approval gate in task intake with console decision UI`。
+- [x] **Step 1: 失败测试**——start() intake 门 409；tasks() startable/intake 合并；console decide 路由 202/401/409。Step 2: 失败。Step 3: 实现。Step 4: 全绿。Step 5: Commit `feat: owner approval gate in task intake with console decision UI`。
 
 ---
 
 ### Task 5: 集成回归 + 部署 + 真实验收
 
-- [ ] **Step 1: 三套件全绿**（node + python + overlay mvn）。
-- [ ] **Step 2: 部署**——tar 同步 m1；重启 M2 api+worker（brain 代码变更）+ DSH（插件变更）+ Mock（新 jar：overlay apply → mvn package → 备份旧 jar → 换 jar → 重启，流水线仿既有 build-release）。
-- [ ] **Step 3: 订阅验收**——≤60s 内 FND-00003 与 FND-00015 出现在 intakes（AWAITING_OWNER，triage CONFIRMED）；Mock 侧 `triageResult=CONFIRMED`；`~/argon-backend/data/outbox/` 出现两封 owner 邮件（含 finding id 与链接）；console 任务卡显示 '待 Owner 批准' + Owner 建议；FND-00009 卡不退化。
+- [x] **Step 1: 三套件全绿**（node + python + overlay mvn）。
+- [x] **Step 2: 部署**——tar 同步 m1；重启 M2 api+worker（brain 代码变更）+ DSH（插件变更）+ Mock（新 jar：overlay apply → mvn package → 备份旧 jar → 换 jar → 重启，流水线仿既有 build-release）。
+- [x] **Step 3: 订阅验收**——≤60s 内 FND-00003 与 FND-00015 出现在 intakes（AWAITING_OWNER，triage CONFIRMED）；Mock 侧 `triageResult=CONFIRMED`；`~/argon-backend/data/outbox/` 出现两封 owner 邮件（含 finding id 与链接）；console 任务卡显示 '待 Owner 批准' + Owner 建议；FND-00009 卡不退化。
 - [ ] **Step 4: 审批验收**——console 批准 FND-00015 → 卡变 '开始处理' → 点击启动 → 既有链路跑通到基线复现与只读方案（模型真实执行）；批准后 FND-00003 保持 '待 Owner 批准'（门生效证明）。
 - [ ] **Step 5: 全链验收（时间盒）**——FND-00015 走完 plan 审批 → 编码 → 独立验证 → 发布 PR（复用 publish 链路），PR 保持开放；证据写 `~/argon-m1/state/m3-acceptance.json`。若模型会话异常，如实记录停在哪个阶段。
-- [ ] **Step 6: ledger**——progress.md 记 M3 条目 + 限制；交接文档更新；Commit docs。
+- [x] **Step 6: ledger**——progress.md 记 M3 条目 + 限制；交接文档更新；Commit docs。
 
 ## Self-Review 结论
 
 - Spec 覆盖：intakes（§1）→ Task 1；订阅/研判/通知编排（§2）→ Task 2；notify-owner（§3）→ Task 3；门控/合并/UI（§4/§5）→ Task 4；验收（§数据流）→ Task 5。红线逐条有对应测试。无缺口。
 - Review Focus #1/#2/#4 → Task 1 测试；#3 → Task 2 测试；#5 → Task 4 测试。
+
+## 执行交接（2026-10-17）
+
+Task 1–4 已实现、审查修复并部署。Task 5 已完成回归、通知与批准门禁、真实基线、浏览器点击和记录；Step 4 的只读方案及 Step 5 的模型修复/独立验证/Pixel PR 因 Kimi 403 周额度耗尽未完成。未重放模型请求，任务保留 BLOCKED，恢复步骤见 `docs/m3-proactive-workflow.md`。
