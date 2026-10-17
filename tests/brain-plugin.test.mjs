@@ -71,6 +71,28 @@ test('persisted task sessions share their task sandbox and never create a DIRECT
   } finally { await b.dispose(); }
 });
 
+test('a MANUAL CODE session binds only through a digest-matching approval', async () => {
+  const b = bridge();
+  const spec = { specDigest: 'd'.repeat(64) };
+  const work = { ownerId: 'alice', sessionIds: ['session-m-code'],
+    source: { type: 'MANUAL', id: 'TASK-' + '0'.repeat(12), revision: 1 }, sandboxId: 'sb-manual-task', taskSpec: spec,
+    workItemId: 'work-' + 'c'.repeat(32), workflow: { approval: { actor: 'alice', specDigest: spec.specDigest } } };
+  b.clients.get('alice').request = async (method, path) => {
+    if (method === 'POST') return { operationId: 'exec-' + 'd'.repeat(32), workItemId: work.workItemId, state: 'QUEUED' };
+    return path.endsWith('/work-items') ? { workItems: [work] } : { workItem: work, cursor: 1, sessions: [{ sessionId: 'session-m-code', role: 'CODE' }] };
+  };
+  try {
+    assert.equal((await b.binding('alice', 'session-m-code', false)).workItemId, work.workItemId);
+    assert.throws(() => b.validateWork('alice', 'session-other', work), /binding/);
+    const run = await b.run('alice', 'session-m-code', { command: 'mvn test' }, call('manual-run'));
+    assert.ok(run.operationId);
+    work.workflow.approval = null;
+    await assert.rejects(() => b.run('alice', 'session-m-code', { command: 'mvn test' }, call('manual-run-2')), /approved|审批/);
+    work.workflow.approval = { actor: 'alice', specDigest: '0'.repeat(64) };
+    await assert.rejects(() => b.run('alice', 'session-m-code', { command: 'mvn test' }, call('manual-run-3')), /[Dd]igest|摘要/);
+  } finally { await b.dispose(); }
+});
+
 test('read-only status does not create work; run binds one durable session work item', async () => {
   const b = bridge();
   try {

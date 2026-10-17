@@ -6,13 +6,21 @@ export class GiteaError extends Error {
 const collision = () => new GiteaError('Gitea PR 身份或提交不匹配，交付冲突，未创建新 PR', 409, 'IDENTITY_CONFLICT');
 export class GiteaClient {
   #auth; #loading; #closed = false; #controllers = new Set();
+  #authorized = new Set();
   constructor({ baseUrl = 'http://127.0.0.1:3000', credentialFile, botLogin = 'argon-agent', timeoutMs = 10000 }) {
     const url = new URL(baseUrl);
     if (url.protocol !== 'http:' || !['127.0.0.1', '[::1]'].includes(url.hostname) || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('Gitea must use a credential-free loopback HTTP origin');
     if (typeof credentialFile !== 'string' || !Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 30000) throw new Error('Invalid Gitea configuration');
     this.baseUrl = url.origin; this.credentialFile = credentialFile; this.botLogin = botLogin; this.timeoutMs = timeoutMs;
   }
-  repository(repo) { if (!/^demo\/demo-(nova-catalog-api|orion-notes-api|pixel-reports-batch)$/.test(repo)) throw new GiteaError('仓库不在允许列表', 400, 'REPOSITORY_DENIED'); return '/repos/' + repo; }
+  // Only ever feed names derived from a trusted frozen snapshot (TaskSpec delivery identity).
+  authorize(fullNames) {
+    if (!Array.isArray(fullNames) || fullNames.some(name => typeof name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/.test(name) || name.endsWith('.git'))) {
+      throw new GiteaError('授权仓库名必须是 owner/repository 形式', 400, 'REPOSITORY_DENIED');
+    }
+    for (const name of fullNames) this.#authorized.add(name);
+  }
+  repository(repo) { if (!/^demo\/demo-(nova-catalog-api|orion-notes-api|pixel-reports-batch)$/.test(repo) && !this.#authorized.has(repo)) throw new GiteaError('仓库不在允许列表', 400, 'REPOSITORY_DENIED'); return '/repos/' + repo; }
   async credentials() {
     if (this.#auth) return this.#auth;
     this.#loading ??= (async () => {

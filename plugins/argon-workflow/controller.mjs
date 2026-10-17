@@ -4,6 +4,8 @@ import { FindingSource, sourceRecord } from './source.mjs';
 import { sessionProgress, assertApproval, baselineReproduced, baselineExpectations, conflict, transcript } from './rules.mjs';
 import { findingBinding } from '../argon-subscribe/triage.mjs';
 import { taskPreset } from './session-policy.mjs';
+import { isManagedWork, effectivePolicy, candidateAllowed, baselineReady, verifiedTaskCandidate } from './task-spec.mjs';
+import { TaskIntake } from './intake.mjs';
 
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const route = id => '/api/brain/work-items/' + id;
@@ -18,6 +20,7 @@ export class TaskWorkflow {
     this.config = config; this.owner = config.owner ?? 'alice'; this.sessions = sessions; this.workspaces = workspaces; this.presets = presets;
     this.client = client ?? new M2Client({ ...config, owner: this.owner, timeoutMs: 30000 });
     this.source = source ?? new FindingSource(config.sourceUrl); this.report = report;
+    this.intake = new TaskIntake(this.client);
     this.registered = new Map(); this.workspaceCache = new Map(); this.queue = Promise.resolve(); this.polling = null; this.closed = false;
     this.workState = new Map(); this.inputFences = new Set();
   }
@@ -46,17 +49,25 @@ export class TaskWorkflow {
   async snapshot(id) {
     if (!/^work-[a-f0-9]{32}$/.test(id)) throw Object.assign(new Error('工作项不存在'), { status: 404 });
     const snap = await this.client.request('GET', route(id));
-    if (snap.workItem.ownerId !== this.owner || snap.workItem.source?.type !== 'ARGON' || !snap.workItem.sourceRecord || !snap.workItem.workflow) throw Object.assign(new Error('工作项不存在'), { status: 404 });
+    const type = snap.workItem.source?.type;
+    if (snap.workItem.ownerId !== this.owner || !['ARGON', 'MANUAL'].includes(type) || !snap.workItem.sourceRecord || !snap.workItem.workflow) throw Object.assign(new Error('工作项不存在'), { status: 404 });
     this.remember(snap.workItem);
     return snap;
   }
-  async listWorks() { return (await this.client.request('GET', '/api/brain/work-items')).workItems.filter(w => w.source?.type === 'ARGON' && w.sourceRecord && w.workflow); }
+  async listWorks() { return (await this.client.request('GET', '/api/brain/work-items')).workItems.filter(w => ['ARGON', 'MANUAL'].includes(w.source?.type) && w.sourceRecord && w.workflow); }
   async tasks() {
     const [tasks, works, { intakes }] = await Promise.all([this.source.list(), this.listWorks(), this.client.request('GET', '/api/brain/source-intakes')]);
-    return { tasks: tasks.map(task => { const work = works.find(w => w.source.id === task.id), intake = intakes.find(i => i.findingId === task.id) ?? null; return { ...task,
+    const rows = tasks.map(task => { const work = works.find(w => w.source.id === task.id), intake = intakes.find(i => i.findingId === task.id) ?? null; return { ...task,
       intake, startable: !!work || !!(task.enabled && intake?.state === 'APPROVED' && intake.triage?.result === 'CONFIRMED' && intake.decision?.binding === findingBinding(task)),
-      ...(work ? { workItemId: work.workItemId, workStage: work.paused ? 'PAUSED' : work.workflow?.phase } : {}) }; }),
-      operator: { id: this.owner, label: '演示操作员 ' + this.owner } };
+      ...(work ? { workItemId: work.workItemId, workStage: work.paused ? 'PAUSED' : work.workflow?.phase } : {}) }; });
+    for (const work of works.filter(isManagedWork)) {
+      if (rows.some(row => row.workItemId === work.workItemId)) continue;
+      const record = work.sourceRecord;
+      rows.push({ id: work.source.id, title: record.title, description: record.description ?? '', ownerId: record.ownerId,
+        repositoryUrl: record.repositoryUrl, baseCommit: record.baseCommit, revision: record.revision, manual: true, enabled: true,
+        workItemId: work.workItemId, workStage: work.paused ? 'PAUSED' : work.workflow?.phase, startable: true });
+    }
+    return { tasks: rows, operator: { id: this.owner, label: '演示操作员 ' + this.owner } };
   }
   start(id, body, key) { return this.serial(async () => {
     const existing = (await this.listWorks()).find(w => w.source.id === id);
@@ -96,6 +107,7 @@ export class TaskWorkflow {
   }
   approve(id, body, key) { return this.serial(async () => {
     const snap = await this.snapshot(id), work = snap.workItem, wf = work.workflow;
+    if (isManagedWork(work) && wf.approval && wf.approval.specDigest !== work.taskSpec.specDigest) throw conflict('冻结任务策略已变化，请刷新后重新审批');
     // A replay is valid only for the exact approval decision already stored.
     if (wf.approval?.key === key && wf.approval.planHash === body.planHash && wf.approval.expectedVersion === body.expectedVersion) return work;
     if (!wf.planSessionId) throw conflict('只读方案尚未完成');
@@ -105,7 +117,8 @@ export class TaskWorkflow {
     if (work.paused) throw conflict('请先恢复工作流');
     const git = (await this.workspace(work, true)).git;
     if (git.headCommit !== work.sourceRecord.baseCommit || git.status || git.changedFiles.length) throw conflict('审批前工作区出现变更，需要人工检查');
-    return this.update(work, { phase: 'CODING', reason: null, approval: { actor: this.owner, approvedAt: new Date().toISOString(), planHash: body.planHash, expectedVersion: body.expectedVersion, key },
+    return this.update(work, { phase: 'CODING', reason: null, approval: { actor: this.owner, approvedAt: new Date().toISOString(), planHash: body.planHash, expectedVersion: body.expectedVersion, key,
+      ...(isManagedWork(work) ? { specDigest: work.taskSpec.specDigest } : {}) },
       pendingMessage: null, codeSessionId: identity(work, 'CODE'), codeRequestId: this.key('prompt', id, 'CODE', 1) }, { blocked: false, key: this.key('approve', id, key) });
     });
   }); }
@@ -166,10 +179,20 @@ export class TaskWorkflow {
   prompt(work, role) {
     const wf = work.workflow, source = work.sourceRecord;
     if (wf.pendingMessage?.requestId === wf[role.toLowerCase() + 'RequestId']) return wf.pendingMessage.text;
+    if (isManagedWork(work)) return this.managedPrompt(work, role);
     const expected = baselineExpectations[source.id]?.join('、') ?? '请查阅基线操作的 JUnit 证据';
     const context = `任务 ${source.id}: ${source.title}\n仓库基线 ${source.baseCommit}\n只允许修改 ${source.sourcePath}。禁止读取参考修复分支，不修改测试/POM/构建配置，不创建 PR。\n已复现真实失败测试：${expected}。`;
     return role === 'PLAN' ? `${context}\n请用只读工具检查源码和现有测试，输出具体修改方案、风险与验证步骤，完成后等待人工审批。` :
       `${context}\n人工已批准方案：\n${wf.plan}\n请实际完成源码修改，保持现有测试不变，运行必要测试并用 git 提交你的修改；最后报告提交 SHA 和测试事实。独立 clean verify 将由工作流在新的容器执行。`;
+  }
+  managedPrompt(work, role) {
+    const wf = work.workflow, spec = work.taskSpec, policy = effectivePolicy(work);
+    const scope = `允许修改范围：${policy.allowedPaths.join('、')}（最多 ${policy.maxFiles} 个文件${policy.allowTestChanges ? '，允许按获批范围修改测试' : '，不允许修改测试'}）`;
+    const context = `任务 ${work.source.id}: ${spec.task.title}\n仓库 ${spec.repository.fullName} 基线 ${spec.baseCommit}（分支 ${spec.repository.baseBranch}）\n${scope}。\n` +
+      `基线命令：${spec.execution.baselineCommand}（${spec.execution.baselineMode}）；验收命令：${spec.execution.verificationCommand}（超时 ${spec.execution.timeoutSeconds}s）。\n` +
+      `描述：${spec.task.description}\n验收标准：${spec.task.acceptanceCriteria}`;
+    return role === 'PLAN' ? `${context}\n请用只读工具检查源码，输出具体修改方案、风险与验证步骤，完成后等待人工审批。` :
+      `${context}\n人工已批准方案：\n${wf.plan}\n请在该范围内实际完成修改（可多文件），运行验收命令，并用 git 提交你的修改；最后报告提交 SHA 和真实测试事实。独立验证将由工作流在新的容器执行冻结的验收命令。`;
   }
   async observe(work, role) {
     work = await this.ensureSession(work, role);
@@ -201,15 +224,17 @@ export class TaskWorkflow {
     const snap = await this.snapshot(work.workItemId);
     if (snap.operations.some(op => !terminal.has(op.state))) return;
     const git = (await this.workspace(work, true)).git;
-    if (git.headCommit === work.sourceRecord.baseCommit || git.status || git.testsChanged.length || git.changedFiles.length !== 1 || git.changedFiles[0] !== work.sourceRecord.sourcePath)
-      return this.block(snap.workItem, '编码结束，但候选提交必须已提交、工作区干净且只修改指定源文件。可发送说明修正后继续。');
+    if (git.headCommit === work.sourceRecord.baseCommit || git.status || !candidateAllowed(snap.workItem, git))
+      return this.block(snap.workItem, isManagedWork(snap.workItem)
+        ? '编码结束，但候选提交必须已提交、工作区干净且全部修改都在冻结任务范围内。可发送说明修正后继续。'
+        : '编码结束，但候选提交必须已提交、工作区干净且只修改指定源文件。可发送说明修正后继续。');
     return this.update(snap.workItem, { phase: 'VERIFYING', candidateCommit: git.headCommit, codeEndSequence: progress.endSequence, verificationOperationId: null }, { blocked: false });
   }
   async block(work, reason) { return this.update(work, { returnPhase: work.workflow.phase, phase: 'BLOCKED', reason }, { blocked: true }); }
-  async submitFixed(work, kind, command, slot, sourceCommit) {
+  async submitFixed(work, kind, command, slot, sourceCommit, timeoutSeconds = 300) {
     const op = await this.client.request('POST', route(work.workItemId) + '/operations', {
       key: this.key('fixed-operation', work.workItemId, slot, slot === 'baselineOperationId' ? 1 : work.workflow.codeRequestId),
-      body: { command, kind, timeoutSeconds: 300, sourceCommit, expectedVersion: work.version } });
+      body: { command, kind, timeoutSeconds, sourceCommit, expectedVersion: work.version } });
     const current = (await this.snapshot(work.workItemId)).workItem;
     await this.update(current, { [slot]: op.operationId });
   }
@@ -221,8 +246,9 @@ export class TaskWorkflow {
       if (sid && work.sessionIds.includes(sid)) await this.ensurePreset(work, role);
     }
     if (work.paused) return;
-    const wf = work.workflow;
+    const wf = work.workflow, managed = isManagedWork(work), execution = managed ? work.taskSpec.execution : null;
     if (wf.phase === 'CLAIMED') {
+      if (managed) return this.update(work, { phase: 'PREPARING' });
       if (!wf.sourceClaimed) { await this.source.claim(work); return this.update(work, { sourceClaimed: true, phase: 'PREPARING' }); }
       return this.update(work, { phase: 'PREPARING' });
     }
@@ -233,10 +259,13 @@ export class TaskWorkflow {
       return;
     }
     if (wf.phase === 'BASELINE') {
-      if (!wf.baselineOperationId) return this.submitFixed(work, 'UNIT_TEST', 'mvn -B -o -s .cache/settings.xml test', 'baselineOperationId', work.sourceRecord.baseCommit);
+      if (!wf.baselineOperationId) return this.submitFixed(work, 'UNIT_TEST', managed ? execution.baselineCommand : 'mvn -B -o -s .cache/settings.xml test',
+        'baselineOperationId', work.sourceRecord.baseCommit, managed ? execution.timeoutSeconds : 300);
       const op = await this.client.request('GET', opRoute(wf.baselineOperationId));
       if (!terminal.has(op.state)) return;
-      if (!baselineReproduced(op, work.source.id)) return this.block(work, '基线测试未复现预期失败，请检查操作日志和环境；没有将环境错误视为漏洞复现。');
+      if (!baselineReady(work, op)) return this.block(work, managed
+        ? '基线执行未就绪：结果未知或环境失败不能进入研判，请检查操作日志与环境。'
+        : '基线测试未复现预期失败，请检查操作日志和环境；没有将环境错误视为漏洞复现。');
       return this.update(work, { phase: 'PLANNING', baselineReproduced: true, planSessionId: identity(work, 'PLAN'), planRequestId: this.key('prompt', work.workItemId, 'PLAN', 1) }, { blocked: false });
     }
     if (wf.phase === 'PLANNING') return this.observe(work, 'PLAN');
@@ -256,13 +285,20 @@ export class TaskWorkflow {
       const { items } = await this.sessions.list({});
       if (!progress.completed || progress.latestUserSequence > wf.codeEndSequence || progress.pendingInputs.length || items.some(r => r.sessionId === wf.codeSessionId && r.running))
         return this.block(work, '验证期间编码会话有新的活动，旧验证结果不会发布为待审核。请从任务工作台发送说明继续。');
-      if (!wf.verificationOperationId) return this.submitFixed(work, 'VERIFY', 'mvn -B -o -s .cache/settings.xml clean verify', 'verificationOperationId', wf.candidateCommit);
+      if (!wf.verificationOperationId) return this.submitFixed(work, 'VERIFY', managed ? execution.verificationCommand : 'mvn -B -o -s .cache/settings.xml clean verify',
+        'verificationOperationId', wf.candidateCommit, managed ? execution.timeoutSeconds : 300);
       const op = await this.client.request('GET', opRoute(wf.verificationOperationId));
       if (!terminal.has(op.state)) return;
-      const j = op.evidence?.junit, git = (await this.workspace(work, true)).git;
-      if (op.state !== 'SUCCEEDED' || op.evidence?.sourceCommit !== wf.candidateCommit || op.evidence?.sourceDirty || j?.tests !== 2 || j.failures || j.errors || j.skipped || j.invalidReports?.length ||
-          git.headCommit !== wf.candidateCommit || git.status || git.testsChanged.length || git.changedFiles.length !== 1 || git.changedFiles[0] !== work.sourceRecord.sourcePath)
-        return this.block(work, '独立验证未通过，或候选提交/测试完整性已变化。请检查日志与差异。');
+      const git = (await this.workspace(work, true)).git;
+      if (managed) {
+        if (!verifiedTaskCandidate(work, op, git))
+          return this.block(work, '独立验证未通过：命令、候选提交、fresh-B 证据或报告数量不满足冻结任务策略。请检查日志与差异。');
+      } else {
+        const j = op.evidence?.junit;
+        if (op.state !== 'SUCCEEDED' || op.evidence?.sourceCommit !== wf.candidateCommit || op.evidence?.sourceDirty || j?.tests !== 2 || j.failures || j.errors || j.skipped || j.invalidReports?.length ||
+            git.headCommit !== wf.candidateCommit || git.status || git.testsChanged.length || git.changedFiles.length !== 1 || git.changedFiles[0] !== work.sourceRecord.sourcePath)
+          return this.block(work, '独立验证未通过，或候选提交/测试完整性已变化。请检查日志与差异。');
+      }
       return this.update(work, { phase: 'AWAITING_REVIEW', reason: null, verifiedAt: new Date().toISOString() });
     }
   }

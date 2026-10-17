@@ -56,6 +56,18 @@ test('Gitea null statuses with total_count zero are shown as no CI records', asy
   try {const facts=await f.client.facts(repo,{...delivery,pullNumber:1});assert.deepEqual(facts.statuses,[]);}
   finally {await f.close();}
 });
+test('only snapshot-authorized repositories are routable; arbitrary repos stay denied', async () => {
+  const f = await fixture((_req, res) => json(res, []));
+  try {
+    assert.throws(() => f.client.repository('demo/customer-api'), /仓库/);
+    f.client.authorize(['demo/customer-api']);
+    assert.equal(f.client.repository('demo/customer-api'), '/repos/demo/customer-api');
+    assert.throws(() => f.client.repository('demo/other'), /仓库/);
+    assert.throws(() => f.client.authorize(['../escape']), /Invalid|仓库|fullName/);
+    assert.throws(() => f.client.authorize(['demo/evil.git']), /Invalid|仓库|fullName/);
+    assert.throws(() => f.client.authorize(['owner/a b']), /Invalid|仓库|fullName/);
+  } finally { await f.close(); }
+});
 test('server-capped pages include an existing closed delivery and the latest review', async () => {
   let f, posts=0;
   f=await fixture((req,res)=>{

@@ -1,6 +1,7 @@
 import { GiteaClient } from './gitea.mjs';
-import { deliveryIdentity, verifiedCandidate, factsView } from './policy.mjs';
+import { deliveryIdentity, verifiedCandidate, factsView, pullBody } from './policy.mjs';
 import { sessionProgress, conflict } from '../argon-workflow/rules.mjs';
+import { isManagedWork } from '../argon-workflow/task-spec.mjs';
 const route = id => '/api/brain/work-items/' + id;
 const active = op => !['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(op.state);
 export class SdlcController {
@@ -25,7 +26,9 @@ export class SdlcController {
   }
   publish(id, body, key) { return this.workflow.serial(async () => {
     const { workItem: work } = await this.workflow.snapshot(id), wf = work.workflow;
+    if (isManagedWork(work) && wf.approval?.specDigest !== work.taskSpec.specDigest) throw conflict('审批摘要与冻结任务策略不一致');
     const identity = deliveryIdentity(work);
+    if (typeof this.forge.authorize === 'function') this.forge.authorize([identity.repository]);
     if (wf.delivery?.id === identity.id) {
       if (wf.delivery.step === 'CLOSED_UNMERGED') throw conflict('PR 已关闭。请先补充说明修改代码并重新验证，再发布新候选');
       return work;
@@ -33,7 +36,8 @@ export class SdlcController {
     if (wf.phase !== 'AWAITING_REVIEW' || work.version !== body.expectedVersion) throw conflict('请刷新并确认当前待审核的候选提交');
     return this.workflow.fence(wf.codeSessionId, async () => {
       await this.eligible(work);
-      return this.workflow.update(work, { phase: 'PUBLISHING', reason: null, delivery: { ...identity, step: 'PUSH_PENDING', policy: this.policy,
+      const policy = isManagedWork(work) ? { requireHumanMerge: true, requireIdenticalMergedTree: true, ...work.taskSpec.reviewPolicy } : this.policy;
+      return this.workflow.update(work, { phase: 'PUBLISHING', reason: null, delivery: { ...identity, step: 'PUSH_PENDING', policy,
         requestedBy: work.ownerId, requestedAt: new Date().toISOString(), requestKey: key, attempts: 0, nextAttemptAt: null, lastError: null } });
     });
   }); }
@@ -68,9 +72,9 @@ export class SdlcController {
       }
       if (d.step === 'CREATE_PR_PENDING') {
         await this.eligible(work);
-        const source = work.sourceRecord;
-        const body = `修复来源：${source.id} · ${source.title}\n\n基线：${source.baseCommit}\n候选：${d.candidateCommit}\n独立验证：${d.verificationOperationId}\n\n新的隔离容器中执行 mvn clean verify，JUnit 2 tests / 0 failures / 0 errors。仅修改 ${source.sourcePath}，测试与构建配置未变。\n\n请人工审核后在 Gitea 合并。此服务不自动合并。CI 与独立评审数量门禁按演示策略配置，未配置项不视为已通过。`;
-        const pr = await this.forge.ensurePull(d.repository, d, `${source.id}: ${source.title}`.slice(0, 220), body);
+        const operation = await this.workflow.client.request('GET', '/api/brain/operations/' + d.verificationOperationId);
+        const body = pullBody(work, d, operation);
+        const pr = await this.forge.ensurePull(d.repository, d, `${work.source.id}: ${work.sourceRecord.title}`.slice(0, 220), body);
         if (!Number.isSafeInteger(pr.number) || pr.number < 1 || pr.html_url !== `${this.forge.baseUrl}/${d.repository}/pulls/${pr.number}`) throw conflict('PR 返回了不受信任的地址');
         return this.save(work, { ...d, pullNumber: pr.number, pullUrl: pr.html_url, step: 'PR_OPEN', attempts: 0, lastError: null, nextAttemptAt: null }, 'PR_OPEN');
       }
@@ -88,6 +92,10 @@ export class SdlcController {
         }
         // A persisted closure intent still rechecks current external facts after restart.
         if (!view.gate.allowed || facts.pull.merge_commit_sha !== d.mergeCommit) throw conflict('外部合并事实或门禁已变化，未关闭来源任务');
+        if (isManagedWork(work)) {
+          // Manual tasks complete the Work Item only; there is no Finding source to write back.
+          return this.save(work, { ...d, observed: view, step: 'COMPLETED', completedAt: new Date().toISOString(), lastError: null, nextAttemptAt: null }, 'COMPLETED');
+        }
         const result = await this.source.complete(work, d);
         if (result.status !== 'Resolved' || result.verificationResult !== 'PASSED' || result.codeFixCommit !== d.candidateCommit || result.workItemId !== work.workItemId) throw conflict('来源完成回执不匹配，未完成工作项');
         return this.save(work, { ...d, observed: view, step: 'COMPLETED', sourceSyncedAt: new Date().toISOString(), sourceRevision: result.revision, lastError: null, nextAttemptAt: null }, 'COMPLETED');

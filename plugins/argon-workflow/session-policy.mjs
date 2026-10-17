@@ -1,9 +1,17 @@
 import { Service } from '@deepseek-ai/cordis';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { isManagedWork, effectivePolicy } from './task-spec.mjs';
 const here = fileURLToPath(new URL('.', import.meta.url));
 const allowed = new Set(['read', 'read_image', 'glob', 'grep']);
 const codeTools = new Set([...allowed, 'write', 'edit', 'bash', 'job_output', 'job_list', 'job_kill', 'execution_run', 'execution_status', 'execution_follow', 'execution_cancel', 'work_item_status', 'work_item_pause', 'work_item_resume']);
+const codePersona = work => {
+  if (!isManagedWork(work)) return 'Implement the approved plan using native file and Bash tools. Do not modify tests, POM, or build configuration, read reference fixes, or access credentials. Commit your actual source change. Use execution_run/status/follow for recorded tests; a queued execution is not a passing test. The workflow will perform independent clean verification.';
+  const policy = effectivePolicy(work);
+  return `Implement the approved plan using native file and Bash tools. Changes are limited to ${policy.allowedPaths.join(', ')} (at most ${policy.maxFiles} files) and come from the frozen task policy; ` +
+    (policy.allowTestChanges ? 'test changes are allowed within that approved scope.' : 'do not modify tests.') +
+    ' Do not read reference fixes or access credentials. Commit your actual changes. Use execution_run/status/follow for recorded tests; a queued execution is not a passing test. The workflow will perform independent verification with the frozen command in a fresh container.';
+};
 export const readonlyGuard = exec => allowed.has(exec.name) ? undefined : 'Task planning is read-only until human plan approval';
 export const name = 'argon-task-policy';
 export const inject = ['tools', 'argonWorkflow'];
@@ -66,7 +74,7 @@ export function taskPreset(work, role, config) {
       { id: 'persona', name: '@deepseek-ai/dsh-persona', config: {
         prefix: 'You are the coding agent for a human-approved Argon task. Work only in the provided task sandbox. Respond in Chinese.',
         suffix: role === 'PLAN' ? 'This is a read-only planning session. Read source and tests, explain the defect, propose the minimal change and validation. Do not modify files or ask for broader tools. Finish with a concrete plan for human approval.' :
-          'Implement the approved plan using native file and Bash tools. Do not modify tests, POM, or build configuration, read reference fixes, or access credentials. Commit your actual source change. Use execution_run/status/follow for recorded tests; a queued execution is not a passing test. The workflow will perform independent clean verification.' } },
+          codePersona(work) } },
       { id: 'execution', name: 'cordis:group', group: true,
         isolate: Object.fromEntries(['fs', 'subprocess', 'ssh', 'sandbox', 'shell', 'sandboxPolicy'].map(k => [k, true])), config: plugins },
     ] };

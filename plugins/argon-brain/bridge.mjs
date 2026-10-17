@@ -51,7 +51,9 @@ export class BrainBridge {
     const legacy = work.sessionId === sessionId && work.sandboxId === this.config.owners[owner]?.sandboxId &&
       work.source?.type === 'DIRECT' && work.source?.id === 'DSH:' + sessionId && work.source?.revision === 1;
     const task = work.source?.type === 'ARGON' && work.sessionIds?.includes(sessionId) && /^sb-[a-z0-9-]+$/.test(work.sandboxId);
-    if (work.ownerId !== owner || (!legacy && !task) || !/^work-[0-9a-f]{32}$/.test(work.workItemId))
+    const manual = work.source?.type === 'MANUAL' && typeof work.taskSpec?.specDigest === 'string' &&
+      work.sessionIds?.includes(sessionId) && /^sb-[a-z0-9-]+$/.test(work.sandboxId);
+    if (work.ownerId !== owner || (!legacy && !task && !manual) || !/^work-[0-9a-f]{32}$/.test(work.workItemId))
       throw new Error('Persisted Session binding is unavailable or mismatched');
   }
 
@@ -122,9 +124,13 @@ export class BrainBridge {
     const binding = await this.binding(owner, sessionId, true, call.signal);
     const snapshot = await this.client(owner).request('GET', route(binding.workItemId), { signal: call.signal });
     this.validateWork(owner, sessionId, snapshot.workItem);
-    if (snapshot.workItem.source.type === 'ARGON' && (!snapshot.workItem.workflow?.approval ||
+    const approval = snapshot.workItem.workflow?.approval;
+    if (snapshot.workItem.source.type === 'ARGON' && (!approval ||
         !snapshot.sessions?.some(s => s.sessionId === sessionId && s.role === 'CODE')))
       throw new Error('Task execution requires the approved CODE Session');
+    if (snapshot.workItem.source.type === 'MANUAL' && (approval?.specDigest !== snapshot.workItem.taskSpec?.specDigest ||
+        !snapshot.sessions?.some(s => s.sessionId === sessionId && s.role === 'CODE')))
+      throw new Error('Task execution requires the approved CODE Session bound to the frozen specDigest');
     return this.versioned(owner, sessionId, 'run', call, { ...args, kind: args.kind ?? 'COMMAND', timeoutSeconds: args.timeoutSeconds ?? 300 },
       { read: route(binding.workItemId), write: route(binding.workItemId) + '/operations', version: value => value.workItem.version });
   }
@@ -164,7 +170,7 @@ export class BrainBridge {
         const { workItems } = await this.client(owner).request('GET', '/api/brain/work-items');
         for (const work of workItems) {
           if (work.sessionId && work.source?.id === 'DSH:' + work.sessionId) await this.watch(owner, work.sessionId, work);
-          if (work.source?.type === 'ARGON' && work.sandboxId) for (const sessionId of work.sessionIds ?? []) await this.watch(owner, sessionId, work);
+          if (['ARGON', 'MANUAL'].includes(work.source?.type) && work.sandboxId) for (const sessionId of work.sessionIds ?? []) await this.watch(owner, sessionId, work);
         }
       } catch (error) { await this.error(owner, error); }
     }
