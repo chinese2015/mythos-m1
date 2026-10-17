@@ -137,6 +137,8 @@ def make_task_spec(owner, repository, input, base_commit):
     paths = value.get('allowedPaths', policy['allowedPaths'])
     if any(not any(_within(p, parent) for parent in policy['allowedPaths']) for p in paths):
         raise InvalidInput('Task paths must narrow repository policy')
+    if any(_build_path(p.rstrip('/')) and not _explicit_build_scope(p, policy['allowedPaths']) for p in paths):
+        raise InvalidInput('Task cannot expand repository build configuration permission')
     allow_tests = value.get('allowTestChanges', False)
     if allow_tests and not policy['allowTestChanges']:
         raise InvalidInput('Task cannot expand test permission')
@@ -164,6 +166,7 @@ def validate_task_spec(spec, owner=None):
         raise InvalidInput('TaskSpec version or owner mismatch')
     repo = _object(spec['repository'], {'repositoryId', 'revision', 'connectionId', 'provider', 'origin', 'fullName', 'cloneUrl', 'baseBranch'})
     task = _object(spec['task'], {'title', 'description', 'acceptanceCriteria'})
+    _object(spec['changePolicy'], {'allowedPaths', 'allowTestChanges', 'maxFiles'})
     config = {'displayName': 'snapshot', 'connectionId': repo['connectionId'], 'fullName': repo['fullName'],
               'defaultBranch': repo['baseBranch'], 'runtimeProfile': spec['runtimeProfile'],
               'execution': spec['execution'], 'changePolicy': spec['changePolicy'], 'reviewPolicy': spec['reviewPolicy']}
@@ -201,6 +204,10 @@ def _build_path(path):
             or any(p in {'.github', '.gitlab', '.circleci', '.mvn'} for p in path.split('/')))
 
 
+def _explicit_build_scope(path, scopes):
+    return any(_within(path, scope) and _build_path(scope.rstrip('/')) for scope in scopes)
+
+
 def change_allowed(spec, paths):
     try:
         validate_task_spec(spec)
@@ -211,7 +218,7 @@ def change_allowed(spec, paths):
             relative_path(path, directory=False)
             if not any(_within(path, p) for p in policy['allowedPaths']): return False
             if not policy['allowTestChanges'] and _test_path(path): return False
-            if _build_path(path) and not any(_within(path, p) and _build_path(p.rstrip('/')) for p in policy['allowedPaths']): return False
+            if _build_path(path) and not _explicit_build_scope(path, policy['allowedPaths']): return False
         return True
     except (InvalidInput, TypeError, ValueError, KeyError):
         return False

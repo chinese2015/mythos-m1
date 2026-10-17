@@ -119,6 +119,25 @@ class TaskSpecTest(unittest.TestCase):
             with self.assertRaises(InvalidInput): make_task_spec('alice', repository(), {**data, **patch}, 'a' * 40)
         with self.assertRaises(InvalidInput): make_task_spec('bob', repository(), data, 'a' * 40)
 
+    def test_task_narrowing_cannot_turn_a_broad_repository_scope_into_build_permission(self):
+        repo = repository()
+        self.assertFalse(change_allowed(make_task_spec('alice', repo, task_input(), 'a' * 40), ['src/pom.xml']))
+        for path in ['src/pom.xml', 'src/package.json', 'src/.github/workflows/', 'src/.github/workflows/build.yml']:
+            with self.subTest(path=path), self.assertRaises(InvalidInput):
+                make_task_spec('alice', repo, {**task_input(), 'allowedPaths': [path]}, 'a' * 40)
+        repo['config']['changePolicy']['allowedPaths'] = ['src/', 'src/pom.xml', 'src/.github/workflows/']
+        for scope, changed in [('src/pom.xml', 'src/pom.xml'),
+                               ('src/.github/workflows/', 'src/.github/workflows/build.yml'),
+                               ('src/.github/workflows/build.yml', 'src/.github/workflows/build.yml')]:
+            with self.subTest(scope=scope):
+                value = make_task_spec('alice', repo, {**task_input(), 'allowedPaths': [scope]}, 'a' * 40)
+                self.assertTrue(change_allowed(value, [changed]))
+
+    def test_malformed_frozen_change_policy_raises_a_domain_error(self):
+        for policy in [{}, [], None, {'allowedPaths': ['src/']}]:
+            value = spec(); value['changePolicy'] = policy
+            with self.subTest(policy=policy), self.assertRaises(InvalidInput): validate_task_spec(value)
+
     def test_repository_test_permission_is_only_a_ceiling_task_must_opt_in(self):
         repo = repository(); repo['config']['changePolicy']['allowTestChanges'] = True
         default = make_task_spec('alice', repo, task_input(), 'a' * 40)
@@ -175,6 +194,15 @@ class TaskSpecTest(unittest.TestCase):
     def test_shared_json_fixture_has_valid_digest_and_policy_cases(self):
         fixture = json.loads((Path(__file__).parent / 'fixtures/generic-task-spec.json').read_text())
         validate_task_spec(fixture['taskSpec'], 'alice')
+        for case in fixture['buildPermissionCases']:
+            repo = repository(); repo['config'] = case['repositoryConfig']
+            with self.subTest(name=case['name']):
+                if case['admitted']:
+                    value = make_task_spec('alice', repo, case['manualInput'], fixture['taskSpec']['baseCommit'])
+                    self.assertEqual(change_allowed(value, case['changedPaths']), case['changeAllowed'])
+                else:
+                    with self.assertRaises(InvalidInput):
+                        make_task_spec('alice', repo, case['manualInput'], fixture['taskSpec']['baseCommit'])
         for case in fixture['testPermissionCases']:
             validate_task_spec(case['taskSpec'], 'alice')
             self.assertEqual(case['taskSpec']['changePolicy']['allowTestChanges'], case['allowTestChanges'])

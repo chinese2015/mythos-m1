@@ -664,5 +664,359 @@
       },
       "allowTestChanges": true
     }
+  ],
+  "buildPermissionCases": [
+    {
+      "name": "broad source scope cannot grant a build file",
+      "repositoryConfig": {
+        "displayName": "客户 API",
+        "connectionId": "local-gitea",
+        "fullName": "demo/customer-api",
+        "defaultBranch": "main",
+        "runtimeProfile": "java17-maven-offline-v1",
+        "execution": {
+          "baselineCommand": "mvn test",
+          "verificationCommand": "mvn test",
+          "baselineMode": "record",
+          "timeoutSeconds": 300,
+          "evidence": {
+            "format": "junit",
+            "reportDirs": [
+              "target/surefire-reports"
+            ],
+            "minTests": 1,
+            "allowSkipped": false
+          }
+        },
+        "changePolicy": {
+          "allowedPaths": [
+            "src/"
+          ],
+          "allowTestChanges": false,
+          "maxFiles": 100
+        },
+        "reviewPolicy": {
+          "minApprovals": 0,
+          "requiredStatusContexts": []
+        }
+      },
+      "manualInput": {
+        "repositoryId": "repo-11111111111111111111111111111111",
+        "repositoryRevision": 1,
+        "title": "修复客户",
+        "description": "Support multiple files",
+        "acceptanceCriteria": "Tests pass",
+        "allowedPaths": [
+          "src/pom.xml"
+        ]
+      },
+      "admitted": false,
+      "changedPaths": [
+        "src/pom.xml"
+      ],
+      "changeAllowed": false
+    },
+    {
+      "name": "broad source scope cannot grant package metadata",
+      "repositoryConfig": {
+        "displayName": "客户 API",
+        "connectionId": "local-gitea",
+        "fullName": "demo/customer-api",
+        "defaultBranch": "main",
+        "runtimeProfile": "java17-maven-offline-v1",
+        "execution": {
+          "baselineCommand": "mvn test",
+          "verificationCommand": "mvn test",
+          "baselineMode": "record",
+          "timeoutSeconds": 300,
+          "evidence": {
+            "format": "junit",
+            "reportDirs": [
+              "target/surefire-reports"
+            ],
+            "minTests": 1,
+            "allowSkipped": false
+          }
+        },
+        "changePolicy": {
+          "allowedPaths": [
+            "src/"
+          ],
+          "allowTestChanges": false,
+          "maxFiles": 100
+        },
+        "reviewPolicy": {
+          "minApprovals": 0,
+          "requiredStatusContexts": []
+        }
+      },
+      "manualInput": {
+        "repositoryId": "repo-11111111111111111111111111111111",
+        "repositoryRevision": 1,
+        "title": "修复客户",
+        "description": "Support multiple files",
+        "acceptanceCriteria": "Tests pass",
+        "allowedPaths": [
+          "src/package.json"
+        ]
+      },
+      "admitted": false,
+      "changedPaths": [
+        "src/package.json"
+      ],
+      "changeAllowed": false
+    },
+    {
+      "name": "broad source scope cannot grant CI directory",
+      "repositoryConfig": {
+        "displayName": "客户 API",
+        "connectionId": "local-gitea",
+        "fullName": "demo/customer-api",
+        "defaultBranch": "main",
+        "runtimeProfile": "java17-maven-offline-v1",
+        "execution": {
+          "baselineCommand": "mvn test",
+          "verificationCommand": "mvn test",
+          "baselineMode": "record",
+          "timeoutSeconds": 300,
+          "evidence": {
+            "format": "junit",
+            "reportDirs": [
+              "target/surefire-reports"
+            ],
+            "minTests": 1,
+            "allowSkipped": false
+          }
+        },
+        "changePolicy": {
+          "allowedPaths": [
+            "src/"
+          ],
+          "allowTestChanges": false,
+          "maxFiles": 100
+        },
+        "reviewPolicy": {
+          "minApprovals": 0,
+          "requiredStatusContexts": []
+        }
+      },
+      "manualInput": {
+        "repositoryId": "repo-11111111111111111111111111111111",
+        "repositoryRevision": 1,
+        "title": "修复客户",
+        "description": "Support multiple files",
+        "acceptanceCriteria": "Tests pass",
+        "allowedPaths": [
+          "src/.github/workflows/"
+        ]
+      },
+      "admitted": false,
+      "changedPaths": [
+        "src/.github/workflows/build.yml"
+      ],
+      "changeAllowed": false
+    },
+    {
+      "name": "broad source scope cannot grant CI file",
+      "repositoryConfig": {
+        "displayName": "客户 API",
+        "connectionId": "local-gitea",
+        "fullName": "demo/customer-api",
+        "defaultBranch": "main",
+        "runtimeProfile": "java17-maven-offline-v1",
+        "execution": {
+          "baselineCommand": "mvn test",
+          "verificationCommand": "mvn test",
+          "baselineMode": "record",
+          "timeoutSeconds": 300,
+          "evidence": {
+            "format": "junit",
+            "reportDirs": [
+              "target/surefire-reports"
+            ],
+            "minTests": 1,
+            "allowSkipped": false
+          }
+        },
+        "changePolicy": {
+          "allowedPaths": [
+            "src/"
+          ],
+          "allowTestChanges": false,
+          "maxFiles": 100
+        },
+        "reviewPolicy": {
+          "minApprovals": 0,
+          "requiredStatusContexts": []
+        }
+      },
+      "manualInput": {
+        "repositoryId": "repo-11111111111111111111111111111111",
+        "repositoryRevision": 1,
+        "title": "修复客户",
+        "description": "Support multiple files",
+        "acceptanceCriteria": "Tests pass",
+        "allowedPaths": [
+          "src/.github/workflows/build.yml"
+        ]
+      },
+      "admitted": false,
+      "changedPaths": [
+        "src/.github/workflows/build.yml"
+      ],
+      "changeAllowed": false
+    },
+    {
+      "name": "explicit repository and task build file accepted",
+      "repositoryConfig": {
+        "displayName": "客户 API",
+        "connectionId": "local-gitea",
+        "fullName": "demo/customer-api",
+        "defaultBranch": "main",
+        "runtimeProfile": "java17-maven-offline-v1",
+        "execution": {
+          "baselineCommand": "mvn test",
+          "verificationCommand": "mvn test",
+          "baselineMode": "record",
+          "timeoutSeconds": 300,
+          "evidence": {
+            "format": "junit",
+            "reportDirs": [
+              "target/surefire-reports"
+            ],
+            "minTests": 1,
+            "allowSkipped": false
+          }
+        },
+        "changePolicy": {
+          "allowedPaths": [
+            "src/",
+            "src/pom.xml"
+          ],
+          "allowTestChanges": false,
+          "maxFiles": 100
+        },
+        "reviewPolicy": {
+          "minApprovals": 0,
+          "requiredStatusContexts": []
+        }
+      },
+      "manualInput": {
+        "repositoryId": "repo-11111111111111111111111111111111",
+        "repositoryRevision": 1,
+        "title": "修复客户",
+        "description": "Support multiple files",
+        "acceptanceCriteria": "Tests pass",
+        "allowedPaths": [
+          "src/pom.xml"
+        ]
+      },
+      "admitted": true,
+      "changedPaths": [
+        "src/pom.xml"
+      ],
+      "changeAllowed": true
+    },
+    {
+      "name": "explicit CI directory can narrow to CI file",
+      "repositoryConfig": {
+        "displayName": "客户 API",
+        "connectionId": "local-gitea",
+        "fullName": "demo/customer-api",
+        "defaultBranch": "main",
+        "runtimeProfile": "java17-maven-offline-v1",
+        "execution": {
+          "baselineCommand": "mvn test",
+          "verificationCommand": "mvn test",
+          "baselineMode": "record",
+          "timeoutSeconds": 300,
+          "evidence": {
+            "format": "junit",
+            "reportDirs": [
+              "target/surefire-reports"
+            ],
+            "minTests": 1,
+            "allowSkipped": false
+          }
+        },
+        "changePolicy": {
+          "allowedPaths": [
+            "src/",
+            "src/.github/workflows/"
+          ],
+          "allowTestChanges": false,
+          "maxFiles": 100
+        },
+        "reviewPolicy": {
+          "minApprovals": 0,
+          "requiredStatusContexts": []
+        }
+      },
+      "manualInput": {
+        "repositoryId": "repo-11111111111111111111111111111111",
+        "repositoryRevision": 1,
+        "title": "修复客户",
+        "description": "Support multiple files",
+        "acceptanceCriteria": "Tests pass",
+        "allowedPaths": [
+          "src/.github/workflows/build.yml"
+        ]
+      },
+      "admitted": true,
+      "changedPaths": [
+        "src/.github/workflows/build.yml"
+      ],
+      "changeAllowed": true
+    },
+    {
+      "name": "inherited broad source scope still rejects build edits",
+      "repositoryConfig": {
+        "displayName": "客户 API",
+        "connectionId": "local-gitea",
+        "fullName": "demo/customer-api",
+        "defaultBranch": "main",
+        "runtimeProfile": "java17-maven-offline-v1",
+        "execution": {
+          "baselineCommand": "mvn test",
+          "verificationCommand": "mvn test",
+          "baselineMode": "record",
+          "timeoutSeconds": 300,
+          "evidence": {
+            "format": "junit",
+            "reportDirs": [
+              "target/surefire-reports"
+            ],
+            "minTests": 1,
+            "allowSkipped": false
+          }
+        },
+        "changePolicy": {
+          "allowedPaths": [
+            "src/"
+          ],
+          "allowTestChanges": false,
+          "maxFiles": 100
+        },
+        "reviewPolicy": {
+          "minApprovals": 0,
+          "requiredStatusContexts": []
+        }
+      },
+      "manualInput": {
+        "repositoryId": "repo-11111111111111111111111111111111",
+        "repositoryRevision": 1,
+        "title": "修复客户",
+        "description": "Support multiple files",
+        "acceptanceCriteria": "Tests pass",
+        "allowedPaths": [
+          "src/"
+        ]
+      },
+      "admitted": true,
+      "changedPaths": [
+        "src/pom.xml"
+      ],
+      "changeAllowed": false
+    }
   ]
 }

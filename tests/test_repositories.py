@@ -16,6 +16,7 @@ from brain.errors import Conflict, InvalidInput, NotFound
 from brain.git_host import GitHostClient
 from brain.repositories import RepositoryService
 from brain.store import Store
+from brain.task_spec import make_task_spec, change_allowed
 from test_task_spec import config, task_input
 
 
@@ -81,6 +82,23 @@ class RepositoriesTest(unittest.TestCase):
         self.host.on_resolve = lambda: self.service.revise('alice', repo['repositoryId'], {'expectedRevision': 1, 'enabled': False}, 'race')
         with self.assertRaises(Conflict): self.service.create_task('alice', body, 'race-task')
         self.assertEqual(self.store.list_work_items('alice'), [])
+
+    def test_build_permission_cannot_expand_during_admission_or_direct_store_create(self):
+        repo = self.register(); body = {**self.input(repo), 'allowedPaths': ['src/pom.xml']}
+        class NoIOHost:
+            def check(self, config): raise AssertionError('Build scope must be validated before host I/O')
+            def resolve(self, config, branch): raise AssertionError('Build scope must be validated before ref I/O')
+        service = RepositoryService(self.store, NoIOHost())
+        with self.assertRaises(InvalidInput): service.create_task('alice', body, 'no-build-expansion')
+        self.assertEqual(self.store.list_work_items('alice'), [])
+        approved_copy = copy.deepcopy(repo)
+        approved_copy['config']['changePolicy']['allowedPaths'].append('src/pom.xml')
+        forged = make_task_spec('alice', approved_copy, body, 'a' * 40)
+        with self.assertRaises(InvalidInput): self.store.create_manual_task('alice', body, forged, 'direct-no-expansion')
+        revised = self.service.revise('alice', repo['repositoryId'],
+            {'expectedRevision': 1, 'config': approved_copy['config']}, 'approve-build')
+        accepted = self.service.create_task('alice', {**body, 'repositoryRevision': revised['revision']}, 'approved-build')
+        self.assertTrue(change_allowed(accepted['taskSpec'], ['src/pom.xml']))
 
     def test_new_task_requires_push_permission_before_ref_lookup(self):
         repo = self.register()
