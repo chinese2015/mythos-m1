@@ -90,3 +90,9 @@ Customer 的原始三项测试基线真实 exit 1。第一次错误地验证未�
 - 重启后发现 Gitea 仓库授权只保存在 SDLC 客户端内存，两个 MANUAL PR 都出现旧的“仓库不在允许列表”重试警告。修复后每轮 delivery 对账都会从 owner 绑定的冻结 TaskSpec 恢复精确授权，并拒绝偏离 TaskSpec 的 delivery 目标。另将 PR observed facts 比较改成键序无关的规范 JSON，避免 Python 按排序键持久化后 Node 每轮误判状态变化。隔离 DSH 重启后两条警告清除，版本/事件游标在跨过轮询周期后保持稳定。
 
 本地回归：`python3 -m unittest discover -s tests` 为 166 项（165 通过、1 个既有 Linux 专属用例在 macOS 跳过）；`npm test` 为 187/187 通过。最终回执只读运行实例；修复部署与重启仅限隔离 DSH 3093，主 3080/3081 未重启。
+
+### 最终代码审查修复
+
+独立审查后又加固了四个 Important 和一个 Minor：Git 改名用 `--no-renames` 暴露删除/新增两条路径并重新通过 TaskSpec 范围门；MANUAL baseline 只有在运行命令、基线 SHA、源码干净状态与有效验收证据一致时才能推进；JUnit 报告目录别名归一化后拒绝重复，采集端同时去重；Vibe Diff ETag 纳入工作树差异指纹并在页面打开期间轮询刷新；MANUAL baseline 文案按真实运行结果展示。
+
+新增的失败回归先证实了 rename 绕过、无效 baseline、重复报告目录和同一版本/HEAD 下 ETag 不变，再修复通过。更新代码本地 Node 为 189/189，Python 为 171 项（170 通过、1 个 macOS 平台跳过）。此前隔离实例 v4 回执在这些审查修复前通过；本版源码的隔离远端复跑正在确认，主服务端口 3080/3081 保持独立。
