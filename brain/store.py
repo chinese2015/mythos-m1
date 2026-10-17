@@ -10,6 +10,7 @@ import sqlite3
 import uuid
 
 from .errors import Conflict, InvalidInput, NotFound
+from .repository_store import RepositoryStore
 
 TERMINAL = {'SUCCEEDED', 'FAILED', 'CANCELLED', 'UNKNOWN'}
 ACTIVE = {'STARTING', 'RUNNING', 'CANCEL_REQUESTED'}
@@ -33,7 +34,7 @@ def positive_version(value):
     return value
 
 
-class Store:
+class Store(RepositoryStore):
     def __init__(self, root):
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -43,6 +44,8 @@ class Store:
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
                 INSERT INTO schema_version SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM schema_version);
+                CREATE TABLE IF NOT EXISTS repositories (
+                    id TEXT PRIMARY KEY, owner TEXT NOT NULL, data TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS work_items (
                     id TEXT PRIMARY KEY, owner TEXT NOT NULL, source_key TEXT NOT NULL,
                     data TEXT NOT NULL, UNIQUE(owner, source_key));

@@ -1,0 +1,668 @@
+{
+  "repositoryConfig": {
+    "displayName": "客户 API",
+    "connectionId": "local-gitea",
+    "fullName": "demo/customer-api",
+    "defaultBranch": "main",
+    "runtimeProfile": "java17-maven-offline-v1",
+    "execution": {
+      "baselineCommand": "mvn test",
+      "verificationCommand": "mvn test",
+      "baselineMode": "record",
+      "timeoutSeconds": 300,
+      "evidence": {
+        "format": "junit",
+        "reportDirs": [
+          "target/surefire-reports"
+        ],
+        "minTests": 1,
+        "allowSkipped": false
+      }
+    },
+    "changePolicy": {
+      "allowedPaths": [
+        "src/"
+      ],
+      "allowTestChanges": false,
+      "maxFiles": 100
+    },
+    "reviewPolicy": {
+      "minApprovals": 0,
+      "requiredStatusContexts": []
+    }
+  },
+  "manualInput": {
+    "repositoryId": "repo-11111111111111111111111111111111",
+    "repositoryRevision": 1,
+    "title": "修复客户",
+    "description": "Support multiple files",
+    "acceptanceCriteria": "Tests pass"
+  },
+  "taskSpec": {
+    "specVersion": 1,
+    "ownerId": "alice",
+    "repository": {
+      "repositoryId": "repo-11111111111111111111111111111111",
+      "revision": 1,
+      "connectionId": "local-gitea",
+      "provider": "gitea",
+      "origin": "http://127.0.0.1:3000",
+      "fullName": "demo/customer-api",
+      "cloneUrl": "http://127.0.0.1:3000/demo/customer-api.git",
+      "baseBranch": "main"
+    },
+    "baseCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "task": {
+      "title": "修复客户",
+      "description": "Support multiple files",
+      "acceptanceCriteria": "Tests pass"
+    },
+    "runtimeProfile": "java17-maven-offline-v1",
+    "execution": {
+      "baselineCommand": "mvn test",
+      "verificationCommand": "mvn test",
+      "baselineMode": "record",
+      "timeoutSeconds": 300,
+      "evidence": {
+        "format": "junit",
+        "reportDirs": [
+          "target/surefire-reports"
+        ],
+        "minTests": 1,
+        "allowSkipped": false
+      }
+    },
+    "changePolicy": {
+      "allowedPaths": [
+        "src/"
+      ],
+      "allowTestChanges": false,
+      "maxFiles": 100
+    },
+    "reviewPolicy": {
+      "minApprovals": 0,
+      "requiredStatusContexts": []
+    },
+    "specDigest": "fd5c8850f2fc12b6e1fd63bc360758e235422209515df18bffaea3dc1a6bd3eb"
+  },
+  "changeCases": [
+    {
+      "paths": [
+        "src/main/A.java",
+        "src/main/B.java"
+      ],
+      "allowed": true
+    },
+    {
+      "paths": [
+        "src/test/ATest.java"
+      ],
+      "allowed": false
+    },
+    {
+      "paths": [
+        "src/TestCustomer.java"
+      ],
+      "allowed": false
+    },
+    {
+      "paths": [
+        "pom.xml"
+      ],
+      "allowed": false
+    },
+    {
+      "paths": [
+        "src/main/pom.xml"
+      ],
+      "allowed": false
+    },
+    {
+      "paths": [
+        "src/main/.cache/a"
+      ],
+      "allowed": false
+    },
+    {
+      "paths": [
+        "src/main/.git/config"
+      ],
+      "allowed": false
+    },
+    {
+      "paths": [
+        "src/main/../a"
+      ],
+      "allowed": false
+    },
+    {
+      "paths": [],
+      "allowed": false
+    }
+  ],
+  "verificationCases": [
+    {
+      "name": "valid fresh B with three tests",
+      "operation": {
+        "kind": "VERIFY",
+        "state": "SUCCEEDED",
+        "exitCode": 0,
+        "command": "mvn test",
+        "timeoutSeconds": 300,
+        "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sandboxId": "sandbox-a",
+        "runtime": {
+          "sandboxId": "sandbox-b",
+          "freshTargetAbsent": true
+        }
+      },
+      "evidence": {
+        "exitCode": 0,
+        "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sourceDirty": false,
+        "sandboxId": "sandbox-b",
+        "junit": {
+          "reports": [
+            {
+              "path": "target/surefire-reports/TEST-customer.xml"
+            }
+          ],
+          "invalidReports": [],
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      },
+      "passes": true
+    },
+    {
+      "name": "missing runtime",
+      "operation": {
+        "kind": "VERIFY",
+        "state": "SUCCEEDED",
+        "exitCode": 0,
+        "command": "mvn test",
+        "timeoutSeconds": 300,
+        "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sandboxId": "sandbox-a",
+        "runtime": null
+      },
+      "evidence": {
+        "exitCode": 0,
+        "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sourceDirty": false,
+        "sandboxId": "sandbox-b",
+        "junit": {
+          "reports": [
+            {
+              "path": "target/surefire-reports/TEST-customer.xml"
+            }
+          ],
+          "invalidReports": [],
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      },
+      "passes": false
+    },
+    {
+      "name": "A masquerades as B",
+      "operation": {
+        "kind": "VERIFY",
+        "state": "SUCCEEDED",
+        "exitCode": 0,
+        "command": "mvn test",
+        "timeoutSeconds": 300,
+        "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sandboxId": "sandbox-a",
+        "runtime": {
+          "sandboxId": "sandbox-a",
+          "freshTargetAbsent": true
+        }
+      },
+      "evidence": {
+        "exitCode": 0,
+        "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sourceDirty": false,
+        "sandboxId": "sandbox-b",
+        "junit": {
+          "reports": [
+            {
+              "path": "target/surefire-reports/TEST-customer.xml"
+            }
+          ],
+          "invalidReports": [],
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      },
+      "passes": false
+    },
+    {
+      "name": "wrong command",
+      "operation": {
+        "kind": "VERIFY",
+        "state": "SUCCEEDED",
+        "exitCode": 0,
+        "command": "true",
+        "timeoutSeconds": 300,
+        "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sandboxId": "sandbox-a",
+        "runtime": {
+          "sandboxId": "sandbox-b",
+          "freshTargetAbsent": true
+        }
+      },
+      "evidence": {
+        "exitCode": 0,
+        "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sourceDirty": false,
+        "sandboxId": "sandbox-b",
+        "junit": {
+          "reports": [
+            {
+              "path": "target/surefire-reports/TEST-customer.xml"
+            }
+          ],
+          "invalidReports": [],
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      },
+      "passes": false
+    },
+    {
+      "name": "unknown result",
+      "operation": {
+        "kind": "VERIFY",
+        "state": "UNKNOWN",
+        "exitCode": 0,
+        "command": "mvn test",
+        "timeoutSeconds": 300,
+        "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sandboxId": "sandbox-a",
+        "runtime": {
+          "sandboxId": "sandbox-b",
+          "freshTargetAbsent": true
+        }
+      },
+      "evidence": {
+        "exitCode": 0,
+        "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sourceDirty": false,
+        "sandboxId": "sandbox-b",
+        "junit": {
+          "reports": [
+            {
+              "path": "target/surefire-reports/TEST-customer.xml"
+            }
+          ],
+          "invalidReports": [],
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      },
+      "passes": false
+    },
+    {
+      "name": "timeout exceeds frozen max",
+      "operation": {
+        "kind": "VERIFY",
+        "state": "SUCCEEDED",
+        "exitCode": 0,
+        "command": "mvn test",
+        "timeoutSeconds": 301,
+        "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sandboxId": "sandbox-a",
+        "runtime": {
+          "sandboxId": "sandbox-b",
+          "freshTargetAbsent": true
+        }
+      },
+      "evidence": {
+        "exitCode": 0,
+        "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sourceDirty": false,
+        "sandboxId": "sandbox-b",
+        "junit": {
+          "reports": [
+            {
+              "path": "target/surefire-reports/TEST-customer.xml"
+            }
+          ],
+          "invalidReports": [],
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      },
+      "passes": false
+    },
+    {
+      "name": "wrong exact commit",
+      "operation": {
+        "kind": "VERIFY",
+        "state": "SUCCEEDED",
+        "exitCode": 0,
+        "command": "mvn test",
+        "timeoutSeconds": 300,
+        "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sandboxId": "sandbox-a",
+        "runtime": {
+          "sandboxId": "sandbox-b",
+          "freshTargetAbsent": true
+        }
+      },
+      "evidence": {
+        "exitCode": 0,
+        "sourceCommit": "cccccccccccccccccccccccccccccccccccccccc",
+        "sourceDirty": false,
+        "sandboxId": "sandbox-b",
+        "junit": {
+          "reports": [
+            {
+              "path": "target/surefire-reports/TEST-customer.xml"
+            }
+          ],
+          "invalidReports": [],
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      },
+      "passes": false
+    },
+    {
+      "name": "dirty source",
+      "operation": {
+        "kind": "VERIFY",
+        "state": "SUCCEEDED",
+        "exitCode": 0,
+        "command": "mvn test",
+        "timeoutSeconds": 300,
+        "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sandboxId": "sandbox-a",
+        "runtime": {
+          "sandboxId": "sandbox-b",
+          "freshTargetAbsent": true
+        }
+      },
+      "evidence": {
+        "exitCode": 0,
+        "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sourceDirty": true,
+        "sandboxId": "sandbox-b",
+        "junit": {
+          "reports": [
+            {
+              "path": "target/surefire-reports/TEST-customer.xml"
+            }
+          ],
+          "invalidReports": [],
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      },
+      "passes": false
+    },
+    {
+      "name": "no JUnit reports",
+      "operation": {
+        "kind": "VERIFY",
+        "state": "SUCCEEDED",
+        "exitCode": 0,
+        "command": "mvn test",
+        "timeoutSeconds": 300,
+        "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sandboxId": "sandbox-a",
+        "runtime": {
+          "sandboxId": "sandbox-b",
+          "freshTargetAbsent": true
+        }
+      },
+      "evidence": {
+        "exitCode": 0,
+        "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sourceDirty": false,
+        "sandboxId": "sandbox-b",
+        "junit": {
+          "reports": [],
+          "invalidReports": [],
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      },
+      "passes": false
+    }
+  ],
+  "frozenRepositoryConfig": {
+    "displayName": "demo/customer-api",
+    "connectionId": "local-gitea",
+    "fullName": "demo/customer-api",
+    "defaultBranch": "main",
+    "runtimeProfile": "java17-maven-offline-v1",
+    "execution": {
+      "baselineCommand": "mvn test",
+      "verificationCommand": "mvn test",
+      "baselineMode": "record",
+      "timeoutSeconds": 300,
+      "evidence": {
+        "format": "junit",
+        "reportDirs": [
+          "target/surefire-reports"
+        ],
+        "minTests": 1,
+        "allowSkipped": false
+      }
+    },
+    "changePolicy": {
+      "allowedPaths": [
+        "src/"
+      ],
+      "allowTestChanges": false,
+      "maxFiles": 100
+    },
+    "reviewPolicy": {
+      "minApprovals": 0,
+      "requiredStatusContexts": []
+    }
+  },
+  "testPermissionCases": [
+    {
+      "name": "task must opt in",
+      "repositoryConfig": {
+        "displayName": "客户 API",
+        "connectionId": "local-gitea",
+        "fullName": "demo/customer-api",
+        "defaultBranch": "main",
+        "runtimeProfile": "java17-maven-offline-v1",
+        "execution": {
+          "baselineCommand": "mvn test",
+          "verificationCommand": "mvn test",
+          "baselineMode": "record",
+          "timeoutSeconds": 300,
+          "evidence": {
+            "format": "junit",
+            "reportDirs": [
+              "target/surefire-reports"
+            ],
+            "minTests": 1,
+            "allowSkipped": false
+          }
+        },
+        "changePolicy": {
+          "allowedPaths": [
+            "src/"
+          ],
+          "allowTestChanges": true,
+          "maxFiles": 100
+        },
+        "reviewPolicy": {
+          "minApprovals": 0,
+          "requiredStatusContexts": []
+        }
+      },
+      "manualInput": {
+        "repositoryId": "repo-11111111111111111111111111111111",
+        "repositoryRevision": 1,
+        "title": "修复客户",
+        "description": "Support multiple files",
+        "acceptanceCriteria": "Tests pass"
+      },
+      "taskSpec": {
+        "specVersion": 1,
+        "ownerId": "alice",
+        "repository": {
+          "repositoryId": "repo-11111111111111111111111111111111",
+          "revision": 1,
+          "connectionId": "local-gitea",
+          "provider": "gitea",
+          "origin": "http://127.0.0.1:3000",
+          "fullName": "demo/customer-api",
+          "cloneUrl": "http://127.0.0.1:3000/demo/customer-api.git",
+          "baseBranch": "main"
+        },
+        "baseCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "task": {
+          "title": "修复客户",
+          "description": "Support multiple files",
+          "acceptanceCriteria": "Tests pass"
+        },
+        "runtimeProfile": "java17-maven-offline-v1",
+        "execution": {
+          "baselineCommand": "mvn test",
+          "verificationCommand": "mvn test",
+          "baselineMode": "record",
+          "timeoutSeconds": 300,
+          "evidence": {
+            "format": "junit",
+            "reportDirs": [
+              "target/surefire-reports"
+            ],
+            "minTests": 1,
+            "allowSkipped": false
+          }
+        },
+        "changePolicy": {
+          "allowedPaths": [
+            "src/"
+          ],
+          "allowTestChanges": false,
+          "maxFiles": 100
+        },
+        "reviewPolicy": {
+          "minApprovals": 0,
+          "requiredStatusContexts": []
+        },
+        "specDigest": "fd5c8850f2fc12b6e1fd63bc360758e235422209515df18bffaea3dc1a6bd3eb"
+      },
+      "allowTestChanges": false
+    },
+    {
+      "name": "explicit task opt in",
+      "repositoryConfig": {
+        "displayName": "客户 API",
+        "connectionId": "local-gitea",
+        "fullName": "demo/customer-api",
+        "defaultBranch": "main",
+        "runtimeProfile": "java17-maven-offline-v1",
+        "execution": {
+          "baselineCommand": "mvn test",
+          "verificationCommand": "mvn test",
+          "baselineMode": "record",
+          "timeoutSeconds": 300,
+          "evidence": {
+            "format": "junit",
+            "reportDirs": [
+              "target/surefire-reports"
+            ],
+            "minTests": 1,
+            "allowSkipped": false
+          }
+        },
+        "changePolicy": {
+          "allowedPaths": [
+            "src/"
+          ],
+          "allowTestChanges": true,
+          "maxFiles": 100
+        },
+        "reviewPolicy": {
+          "minApprovals": 0,
+          "requiredStatusContexts": []
+        }
+      },
+      "manualInput": {
+        "repositoryId": "repo-11111111111111111111111111111111",
+        "repositoryRevision": 1,
+        "title": "修复客户",
+        "description": "Support multiple files",
+        "acceptanceCriteria": "Tests pass",
+        "allowTestChanges": true
+      },
+      "taskSpec": {
+        "specVersion": 1,
+        "ownerId": "alice",
+        "repository": {
+          "repositoryId": "repo-11111111111111111111111111111111",
+          "revision": 1,
+          "connectionId": "local-gitea",
+          "provider": "gitea",
+          "origin": "http://127.0.0.1:3000",
+          "fullName": "demo/customer-api",
+          "cloneUrl": "http://127.0.0.1:3000/demo/customer-api.git",
+          "baseBranch": "main"
+        },
+        "baseCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "task": {
+          "title": "修复客户",
+          "description": "Support multiple files",
+          "acceptanceCriteria": "Tests pass"
+        },
+        "runtimeProfile": "java17-maven-offline-v1",
+        "execution": {
+          "baselineCommand": "mvn test",
+          "verificationCommand": "mvn test",
+          "baselineMode": "record",
+          "timeoutSeconds": 300,
+          "evidence": {
+            "format": "junit",
+            "reportDirs": [
+              "target/surefire-reports"
+            ],
+            "minTests": 1,
+            "allowSkipped": false
+          }
+        },
+        "changePolicy": {
+          "allowedPaths": [
+            "src/"
+          ],
+          "allowTestChanges": true,
+          "maxFiles": 100
+        },
+        "reviewPolicy": {
+          "minApprovals": 0,
+          "requiredStatusContexts": []
+        },
+        "specDigest": "0e7903bb906910f75cc3ed2a07f0ca1d197ac6f30bd635e93ef74930ddda0ad4"
+      },
+      "allowTestChanges": true
+    }
+  ]
+}

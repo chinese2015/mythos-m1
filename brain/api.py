@@ -7,14 +7,16 @@ from urllib.parse import parse_qs, urlsplit
 
 from .errors import BrainError, InvalidInput, NotFound, Unauthorized
 from .publication import GitPublisher
+from .repositories import RepositoryService
 from .workspace import TaskWorkspace
 
 
-def make_server(store, executor, tokens, address=('127.0.0.1', 3081), publisher=None):
+def make_server(store, executor, tokens, address=('127.0.0.1', 3081), publisher=None, repository_service=None):
     if not tokens or len(set(tokens.values())) != len(tokens):
         raise ValueError('Each owner must have a distinct bearer token')
     task_workspace = TaskWorkspace(store, executor)
     publication = publisher or GitPublisher(store, executor)
+    repository_service = repository_service or RepositoryService(store)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -78,6 +80,23 @@ def make_server(store, executor, tokens, address=('127.0.0.1', 3081), publisher=
                 raise NotFound('Route unavailable')
             route = segments[2:]
             query = parse_qs(url.query, keep_blank_values=True)
+            if route == ['repositories']:
+                if self.command == 'GET':
+                    return 200, {'repositories': store.repositories(owner)}
+                if self.command == 'POST':
+                    body = self.body({'displayName', 'connectionId', 'fullName', 'defaultBranch', 'runtimeProfile', 'execution', 'changePolicy', 'reviewPolicy'})
+                    return 201, repository_service.register(owner, body, key)
+            if len(route) == 3 and route[0] == 'repositories' and self.command == 'POST':
+                if route[2] == 'revisions':
+                    body = self.body({'expectedRevision', 'config', 'enabled'})
+                    return 200, repository_service.revise(owner, route[1], body, key)
+                if route[2] == 'check':
+                    self.body(set())
+                    return 200, repository_service.check(owner, route[1])
+            if route == ['tasks', 'manual'] and self.command == 'POST':
+                body = self.body({'repositoryId', 'repositoryRevision', 'title', 'description', 'acceptanceCriteria',
+                                  'baseBranch', 'baseCommit', 'allowedPaths', 'allowTestChanges'})
+                return 202, repository_service.create_task(owner, body, key)
             if route == ['tasks', 'claim'] and self.command == 'POST':
                 body = self.body({'sourceRecord', 'expectedRevision'})
                 result = store.claim_task(owner, body.get('sourceRecord'), body.get('expectedRevision'), key)
