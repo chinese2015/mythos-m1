@@ -122,3 +122,13 @@ Spec: ../Argon_AI_Brain_总体方案_v2.0.md §8.1 and user-approved Sandbox/nat
 - 回归 Node 119/119；context 路由零会话调用有测试锁定。遗留：真实 SSH 沙箱与浏览器 e2e 需部署机验收；接管/CAS 保存为下一切片。
 - 远程真实验收（`tests/live_vibe_acceptance.py`，证据 `~/argon-m1/state/vibe-acceptance.json`）：插件已同步部署机并随 preset 重启；Nova 工作项 context/diff/files 全通——SSH 实读容器 CatalogSearchService.java（38 行 + version），ETag 304，401/400/404/405 守卫全部符合。浏览器 e2e 仍未跑。
 - 浏览器 e2e（SSH 隧道 + 内置浏览器，截图本地 `artifacts/vibe-e2e-*.png`）：外壳/源码/Diff/运行区全通；输入被 409 阶段守卫拒绝且服务端状态无变化。e2e 发现 client 插件因 `bridge.mjs` 资产缺失阻塞整个 web boot，已修复并测试锁定。Node 119/119。
+
+## 2026-10-18 — 通用任务 Task 5 收口
+
+- 补完 `tests/live_generic_intake.py` 的最终只读收据：除了 MANUAL TaskSpec/VERIFY/PR 校验，还会比较重启前后的 Work Item、Session、operation、delivery 身份，确认旧进程退出/新服务进程存活，从主 API 和 Gitea 独立核对 Orion/Nova/Pixel legacy 数据，并把人工浏览器只读入口观察绑定到当前 TaskSpec、候选、Session 和页面版本。缺少任一证据或版本过期都会失败关闭。
+- 最终远程回执：`~/argon-m1-generic/artifacts/task5-final-2026-10-18-v4.json`，`PASSED`、`task5Complete=true`；Customer、Command 各 18 项通过，restart 3/3、legacy 6/6、browser 5/5。两条 PR 仍 open/unmerged 且 head 与已验证候选匹配。
+- 浏览器实际打开 Customer 任务详情的只读编码入口，查看源码、两文件 Diff 和 Run Monitor。最新只读页面 version 2561，TaskSpec digest、绑定 Session、文件列表、base/candidate SHA 均与服务端一致；页面没有旧仓库授权告警。
+- legacy 当前检查：Orion/Nova/Pixel 三个原 Work Item 均仍 `PR_OPEN`；PR #2 均仍 open、未合并且 head 与原快照相同；主服务维持 API 3081、DSH 3080。隔离通用实例为 API 3083、console 3093。
+- 重启复核发现 SDLC Gitea 仓库授权只保存在客户端内存，重启后 MANUAL PR 状态轮询失败。已用 TDD 修复：每轮 delivery step 从 owner 绑定的冻结 TaskSpec 恢复精确授权，并在 Gitea I/O 前拒绝 delivery 字段漂移。另将 PR facts 的相等比较改成键序无关的 canonical JSON；Python Store 会按排序键持久化，旧 Node `JSON.stringify` 比较会导致每 10 秒重复写入。新修复仅部署到隔离 DSH 3093；PR 告警清除，跨 12 秒轮询周期 Work Item version 和 event cursor 稳定。
+- 本地最终回归：Python 166 项（165 通过、1 个既有 Linux 专属用例跳过）；Node 187/187 通过。新增测试覆盖重启授权、目标漂移、canonical facts、delivery 错误/重试门禁和浏览器快照绑定。
+- 现场验收完成；整分支独立评审是计划中剩余的一项。

@@ -30,6 +30,9 @@ from brain.task_spec import change_allowed, repository_config_from_spec, validat
 WORK = re.compile(r'work-[a-f0-9]{32}')
 SHA = re.compile(r'[a-f0-9]{40}')
 MAX_BYTES = 4 * 1024 * 1024
+LEGACY_SOURCES = {'FND-00003', 'FND-00009', 'FND-00015'}
+LEGACY_REPOSITORIES = {'demo-orion-notes-api', 'demo-nova-catalog-api', 'demo-pixel-reports-batch'}
+RESTART_SERVICES = {'api', 'worker', 'dsh'}
 
 
 class ProbeError(ValueError):
@@ -142,6 +145,11 @@ class ForgeReader:
             result.append(self.client.get(prefix + '/pulls/' + str(number)))
         return result
 
+    def pull(self, repository, number):
+        if repository not in LEGACY_REPOSITORIES or type(number) is not int or number < 1:
+            raise ProbeError('Legacy pull target is outside the fixed acceptance set')
+        return self.client.get('/api/v1/repos/demo/' + repository + '/pulls/' + str(number))
+
 
 def assess_work(work, operation, git, pulls, owner, registry=None, expected_digest=None, operations=None):
     """Pure evidence gate; model text and missing checks cannot grant readiness."""
@@ -187,6 +195,7 @@ def assess_work(work, operation, git, pulls, owner, registry=None, expected_dige
     add('durableDelivery', d.get('headBranch') == head_branch and head_branch is not None and d.get('id') == identity and identity is not None and d.get('candidateCommit') == candidate
         and d.get('verificationOperationId') == wf.get('verificationOperationId') and d.get('repository') == spec['repository']['fullName']
         and d.get('repositoryUrl') == spec['repository']['cloneUrl'] and d.get('baseBranch') == spec['repository']['baseBranch'] and d.get('step') == 'PR_OPEN')
+    add('deliveryReconciled', None if not d else d.get('lastError') is None and d.get('nextAttemptAt') is None)
     marker = '<!-- argon-delivery:' + str(identity) + ' -->'
     add('oneIndependentPull', None if pulls is None or not d else len(pulls) == 1)
     pull = pulls[0] if pulls and len(pulls) == 1 else None
@@ -214,6 +223,128 @@ def registry_states(root, owner):
         with sqlite3.connect(database.as_uri() + '?mode=ro', uri=True) as db:
             return dict(db.execute('SELECT sandbox_id, state FROM sandboxes WHERE owner_id=?', (owner,)))
     except sqlite3.Error: return None
+
+
+def restart_identity(work, operations):
+    workflow = work.get('workflow') or {}; source = work.get('source') or {}; delivery = workflow.get('delivery') or {}
+    operation_ids = sorted(op.get('operationId') for op in (operations or [])
+                           if isinstance(op, dict) and isinstance(op.get('operationId'), str))
+    session_ids = sorted(value for value in (work.get('sessionIds') or []) if isinstance(value, str))
+    return {'workItemId': work.get('workItemId'), 'phase': workflow.get('phase'), 'sourceType': source.get('type'),
+            'taskId': source.get('id'), 'specDigest': (work.get('taskSpec') or {}).get('specDigest'),
+            'candidate': workflow.get('candidateCommit'), 'deliveryId': delivery.get('id'),
+            'verificationOperationId': workflow.get('verificationOperationId'), 'operations': operation_ids,
+            'sessionIds': session_ids}
+
+
+def assess_restart_continuity(before, current_works, services):
+    checks = []
+    if not isinstance(before, dict) or not isinstance(current_works, list):
+        checks.append({'name': 'sameWorkInventory', 'status': 'NOT_RUN'})
+        checks.append({'name': 'stableTaskSessionOperationAndPRIdentity', 'status': 'NOT_RUN'})
+    else:
+        prior = before.get('works'); current_ids = [row.get('workItemId') for row in current_works if isinstance(row, dict)]
+        prior_ids = [row.get('workItemId') for row in prior if isinstance(row, dict)] if isinstance(prior, list) else []
+        unique = len(current_ids) == len(set(current_ids)) and len(prior_ids) == len(set(prior_ids))
+        inventory_matches = unique and bool(prior_ids) and sorted(prior_ids) == sorted(current_ids)
+        checks.append({'name': 'sameWorkInventory', 'status': 'PASS' if inventory_matches else 'FAIL'})
+        before_by_id = {row.get('workItemId'): row for row in prior if isinstance(row, dict)} if isinstance(prior, list) else {}
+        after_by_id = {row.get('workItemId'): row for row in current_works if isinstance(row, dict)}
+        def normalize(row):
+            if not isinstance(row, dict): return None
+            result = dict(row)
+            for key in ('operations', 'sessionIds'):
+                values = result.get(key)
+                if not isinstance(values, list) or any(not isinstance(value, str) for value in values): return None
+                if len(values) != len(set(values)): return None
+                result[key] = sorted(values)
+            return result
+        stable = inventory_matches and all(normalize(before_by_id[work_id]) is not None
+            and normalize(before_by_id[work_id]) == normalize(after_by_id[work_id]) for work_id in prior_ids)
+        checks.append({'name': 'stableTaskSessionOperationAndPRIdentity', 'status': 'PASS' if stable else 'FAIL'})
+    if not isinstance(services, dict):
+        checks.append({'name': 'oldServicesExitedAndNewServicesAlive', 'status': 'NOT_RUN'})
+    else:
+        prior_running = before.get('runningProcesses') if isinstance(before, dict) else None
+        valid_names = set(services) == RESTART_SERVICES
+        valid_processes = valid_names and isinstance(prior_running, dict) and all(prior_running.get(name) is True for name in RESTART_SERVICES)
+        for name in RESTART_SERVICES:
+            state = services.get(name) if isinstance(services, dict) else None
+            valid_processes = valid_processes and isinstance(state, dict) and type(state.get('beforePid')) is int and state['beforePid'] > 0
+            valid_processes = valid_processes and type(state.get('afterPid')) is int and state['afterPid'] > 0
+            valid_processes = valid_processes and state.get('beforePid') != state.get('afterPid')
+            valid_processes = valid_processes and state.get('beforeAlive') is False and state.get('afterAlive') is True
+        checks.append({'name': 'oldServicesExitedAndNewServicesAlive', 'status': 'PASS' if valid_processes else 'FAIL'})
+    return {'status': 'PASS' if checks and all(check['status'] == 'PASS' for check in checks) else 'NOT_READY', 'checks': checks,
+            'beforeCommit': before.get('isolatedBranchCommit') if isinstance(before, dict) else None,
+            'workItems': current_works if isinstance(current_works, list) else []}
+
+
+def assess_legacy_retention(before, after, current_work_items, current_pulls):
+    checks = []
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        checks.append({'name': 'beforeAfterSnapshots', 'status': 'NOT_RUN'})
+        expected_works = []; expected_pulls = []
+    else:
+        expected_works = before.get('legacyWorks')
+        expected_pulls = before.get('legacyPRs')
+        same_snapshot = after.get('identicalToPreDeploymentSnapshot') is True
+        checks.append({'name': 'deploymentSnapshotMatched', 'status': 'PASS' if same_snapshot else 'FAIL'})
+        checks.append({'name': 'workItemsUnchangedSinceDeployment', 'status': 'PASS' if expected_works == after.get('legacyWorkItems') else 'FAIL'})
+        checks.append({'name': 'pullRequestsUnchangedSinceDeployment', 'status': 'PASS' if expected_pulls == after.get('legacyPRs') else 'FAIL'})
+    valid_inventory = isinstance(expected_works, list) and len(expected_works) == 3 and {
+        row.get('source') for row in expected_works if isinstance(row, dict)} == LEGACY_SOURCES and all(
+        isinstance(row, dict) and row.get('phase') == 'PR_OPEN' and WORK.fullmatch(str(row.get('workItemId', '')))
+        for row in expected_works)
+    valid_inventory = valid_inventory and isinstance(expected_pulls, list) and len(expected_pulls) == 3 and {
+        row.get('repo') for row in expected_pulls if isinstance(row, dict)} == LEGACY_REPOSITORIES and all(
+        isinstance(row, dict) and row.get('state') == 'open' and row.get('merged') is False
+        and type(row.get('number')) is int and row['number'] > 0 and SHA.fullmatch(str(row.get('head', '')))
+        for row in expected_pulls)
+    checks.append({'name': 'expectedLegacyInventory', 'status': 'PASS' if valid_inventory else 'FAIL'})
+    checks.append({'name': 'currentWorkItemsUnchanged', 'status': 'NOT_RUN' if current_work_items is None else
+                   'PASS' if valid_inventory and current_work_items == expected_works else 'FAIL'})
+    checks.append({'name': 'currentPullRequestsUnchanged', 'status': 'NOT_RUN' if current_pulls is None else
+                   'PASS' if valid_inventory and current_pulls == expected_pulls else 'FAIL'})
+    return {'status': 'PASS' if checks and all(check['status'] == 'PASS' for check in checks) else 'NOT_READY', 'checks': checks,
+            'workItems': current_work_items if isinstance(current_work_items, list) else [],
+            'pullRequests': current_pulls if isinstance(current_pulls, list) else []}
+
+
+def assess_browser_entry(receipt, works, expected_origin='http://127.0.0.1:3093'):
+    if not isinstance(receipt, dict):
+        return {'status': 'NOT_READY', 'checks': [{'name': 'browserReadOnlyEntry', 'status': 'NOT_RUN'}]}
+    work = next((row for row in works if isinstance(row, dict) and row.get('workItemId') == receipt.get('workItemId')), None)
+    checks = []
+    if not work:
+        return {'status': 'NOT_READY', 'checks': [{'name': 'browserReadOnlyEntry', 'status': 'FAIL'}]}
+    try:
+        parsed = urllib.parse.urlsplit(receipt.get('entryUrl', ''))
+        origin = loopback_origin(urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, '', '', '')))
+        query = urllib.parse.parse_qs(parsed.query, strict_parsing=True)
+        url_bound = origin == loopback_origin(expected_origin) and parsed.path == '/' and not parsed.fragment and set(query) == {
+            'argonVibeTask', 'argonSession', 'argonEmbedded'} and all(len(value) == 1 for value in query.values())
+        restart = work.get('restartIdentity') or {}; session_id = query.get('argonSession', [''])[0]
+        url_bound = url_bound and query.get('argonVibeTask') == [work['workItemId']] and query.get('argonEmbedded') == ['1']
+        url_bound = url_bound and session_id in (restart.get('sessionIds') or [])
+    except (ValueError, TypeError):
+        url_bound = False; session_id = None
+    checks.append({'name': 'visibleEntryLinkBoundToTaskAndSession', 'status': 'PASS' if receipt.get('entryLinkObserved') is True and url_bound else 'FAIL'})
+    spec = work.get('taskSpec') or {}; git = work.get('git') or {}; expected_files = git.get('changedFiles')
+    files_match = isinstance(expected_files, list) and receipt.get('files') == expected_files and receipt.get('sourcePath') in expected_files
+    checks.append({'name': 'readOnlyFileTreeMatchesTaskDiff', 'status': 'PASS' if receipt.get('filePaneReadOnly') is True and files_match else 'FAIL'})
+    diff_match = receipt.get('diffBaseCommit') == spec.get('baseCommit') and receipt.get('diffHeadCommit') == work.get('candidateCommit')
+    diff_match = diff_match and receipt.get('diffChangedFiles') == expected_files and receipt.get('taskSpecDigest') == spec.get('specDigest')
+    checks.append({'name': 'taskScopedDiffMatchesVerifiedCandidate', 'status': 'PASS' if diff_match else 'FAIL'})
+    observed_version = receipt.get('version'); current_version = work.get('version')
+    version_valid = type(observed_version) is int and type(current_version) is int and 0 <= observed_version <= current_version
+    checks.append({'name': 'snapshotVersionNotAhead', 'status': 'PASS' if version_valid else 'FAIL'})
+    page_match = version_valid and receipt.get('phase') == work.get('phase') == 'PR_OPEN'
+    page_match = page_match and receipt.get('runMonitorVisible') is True and work.get('status') == 'PASSED'
+    checks.append({'name': 'monitorAndSnapshotStayedReadOnly', 'status': 'PASS' if page_match else 'FAIL'})
+    return {'status': 'PASS' if all(check['status'] == 'PASS' for check in checks) else 'NOT_READY',
+            'checks': checks, 'workItemId': work['workItemId'], 'sessionId': session_id,
+            'version': receipt.get('version'), 'files': receipt.get('files') if isinstance(receipt.get('files'), list) else []}
 
 
 def receipt_reference(path):
@@ -256,8 +387,66 @@ def capture(owner, work_id, brain, console, forge, registry, expected=None):
     latest = next((repo for repo in brain.get('/api/brain/repositories')['repositories'] if repo['repositoryId'] == spec['repository']['repositoryId']), None)
     result['latestRepositoryObservation'] = None if latest is None else {'revision': latest['revision'], 'enabled': latest['enabled'],
         'fullName': latest['config']['fullName'], 'verificationCommand': latest['config']['execution']['verificationCommand']}
+    result['restartIdentity'] = restart_identity(work, snap.get('operations'))
     result['status'] = 'PASSED' if all(check['status'] == 'PASS' for check in result['checks']) else 'NOT_READY'
     return result
+
+
+def private_json(path):
+    try: return json.loads(private_bytes(path))
+    except (ProbeError, json.JSONDecodeError): return None
+
+
+def pid_is_alive(pid):
+    if type(pid) is not int or pid < 1: return False
+    try: os.kill(pid, 0); return True
+    except ProcessLookupError: return False
+    except PermissionError: return True
+    except OSError: return False
+
+
+def capture_restart_continuity(runtime_root, works):
+    before = private_json(runtime_root / 'state/restart-before.json')
+    current = private_json(runtime_root / 'state/services.json')
+    if not isinstance(before, dict) or not isinstance(current, dict):
+        return assess_restart_continuity(None, None, None)
+    prior_services = before.get('services') or {}
+    states = {}
+    for name in RESTART_SERVICES:
+        before_pid = prior_services.get(name); after_pid = current.get(name)
+        states[name] = {'beforePid': before_pid, 'afterPid': after_pid,
+                        'beforeAlive': pid_is_alive(before_pid), 'afterAlive': pid_is_alive(after_pid)}
+    identities = [work.get('restartIdentity') for work in works if isinstance(work, dict) and work.get('restartIdentity')]
+    return assess_restart_continuity(before, identities, states)
+
+
+def capture_legacy_retention(runtime_root, legacy_data_root, owner, forge):
+    before = private_json(runtime_root / 'state/legacy-before-generic.json')
+    after = private_json(runtime_root / 'state/legacy-after-generic.json')
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return assess_legacy_retention(before, after, None, None)
+    port = after.get('mainApiPort')
+    if type(port) is not int or port != 3081:
+        return assess_legacy_retention(before, after, None, None)
+    try:
+        token = json.loads(private_bytes(legacy_data_root / 'tokens.json'))['owners'][owner]
+        legacy = ReadClient('http://127.0.0.1:' + str(port), {'Authorization': 'Bearer ' + token})
+        current_works = []
+        for old in before.get('legacyWorks', []):
+            work_id = old.get('workItemId') if isinstance(old, dict) else None
+            if not isinstance(work_id, str) or not WORK.fullmatch(work_id): raise ProbeError('Invalid legacy Work Item identity')
+            snapshot = legacy.get('/api/brain/work-items/' + work_id); work = snapshot['workItem']
+            source = work.get('source') or {}; workflow = work.get('workflow') or {}
+            current_works.append({'source': source.get('id'), 'phase': workflow.get('phase'), 'workItemId': work.get('workItemId')})
+        current_pulls = []
+        for old in before.get('legacyPRs', []):
+            if not isinstance(old, dict): raise ProbeError('Invalid legacy pull request receipt')
+            pull = forge.pull(old.get('repo'), old.get('number'))
+            current_pulls.append({'repo': old['repo'], 'number': pull.get('number'), 'state': pull.get('state'),
+                                  'merged': pull.get('merged'), 'head': (pull.get('head') or {}).get('sha')})
+        return assess_legacy_retention(before, after, current_works, current_pulls)
+    except Exception:
+        return assess_legacy_retention(before, after, None, None)
 
 
 def main(argv=None):
@@ -267,6 +456,7 @@ def main(argv=None):
     parser.add_argument('--expected-digest', action='append', default=[], metavar='WORK_ID=SHA256')
     parser.add_argument('--runtime-root', type=Path, default=Path.home() / 'argon-m1-generic')
     parser.add_argument('--data-root', type=Path, default=Path.home() / '.argon-brain-generic')
+    parser.add_argument('--legacy-data-root', type=Path, default=Path.home() / '.argon-brain')
     parser.add_argument('--sandbox-root', type=Path, default=Path.home() / 'argon-sandboxes-generic')
     parser.add_argument('--console-log', type=Path); parser.add_argument('--credential-file', type=Path, default=Path.home() / 'gitea/secrets/argon-agent.json')
     parser.add_argument('--api-origin', default='http://127.0.0.1:3083'); parser.add_argument('--console-origin', default='http://127.0.0.1:3093')
@@ -292,22 +482,30 @@ def main(argv=None):
             try: works.append(capture(args.owner, work_id, brain, console, forge, registry, expected.get(work_id)))
             except Exception:
                 works.append({'workItemId': work_id, 'status': 'NOT_READY', 'checks': [{'name': 'readOnlyCapture', 'status': 'FAIL'}]})
+        restart = capture_restart_continuity(args.runtime_root, works)
+        legacy = capture_legacy_retention(args.runtime_root, args.legacy_data_root, args.owner, forge)
+        browser_receipt = private_json(args.runtime_root / 'state/coding-readonly-browser.json')
+        browser = assess_browser_entry(browser_receipt, works, ui_origin)
         references = []
         names = ['customer-fixture.json', 'command-fixture.json', 'customer-admission.json', 'command-admission.json',
                  'customer-plan-approval.json', 'command-plan-approval.json', 'customer-known-failure-resume.json', 'customer-original-config.json',
                  'customer-pr-confirmation.json', 'command-pr-confirmation.json', 'customer-regression-red.json',
-                 'legacy-before-generic.json', 'legacy-after-generic.json', 'generic-restart.json', 'services.json', 'deployment.json']
+                 'legacy-before-generic.json', 'legacy-after-generic.json', 'restart-before.json', 'services.json',
+                 'coding-readonly-browser.json', 'deployment.json']
         for path in [args.runtime_root / 'state' / name for name in names] + args.state_receipt:
             if path.is_file(): references.append(receipt_reference(path))
-        status = 'PASSED' if all(work['status'] == 'PASSED' for work in works) else 'IN_PROGRESS' if args.allow_in_progress else 'NOT_READY'
+        complete = all(work['status'] == 'PASSED' for work in works) and restart['status'] == 'PASS' \
+            and legacy['status'] == 'PASS' and browser['status'] == 'PASS'
+        status = 'PASSED' if complete else 'IN_PROGRESS' if args.allow_in_progress else 'NOT_READY'
         result = {'schemaVersion': 1, 'capturedAt': datetime.now(timezone.utc).isoformat(), 'readOnly': True, 'status': status,
-                  'scope': 'existing-work-verification-and-open-PR', 'task5Complete': False, 'ownerId': args.owner, 'works': works, 'receiptReferences': references,
-                  'legacyRetention': {'status': 'NOT_RUN', 'note': 'Receipt references are observations; independent before/after retention proof is required.'}}
+                  'scope': 'generic-task-intake-final-acceptance', 'task5Complete': complete, 'ownerId': args.owner,
+                  'works': works, 'restartContinuity': restart, 'legacyRetention': legacy, 'browserEntry': browser,
+                  'receiptReferences': references}
         output = args.output or args.runtime_root / 'artifacts' / ('generic-intake-' + uuid.uuid4().hex[:12] + '.json')
         output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         descriptor = os.open(str(output), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         with os.fdopen(descriptor, 'w') as stream: json.dump(result, stream, ensure_ascii=False, indent=2); stream.write('\n')
-        print(json.dumps({'status': status, 'readOnly': True, 'receipt': str(output), 'works': [work['workItemId'] for work in works]}))
+        print(json.dumps({'status': status, 'task5Complete': complete, 'readOnly': True, 'receipt': str(output), 'works': [work['workItemId'] for work in works]}))
         return 0 if status == 'PASSED' else 3 if status == 'IN_PROGRESS' else 2
     except Exception:
         print(json.dumps({'status': 'ERROR', 'readOnly': True, 'message': 'Private read-only capture failed; no readiness is claimed. Check local arguments, permissions and service availability.'}))

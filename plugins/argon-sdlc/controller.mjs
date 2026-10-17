@@ -4,6 +4,13 @@ import { sessionProgress, conflict } from '../argon-workflow/rules.mjs';
 import { isManagedWork } from '../argon-workflow/task-spec.mjs';
 const route = id => '/api/brain/work-items/' + id;
 const active = op => !['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(op.state);
+const canonicalJson = value => {
+  if (Array.isArray(value)) return '[' + value.map(item => canonicalJson(item)).join(',') + ']';
+  if (value && typeof value === 'object') return '{' + Object.keys(value).filter(key => value[key] !== undefined).sort()
+    .map(key => JSON.stringify(key) + ':' + canonicalJson(value[key])).join(',') + '}';
+  if (value === undefined || (typeof value === 'number' && !Number.isFinite(value))) return 'null';
+  return JSON.stringify(value);
+};
 export class SdlcController {
   constructor(config, { workflow, forge, source, report = () => {} }) {
     this.workflow = workflow; this.forge = forge ?? new GiteaClient(config); this.source = source ?? workflow.source; this.report = report;
@@ -44,6 +51,15 @@ export class SdlcController {
   async save(work, delivery, phase = work.workflow.phase) {
     return this.workflow.update(work, { phase, delivery, reason: null });
   }
+  authorizeDelivery(work) {
+    if (!isManagedWork(work)) return;
+    const identity = deliveryIdentity(work), delivery = work.workflow.delivery;
+    if (!delivery || delivery.id !== identity.id || delivery.repository !== identity.repository || delivery.repositoryUrl !== identity.repositoryUrl ||
+        delivery.candidateCommit !== identity.candidateCommit || delivery.verificationOperationId !== identity.verificationOperationId ||
+        delivery.headBranch !== identity.headBranch || delivery.baseBranch !== identity.baseBranch)
+      throw conflict('交付身份与冻结任务不一致，未访问 Gitea');
+    if (typeof this.forge.authorize === 'function') this.forge.authorize([identity.repository]);
+  }
   async fail(workId, deliveryId, error) {
     const { workItem: current } = await this.workflow.snapshot(workId), d = current.workflow.delivery;
     if (!d || d.id !== deliveryId || d.step === 'COMPLETED') return;
@@ -61,6 +77,7 @@ export class SdlcController {
     if (!d || work.paused || d.step === 'COMPLETED' || (d.step === 'CLOSED_UNMERGED' && !closedCurrent) || (!closedCurrent && !['PUBLISHING', 'PR_OPEN', 'CLOSING'].includes(work.workflow.phase))) return;
     if (d.nextAttemptAt && new Date(d.nextAttemptAt).getTime() > Date.now()) return;
     try {
+      this.authorizeDelivery(work);
       if (d.step === 'PUSH_PENDING') {
         await this.eligible(work);
         const result = await this.workflow.client.request('POST', route(work.workItemId) + '/publish-branch', {
@@ -81,13 +98,13 @@ export class SdlcController {
       if (d.step === 'PR_OPEN' || d.step === 'SYNC_SOURCE_PENDING' || closedCurrent) {
         const facts = await this.forge.facts(d.repository, d), view = factsView(d, facts, this.forge.botLogin);
         if (facts.pull.state === 'closed' && facts.pull.merged !== true) {
-          if (closedCurrent && JSON.stringify(view) === JSON.stringify(d.observed) && !d.lastError) return;
+          if (closedCurrent && canonicalJson(view) === canonicalJson(d.observed) && !d.lastError) return;
           return this.save(work, { ...d, step: 'CLOSED_UNMERGED', observed: view, lastError: null, nextAttemptAt: null }, 'AWAITING_REVIEW');
         }
         if (d.step !== 'SYNC_SOURCE_PENDING') {
           const next = { ...d, step: 'PR_OPEN', observed: view, lastError: null, nextAttemptAt: null };
           if (view.gate.allowed) return this.save(work, { ...next, step: 'SYNC_SOURCE_PENDING', mergeCommit: facts.pull.merge_commit_sha }, 'CLOSING');
-          if (closedCurrent || JSON.stringify(view) !== JSON.stringify(d.observed) || d.lastError) return this.save(work, next, 'PR_OPEN');
+          if (closedCurrent || canonicalJson(view) !== canonicalJson(d.observed) || d.lastError) return this.save(work, next, 'PR_OPEN');
           return;
         }
         // A persisted closure intent still rechecks current external facts after restart.

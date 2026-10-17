@@ -4,6 +4,11 @@ import { readFileSync } from 'node:fs';
 import { SdlcController } from '../plugins/argon-sdlc/controller.mjs';
 import { TaskWorkflow } from '../plugins/argon-workflow/controller.mjs';
 const id = 'work-' + 'a'.repeat(32), candidate = 'b'.repeat(40), operationId = 'exec-' + 'c'.repeat(32), tree = 'e'.repeat(40);
+function sortedKeys(value) {
+  if (Array.isArray(value)) return value.map(sortedKeys);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, sortedKeys(value[key])]));
+  return value;
+}
 function fixture() {
   const work = { workItemId: id, ownerId: 'alice', sandboxId: 'sb-source', version: 1, paused: false, source: { type: 'ARGON', id: 'FND-00009' },
     sourceRecord: { id: 'FND-00009', title: 'Fix SQL injection', ownerId: 'source-owner', repositoryUrl: 'http://127.0.0.1:3000/demo/demo-nova-catalog-api.git', sourcePath: 'src/Fix.java', baseCommit: 'd'.repeat(40) },
@@ -83,7 +88,7 @@ function manualFixture() {
   const git = { headCommit: candidate, status: '', changedFiles: ['src/main/A.java', 'src/test/ATest.java'], testsChanged: ['src/test/ATest.java'] };
   const events = [{ seq: 1, type: 'turn/start', data: { turn: 1 } }, { seq: 2, type: 'user/message', data: { source: { rpcId: 'request-code' } } },
     { seq: 4, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } }];
-  const state = { pushes: 0, creates: 0, sourceWrites: 0, merged: false, body: null, repo: null };
+  const state = { pushes: 0, creates: 0, sourceWrites: 0, merged: false, body: null, repo: null, prReads: 0, factsAttempts: 0 };
   const client = { dispose: async () => {}, async request(method, path, opts = {}) {
     if (method === 'GET' && path.includes('/operations/')) return structuredClone(op);
     if (method === 'GET' && path.endsWith('/work-items')) return { workItems: [structuredClone(work)] };
@@ -97,7 +102,7 @@ function manualFixture() {
   const forge = { botLogin: 'argon-agent', baseUrl: 'http://127.0.0.1:3000', dispose: async () => {}, authorized: [],
     authorize(repos) { this.authorized.push(...repos); },
     async ensurePull(repo, d, title, body) { state.creates++; state.repo = repo; state.body = body; return { number: 5, html_url: 'http://127.0.0.1:3000/' + repo + '/pulls/5', state: 'open' }; },
-    async facts(repo, d) { return { pull: { number: 5, html_url: 'http://127.0.0.1:3000/' + repo + '/pulls/5', state: state.merged ? 'closed' : 'open', merged: state.merged, merge_commit_sha: state.merged ? 'f'.repeat(40) : null,
+    async facts(repo, d) { state.factsAttempts++; if (this.authorized && !this.authorized.includes(repo)) throw new Error('仓库不在允许列表'); state.prReads++; return { pull: { number: 5, html_url: 'http://127.0.0.1:3000/' + repo + '/pulls/5', state: state.merged ? 'closed' : 'open', merged: state.merged, merge_commit_sha: state.merged ? 'f'.repeat(40) : null,
       merged_by: state.merged ? { login: 'human' } : null, user: { login: 'argon-agent' }, head: { sha: candidate, ref: d.headBranch, repo: { full_name: repo } }, base: { ref: 'main', repo: { full_name: repo } } }, candidateTree: tree, mergedTree: state.merged ? tree : null, reviews: [], statuses: [] }; } };
   const source = { async complete() { state.sourceWrites++; return { id: taskId, status: 'Resolved' }; } };
   const controller = new SdlcController({ minApprovals: 0, requiredStatusContexts: [] }, { workflow, forge, source });
@@ -133,6 +138,43 @@ test('manual publication requires the frozen specDigest on the stored approval',
   f.work.workflow.approval.specDigest = null;
   await assert.rejects(() => f.controller.publish(f.work.workItemId, { expectedVersion: 1 }, 'no-digest'), /409/);
   assert.equal(f.state.pushes, 0);
+});
+test('manual PR background reconciliation restores authorization from the frozen TaskSpec after restart', async () => {
+  const f = manualFixture();
+  await f.controller.publish(f.work.workItemId, { expectedVersion: 1 }, 'publish-manual-restart');
+  await f.controller.step(structuredClone(f.work));
+  await f.controller.step(structuredClone(f.work));
+  assert.equal(f.work.workflow.phase, 'PR_OPEN');
+
+  f.forge.authorized.length = 0;
+  const restarted = new SdlcController({ minApprovals: 0, requiredStatusContexts: [] }, { workflow: f.controller.workflow, forge: f.forge, source: f.controller.source });
+  await restarted.step(structuredClone(f.work));
+
+  assert.deepEqual(f.forge.authorized, ['demo/customer-api']);
+  assert.equal(f.state.prReads, 1);
+  assert.equal(f.state.factsAttempts, 1);
+  assert.equal(f.work.workflow.phase, 'PR_OPEN');
+  assert.equal(f.work.workflow.delivery.lastError, null);
+  assert.equal(f.work.workflow.delivery.nextAttemptAt, null);
+  const versionAfterRefresh = f.work.version;
+  f.work.workflow.delivery.observed = sortedKeys(f.work.workflow.delivery.observed);
+  await restarted.step(structuredClone(f.work));
+  assert.equal(f.work.version, versionAfterRefresh, 'store-normalized JSON key order must not trigger a redundant workflow write');
+});
+test('manual PR reconciliation rejects delivery target drift before Gitea access', async () => {
+  const f = manualFixture();
+  await f.controller.publish(f.work.workItemId, { expectedVersion: 1 }, 'publish-manual-drift');
+  await f.controller.step(structuredClone(f.work));
+  await f.controller.step(structuredClone(f.work));
+  f.forge.authorized.length = 0;
+  f.work.workflow.delivery.repository = 'demo/replacement-api';
+
+  const restarted = new SdlcController({ minApprovals: 0, requiredStatusContexts: [] }, { workflow: f.controller.workflow, forge: f.forge, source: f.controller.source });
+  await restarted.step(structuredClone(f.work));
+
+  assert.deepEqual(f.forge.authorized, []);
+  assert.equal(f.state.prReads, 0);
+  assert.equal(f.state.factsAttempts, 0);
 });
 test('a frozen reviewPolicy can never disable the human-merge or identical-tree gates', async () => {
   const f = manualFixture();

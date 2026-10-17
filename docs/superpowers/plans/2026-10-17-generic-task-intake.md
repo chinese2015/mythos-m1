@@ -55,10 +55,10 @@ Manual Work Item:
 - RepositoryService(store,host=None): `register(owner,body,key)`, `revise(owner,id,body,key)`, `check(owner,id)`, `create_task(owner,input,key)`。create_task 先查 manual_retry，再读当前注册版本/真实 ref，构造冻结 spec；最后事务再验 repo revision/enabled。
 - make_server 添加尾部可选 `repository_service=None`，不改变现有 positional publisher 参数。新路由 GET/POST `/api/brain/repositories`，POST `/{id}/revisions`、`/{id}/check`，POST `/api/brain/tasks/manual`。GET返回 `{repositories:[...]}`；任务 POST202。M2 owner与幂等契约沿用。
 
-- [ ] 写真实临时 SQLite/HTTP 测试：登记/更新/停用、owner隔离、错误JSON/类型/路径、同key创建重试固定原SHA（host第二次改HEAD/失效仍复用）、改参409、配置CAS竞争、手工任务无资源分配、冻结快照更新不变；验证 digest/路径收窄/测试许可；shared fixture供JS消费。
-- [ ] 跑 `python3 -m unittest discover -s tests -p 'test_repositories.py'` 与 `test_task_spec.py`，确认缺少模块/契约 RED。
-- [ ] 实现上述模块。避免继续把全部业务写入 store.py；受管任务创建与现有事务、事件、幂等共存。
-- [ ] 全部 `python3 -m unittest discover -s tests` GREEN；记录命令与数量，提交 `feat: register repositories and freeze generic manual tasks`。
+- [x] 写真实临时 SQLite/HTTP 测试：登记/更新/停用、owner隔离、错误JSON/类型/路径、同key创建重试固定原SHA（host第二次改HEAD/失效仍复用）、改参409、配置CAS竞争、手工任务无资源分配、冻结快照更新不变；验证 digest/路径收窄/测试许可；shared fixture供JS消费。
+- [x] 跑 `python3 -m unittest discover -s tests -p 'test_repositories.py'` 与 `test_task_spec.py`，确认缺少模块/契约 RED。
+- [x] 实现上述模块。避免继续把全部业务写入 store.py；受管任务创建与现有事务、事件、幂等共存。
+- [x] 全部 `python3 -m unittest discover -s tests` GREEN；记录命令与数量，提交 `feat: register repositories and freeze generic manual tasks`。
 
 ### Task 2: 通用 Git、执行、报告与发布后端
 
@@ -72,9 +72,9 @@ Manual Work Item:
 - Worker 按 Work Item 策略判断 UNIT_TEST/VERIFY；command模式 evidence.junit=null，并保存 `validation:{format:'command',...}`，不伪造用例；legacy JUnit规则不变。未知/取消/清理语义不变。
 - Manual 审批对象复用 workflow.approval 并增加 specDigest，发布必须与 Work Item 的冻结 digest 相等。Manual VERIFY 提交/发布要求实际命令等于冻结 verificationCommand，精确 SHA、fresh B、合格报告/退出码及允许改动范围；私有 bare staging/create-only push与原幂等保持。
 
-- [ ] 写失败测试：第四仓库通过登记可clone/verify/push、未登记/错误owner/恶意URL在I/O前拒绝；配置变更不改旧执行；3+ JUnit及command无报告成功/非零失败；超额/损坏/旧报告/skip拒绝；多文件/测试许可/越界/rename/delete路径一致；伪造VERIFY命令和A冒B拒绝；凭据helper用私有fixture按目标输出、未知目标无secret。
-- [ ] 观察 RED，再做最小实现；不扩大容器网络或挂载。
-- [ ] 跑 Python 全套 GREEN，Node套件确认未回归；提交 `feat: execute and publish task-specific verification policies`。
+- [x] 写失败测试：第四仓库通过登记可clone/verify/push、未登记/错误owner/恶意URL在I/O前拒绝；配置变更不改旧执行；3+ JUnit及command无报告成功/非零失败；超额/损坏/旧报告/skip拒绝；多文件/测试许可/越界/rename/delete路径一致；伪造VERIFY命令和A冒B拒绝；凭据helper用私有fixture按目标输出、未知目标无secret。
+- [x] 观察 RED，再做最小实现；不扩大容器网络或挂载。
+- [x] 跑 Python 全套 GREEN，Node套件确认未回归；提交 `feat: execute and publish task-specific verification policies`。
 
 ### Task 3: Cordis 通用任务工作流与 SDLC
 
@@ -82,10 +82,10 @@ Manual Work Item:
 
 **Interfaces:** Consume canonical fixture及 M2 API。`task-spec.mjs` 导出 `isManagedWork(work)`, `effectivePolicy(work)`, `candidateAllowed(work,git)`, `baselineReady(work,operation)`, `verifiedTaskCandidate(work,operation,git)`；legacy调用原规则，不重写三条Finding契约。`intake.mjs` 的 `TaskIntake(client)` 封装 repositories/register/revise/check/create；TaskWorkflow 暴露 intake。Manual 审批沿用 workflow.approval 并增加 specDigest；审批/重放/进入编码/发布均匹配冻结 taskSpec.specDigest，与Task2字段相同。
 
-- [ ] 失败测试：MANUAL进入列表/detail/PLAN/CODE并绑定正确Session；BASELINE按record/must-pass/must-fail推进；taskSpec摘要绑定审批和重启；多文件及获批测试进入B、越界阻塞；泛化prompt不再声称单文件/禁止全部测试；manual closure不调用Mock complete；Node/Python shared fixture结论一致。
-- [ ] 修改状态机使用冻结命令、超时和报告策略；Baseline正常失败可进入只读研判但环境/UNKNOWN拒绝。CODE结束仍需提交和干净树，操作ID稳定。
-- [ ] SDLC 对 MANUAL 使用其登记仓库身份和任务范围；GiteaClient仍仅当前连接，仓库许可由可信快照导入（task-scoped client或显式授权集合），不能接受浏览器任意repo。PR正文基于实际命令/报告类型/数量生成，不硬编码Maven或2 tests。MANUAL合并后只完成work，不写Finding；严格合并事实、代码树/人工门禁和PR重开/幂等保留。
-- [ ] 全套 `npm test` GREEN，Python兼容回归；提交 `feat: run generic manual tasks through workflow and SDLC`。
+- [x] 失败测试：MANUAL进入列表/detail/PLAN/CODE并绑定正确Session；BASELINE按record/must-pass/must-fail推进；taskSpec摘要绑定审批和重启；多文件及获批测试进入B、越界阻塞；泛化prompt不再声称单文件/禁止全部测试；manual closure不调用Mock complete；Node/Python shared fixture结论一致。
+- [x] 修改状态机使用冻结命令、超时和报告策略；Baseline正常失败可进入只读研判但环境/UNKNOWN拒绝。CODE结束仍需提交和干净树，操作ID稳定。
+- [x] SDLC 对 MANUAL 使用其登记仓库身份和任务范围；GiteaClient仍仅当前连接，仓库许可由可信快照导入（task-scoped client或显式授权集合），不能接受浏览器任意repo。PR正文基于实际命令/报告类型/数量生成，不硬编码Maven或2 tests。MANUAL合并后只完成work，不写Finding；严格合并事实、代码树/人工门禁和PR重开/幂等保留。
+- [x] 全套 `npm test` GREEN，Python兼容回归；提交 `feat: run generic manual tasks through workflow and SDLC`。
 
 ### Task 4: 仓库登记与新建任务页面
 
@@ -93,21 +93,21 @@ Manual Work Item:
 
 **Interfaces:** Consumes `workflow.intake` 与Task3受管任务列表。console代理 GET/POST `/api/repositories`、POST `/{id}/revisions|check`、POST `/api/tasks/manual`，全部先认证/同源/JSON/Idempotency门禁。静态资源登记 intake-view.js。
 
-- [ ] 写 HTTP 失败测试验证代理、401/403/415、key/body/version透传；表单有效输入产生canonical request，无令牌/路径配置；断线/刷新重试同一表单保留业务幂等键，成功确认后才清除，改参需显式新意图，避免随机UUID重试产生重复任务。已有任务列表/详情回归。
-- [ ] 页面提供仓库列表/登记/连接检查/版本更新和新建任务表单，显示策略与状态；标题/描述/验收、基线分支、允许范围、测试许可可审阅。列表同时显示Finding与手工Work Item，不重新Start；手工详情不显示虚假风险或单源文件。
-- [ ] JUnit和command结果分别如实展示；报告缺失不渲染为0项通过。保留原生Session、Diff、Run Monitor、PR面板。
-- [ ] Node全套 GREEN，页面实际检查/截图；提交 `feat: add repository registry and manual task intake UI`。
+- [x] 写 HTTP 失败测试验证代理、401/403/415、key/body/version透传；表单有效输入产生canonical request，无令牌/路径配置；断线/刷新重试同一表单保留业务幂等键，成功确认后才清除，改参需显式新意图，避免随机UUID重试产生重复任务。已有任务列表/详情回归。
+- [x] 页面提供仓库列表/登记/连接检查/版本更新和新建任务表单，显示策略与状态；标题/描述/验收、基线分支、允许范围、测试许可可审阅。列表同时显示Finding与手工Work Item，不重新Start；手工详情不显示虚假风险或单源文件。
+- [x] JUnit和command结果分别如实展示；报告缺失不渲染为0项通过。保留原生Session、Diff、Run Monitor、PR面板。
+- [x] Node全套 GREEN，页面实际检查/截图；提交 `feat: add repository registry and manual task intake UI`。
 
 ### Task 5: 非预设仓库真实验收与交接
 
 **Files:** Create `tests/live_generic_intake.py`, `docs/generic-task-intake.md`; update本计划和progress；实际证据只写忽略的state/artifacts。
 
-- [ ] 先修复验收前确认的运行链路缺口并补回归：MANUAL 发布/远程查询使用冻结目标限定的凭据 helper，不沿用只接受原三仓的部署 helper；已持久化任务的 clone/verify/publish 授权以 owner 绑定的冻结 TaskSpec 为准，仓库新版本改 fullName 不使旧任务失效，legacy 默认三仓规则不变。
-- [ ] 复核运行服务/并行Vibe工作是否占用同一部署目录，使用独立远程测试目录与端口或完成可审阅集成后部署；不要覆盖其他agent的未提交代码或停止其任务。
-- [ ] 将虚构 customer-api（现有3 tests）放入当前Gitea的非Finding仓库；登记配置并由页面创建手工任务，验证真实 refs、key重放、配置冻结与owner门禁。此fixture不宣称Jira接入。
-- [ ] 真实只读方案→批准→模型改源码并补获批回归测试（至少两文件）→3+ tests真实通过→精确候选独立B→PR保持开放。若模型异常如实记录阶段，不代写修复伪造模型成功。
-- [ ] 小型标准库Node/Python仓库证明command模式：新B实际exit0，无JUnit不伪造用例；非零/UNKNOWN不能发布。至少包含一次失败/门禁路径真实检查。
-- [ ] 重启/重复请求保持同任务/Session/operation/PR，旧Nova/Pixel/Orion数据不退化；检查新增任务与并行Vibe工作台适配边界。
+- [x] 先修复验收前确认的运行链路缺口并补回归：MANUAL 发布/远程查询使用冻结目标限定的凭据 helper，不沿用只接受原三仓的部署 helper；已持久化任务的 clone/verify/publish 授权以 owner 绑定的冻结 TaskSpec 为准，仓库新版本改 fullName 不使旧任务失效，legacy 默认三仓规则不变。
+- [x] 复核运行服务/并行Vibe工作是否占用同一部署目录，使用独立远程测试目录与端口或完成可审阅集成后部署；不要覆盖其他agent的未提交代码或停止其任务。
+- [x] 将虚构 customer-api（现有3 tests）放入当前Gitea的非Finding仓库；登记配置并由页面创建手工任务，验证真实 refs、key重放、配置冻结与owner门禁。此fixture不宣称Jira接入。
+- [x] 真实只读方案→批准→模型改源码并补获批回归测试（至少两文件）→3+ tests真实通过→精确候选独立B→PR保持开放。若模型异常如实记录阶段，不代写修复伪造模型成功。
+- [x] 小型标准库Node/Python仓库证明command模式：新B实际exit0，无JUnit不伪造用例；非零/UNKNOWN不能发布。至少包含一次失败/门禁路径真实检查。
+- [x] 重启/重复请求保持同任务/Session/operation/PR，旧Nova/Pixel/Orion数据不退化；检查新增任务与并行Vibe工作台适配边界。
 - [ ] 最终合适回归、独立全分支审查、记录修复/裁定和限制，提交文档与探针；提供可访问入口及真实PR/证据。
 
 ## Self-review

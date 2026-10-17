@@ -51,15 +51,15 @@ python3 tests/live_generic_intake.py \
   --allow-in-progress --output artifacts/generic-progress.json
 ```
 
-默认只读取 API `127.0.0.1:3083`、console `127.0.0.1:3093`、固定 Gitea `127.0.0.1:3000`，数据根 `~/.argon-brain-generic`、运行根 `~/argon-m1-generic`、沙箱注册表 `~/argon-sandboxes-generic`。可显式传 `--runtime-root`、`--data-root`、`--sandbox-root`、`--api-origin`、`--console-origin`。`--console-log` 默认运行根的 `state/dsh.log`；脚本从私有启动日志取登录信息建立 cookie，不打印或保存登录 URL/token。Git 凭据默认现有私有自动化账号文件，可用 `--credential-file` 指定私有文件。
+默认只读取 API `127.0.0.1:3083`、console `127.0.0.1:3093`、固定 Gitea `127.0.0.1:3000`，数据根 `~/.argon-brain-generic`、legacy 主数据根 `~/.argon-brain`、运行根 `~/argon-m1-generic`、沙箱注册表 `~/argon-sandboxes-generic`。可显式传 `--runtime-root`、`--data-root`、`--legacy-data-root`、`--sandbox-root`、`--api-origin`、`--console-origin`。legacy API 固定读取主实例 3081；隔离服务仍用 3083/3093。`--console-log` 默认运行根的 `state/dsh.log`；脚本从私有启动日志取登录信息建立 cookie，不打印或保存登录 URL/token。Git 凭据默认现有私有自动化账号文件，可用 `--credential-file` 指定私有文件。
 
-可以重复 `--state-receipt <private.json>` 从已有回执中的 `workItemId/workId` 提取目标，也可用 `--expected-digest WORK_ID=SHA256` 绑定事先记录的冻结摘要。脚本不创建任务/沙箱/PR、不批准、不提示模型、不重启、不写候选，只 GET 并生成一个新私有 JSON 回执；已存在的输出文件不会覆盖。
+可以重复 `--state-receipt <private.json>` 从已有回执中的 `workItemId/workId` 提取目标，也可用 `--expected-digest WORK_ID=SHA256` 绑定事先记录的冻结摘要。最终检查还读取 `state/coding-readonly-browser.json`：这是一次人工浏览器观察的私有回执，记录已打开任务绑定入口、只读文件面、可见文件、Diff 的 base/candidate SHA、Run Monitor 和 Work Item version。CLI 会将它与本次 API 快照逐项比较，过期版本或 session/path/hash 错配都会拒绝。脚本不创建任务/沙箱/PR、不批准、不提示模型、不重启、不写候选，只 GET 并生成一个新私有 JSON 回执；已存在的输出文件不会覆盖。
 
-回执校验当前 owner/TaskSpec、审批 digest、干净精确候选、允许路径、当前 A 与 fresh B、真实 VERIFY、独立 Gitea PR 的精确 head 和唯一 delivery marker、B 清理状态。Customer 验收额外要求至少四项有效测试、至少两个文件且含测试变更；command 验收要求实际 exit 0、明确 `junit=null`。PR 保持开放。已有 admission/approval/fixture/restart 等私有回执只附安全文件名、大小和 SHA256 引用，不复制原始日志/配置内容。
+回执校验当前 owner/TaskSpec、审批 digest、干净精确候选、允许路径、当前 A 与 fresh B、真实 VERIFY、独立 Gitea PR 的精确 head 和唯一 delivery marker、B 清理状态。Customer 验收额外要求至少四项有效测试、至少两个文件且含测试变更；command 验收要求实际 exit 0、明确 `junit=null`。它还验证 Work Item/Session/operation/PR 的重启前后身份、旧服务退出与新服务存活，以及三条 legacy Work Item/PR 的部署前后快照和当前 API/Gitea 状态。PR 保持开放。已有 admission/approval/fixture/restart 等私有回执只附安全文件名、大小和 SHA256 引用，不复制原始日志/配置内容。
 
-退出码 0 仅表示本次「已有任务验证与开放 PR」检查全部通过；2 为未就绪，`--allow-in-progress` 的明确未完成抓取返回 3，工具/私有输入错误为 1。缺失门禁显示 FAIL/NOT_RUN，不能作为通过。回执始终注明 `task5Complete=false`；旧 legacy 保留、重启和最终评审仍要独立证明。证据默认落在忽略的 `artifacts/`，输入回执在忽略的 `state/`；文件为 0600，不把秘密提交到 Git。
+退出码 0 表示手工任务证据、重启身份连续性、legacy 保留和只读浏览器入口全部通过；2 为未就绪，`--allow-in-progress` 的明确未完成抓取返回 3，工具/私有输入错误为 1。缺失门禁显示 FAIL/NOT_RUN，不能作为通过。完整回执仅在所有门禁通过时设置 `task5Complete=true`。证据默认落在忽略的 `artifacts/`，输入回执在忽略的 `state/`；文件为 0600，不把秘密提交到 Git。
 
-## 当前实际证据与未完成项（2026-10-17）
+## 实际证据与完成状态
 
 隔离实例使用 3083/3093，主 3080/3081 保留。Customer 已通过实际 UI 登记/创建；相同 key 返回同一任务，改参 409、停用后新任务 409、错误 owner 404、过早发布 409，证据在 `state/customer-admission.json`。PLAN 已完成并由受认证控制台审批，绑定冻结 digest；浏览器原生确认自动化超时后，使用的是同一受保护审批 API，未绕过业务门禁。
 
@@ -79,4 +79,14 @@ Customer 的原始三项测试基线真实 exit 1。第一次错误地验证未�
 
 独立 C 中只替换获批测试、保留原始基线源码的探针，真实运行四项测试、两项失败，包含新增回归；A 未改变，C 已停止，证据 `state/customer-regression-red.json` 及相邻 XML/log。初次探针缺少 Maven 环境选项的错误也保留记录，没有冒充回归 RED。人工合并和合并树一致门禁仍开启，PR 未自动合并。
 
-**尚待父任务收齐：**最终浏览器/只读编码入口检查、重启身份/不重复资源证明、旧 legacy 保留、最终广泛评审。登记簿可在冻结证明后恢复新 revision 的启用配置，旧任务仍保持 R1。这份文档不宣称整个 Task 5 或端到端验收已经完成；新增实际回执后再补结果。
+### Task 5 最终验收（2026-10-18）
+
+隔离实例最终只读回执为 `artifacts/task5-final-2026-10-18-v4.json`，结果 `PASSED`、`task5Complete=true`。Customer 和 Command 各 18 项校验全部通过，包含冻结摘要、Owner、审批、干净候选、独立 B、验证证据、清理、PR 唯一性与无待重试交付错误。
+
+- 重启连续性 3/3 通过：API/worker/DSH 都由新的存活进程接管；旧进程已退出；Customer 与 Command 的 Work Item、Session、操作、候选、验证操作和交付身份与重启前快照完全一致，没有重复资源。
+- legacy 保留 6/6 通过：部署前后快照一致，并从主 API 3081 和 Gitea 重新读取到 Orion、Nova、Pixel 三个原 Work Item 及三个 open/unmerged PR；ID、阶段和 PR head 与原快照一致。主 API/DSH 仍在 3081/3080。
+- 浏览器检查通过：从 Customer 工作详情看到带当前 Work Item/Session 绑定的“只读编码工作台”入口；打开后读到源码、两文件 Diff 和 Run Monitor。回执绑定 TaskSpec digest、session、文件范围、base/candidate SHA 和 version 2561；若服务端 version 前进，只有当页面 snapshot 不超前且上述冻结身份保持一致才通过。私有观察记录为 `state/coding-readonly-browser.json`。
+- Customer PR #1 与 Command PR #1 仍开放且未合并，头 SHA 与已验证候选一致；没有创建额外 PR、Session 或操作。
+- 重启后发现 Gitea 仓库授权只保存在 SDLC 客户端内存，两个 MANUAL PR 都出现旧的“仓库不在允许列表”重试警告。修复后每轮 delivery 对账都会从 owner 绑定的冻结 TaskSpec 恢复精确授权，并拒绝偏离 TaskSpec 的 delivery 目标。另将 PR observed facts 比较改成键序无关的规范 JSON，避免 Python 按排序键持久化后 Node 每轮误判状态变化。隔离 DSH 重启后两条警告清除，版本/事件游标在跨过轮询周期后保持稳定。
+
+本地回归：`python3 -m unittest discover -s tests` 为 166 项（165 通过、1 个既有 Linux 专属用例在 macOS 跳过）；`npm test` 为 187/187 通过。最终回执只读运行实例；修复部署与重启仅限隔离 DSH 3093，主 3080/3081 未重启。

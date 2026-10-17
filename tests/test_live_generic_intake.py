@@ -9,6 +9,7 @@ import tempfile
 from brain.publication import delivery_id, publication_branch
 from brain.task_spec import make_task_spec
 from live_generic_intake import assess_work, loopback_origin, ReadClient, ProbeError, console_client
+import live_generic_intake as live_probe
 
 
 class GenericEvidenceProbeTests(unittest.TestCase):
@@ -46,7 +47,7 @@ class GenericEvidenceProbeTests(unittest.TestCase):
         self.assertTrue(all(check['status'] == 'PASS' for check in result['checks']))
 
     def test_missing_or_wrong_gates_never_claim_a_pass(self):
-        for change in ['missing-verify', 'wrong-owner', 'wrong-approval', 'dirty', 'three-tests', 'one-file', 'duplicate-pr', 'wrong-head', 'wrong-branch', 'no-pr', 'no-cleanup']:
+        for change in ['missing-verify', 'wrong-owner', 'wrong-approval', 'dirty', 'three-tests', 'one-file', 'duplicate-pr', 'wrong-head', 'wrong-branch', 'no-pr', 'no-cleanup', 'stale-delivery-error', 'pending-delivery-retry']:
             work, op, git, pulls = self.fixtures(); registry = {op['runtime']['sandboxId']: 'stopped'}
             owner = 'alice'
             if change == 'missing-verify': op = None
@@ -60,6 +61,8 @@ class GenericEvidenceProbeTests(unittest.TestCase):
             elif change == 'wrong-branch': work['workflow']['delivery']['headBranch'] = 'argon/other'; pulls[0]['head']['ref'] = 'argon/other'
             elif change == 'no-pr': pulls = []
             elif change == 'no-cleanup': registry = None
+            elif change == 'stale-delivery-error': work['workflow']['delivery']['lastError'] = 'repository denied'
+            elif change == 'pending-delivery-retry': work['workflow']['delivery']['nextAttemptAt'] = '2026-10-18T00:00:00Z'
             with self.subTest(change=change):
                 result = assess_work(work, op, git, pulls, owner, registry=registry, operations=[op] if op else [])
                 self.assertEqual(result['status'], 'NOT_READY')
@@ -126,3 +129,83 @@ class GenericEvidenceProbeTests(unittest.TestCase):
         self.assertEqual(loopback_origin('http://127.0.0.1:3083'), 'http://127.0.0.1:3083')
         for url in ['https://127.0.0.1:3083', 'http://example.com:3083', 'http://user:secret@127.0.0.1:3083', 'http://@127.0.0.1:3083', 'http://127.0.0.1:3083/path', 'http://127.0.0.1:3083/?token=x']:
             with self.subTest(url=url), self.assertRaises(ValueError): loopback_origin(url)
+
+    def test_restart_receipt_requires_stable_work_identity_and_replaced_live_services(self):
+        assess = getattr(live_probe, 'assess_restart_continuity', None)
+        self.assertTrue(callable(assess), 'restart continuity validator is missing')
+        old = {'workItemId': 'work-' + 'a' * 32, 'phase': 'PR_OPEN', 'sourceType': 'MANUAL',
+               'taskId': 'TASK-abcdef123456', 'specDigest': 'b' * 64, 'candidate': 'c' * 40,
+               'deliveryId': 'd' * 64, 'verificationOperationId': 'exec-' + 'e' * 32,
+               'operations': ['exec-' + 'e' * 32], 'sessionIds': ['session-original']}
+        before = {'isolatedBranchCommit': 'f' * 40, 'works': [old],
+                  'services': {'api': 100, 'worker': 200, 'dsh': 300},
+                  'runningProcesses': {'api': True, 'worker': True, 'dsh': True}}
+        after_work = copy.deepcopy(old)
+        services = {name: {'beforePid': pid, 'afterPid': pid + 100, 'beforeAlive': False, 'afterAlive': True}
+                    for name, pid in before['services'].items()}
+
+        result = assess(before, [after_work], services)
+        self.assertEqual('PASS', result['status'])
+
+        changed = copy.deepcopy(after_work)
+        changed['sessionIds'].append('session-duplicate')
+        self.assertEqual('NOT_READY', assess(before, [changed], services)['status'])
+        self.assertEqual('NOT_READY', assess(before, [after_work], {**services, 'worker': {
+            **services['worker'], 'beforeAlive': True}})['status'])
+        self.assertEqual('NOT_READY', assess(before, [after_work], {**services, 'dsh': {
+            **services['dsh'], 'afterAlive': False}})['status'])
+
+    def test_legacy_receipt_requires_before_after_and_current_work_and_pr_equality(self):
+        assess = getattr(live_probe, 'assess_legacy_retention', None)
+        self.assertTrue(callable(assess), 'legacy retention validator is missing')
+        works = [
+            {'source': 'FND-00003', 'phase': 'PR_OPEN', 'workItemId': 'work-' + '1' * 32},
+            {'source': 'FND-00009', 'phase': 'PR_OPEN', 'workItemId': 'work-' + '2' * 32},
+            {'source': 'FND-00015', 'phase': 'PR_OPEN', 'workItemId': 'work-' + '3' * 32},
+        ]
+        pulls = [
+            {'repo': 'demo-orion-notes-api', 'number': 2, 'state': 'open', 'merged': False, 'head': '4' * 40},
+            {'repo': 'demo-nova-catalog-api', 'number': 2, 'state': 'open', 'merged': False, 'head': '5' * 40},
+            {'repo': 'demo-pixel-reports-batch', 'number': 2, 'state': 'open', 'merged': False, 'head': '6' * 40},
+        ]
+        before = {'legacyWorks': works, 'legacyPRs': pulls}
+        after = {'legacyWorkItems': copy.deepcopy(works), 'legacyPRs': copy.deepcopy(pulls),
+                 'identicalToPreDeploymentSnapshot': True, 'mainApiPort': 3081, 'mainDshPort': 3080}
+
+        self.assertEqual('PASS', assess(before, after, works, pulls)['status'])
+        changed_pull = copy.deepcopy(pulls)
+        changed_pull[0]['head'] = '7' * 40
+        self.assertEqual('NOT_READY', assess(before, after, works, changed_pull)['status'])
+        changed_work = copy.deepcopy(works)
+        changed_work[0]['phase'] = 'BLOCKED'
+        self.assertEqual('NOT_READY', assess(before, after, changed_work, pulls)['status'])
+        changed_snapshot = copy.deepcopy(after)
+        changed_snapshot['legacyWorkItems'][0]['phase'] = 'BLOCKED'
+        self.assertEqual('NOT_READY', assess(before, changed_snapshot, works, pulls)['status'])
+
+    def test_browser_receipt_must_bind_the_visible_readonly_workbench_to_the_task_snapshot(self):
+        assess = getattr(live_probe, 'assess_browser_entry', None)
+        self.assertTrue(callable(assess), 'browser entry validator is missing')
+        work_id = 'work-' + 'a' * 32; session_id = 'session-current'
+        paths = ['src/main/java/com/example/customer/CustomerSearchService.java',
+                 'src/test/java/com/example/customer/CustomerSearchServiceTest.java']
+        work = {'workItemId': work_id, 'version': 2537, 'phase': 'PR_OPEN', 'status': 'PASSED',
+                'taskSpec': {'baseCommit': 'b' * 40, 'specDigest': 'd' * 64}, 'candidateCommit': 'c' * 40,
+                'git': {'changedFiles': paths}, 'restartIdentity': {'sessionIds': [session_id]}}
+        receipt = {'filePaneReadOnly': True, 'entryLinkObserved': True, 'runMonitorVisible': True,
+                   'entryUrl': 'http://127.0.0.1:3093/?argonVibeTask=' + work_id + '&argonSession=' + session_id + '&argonEmbedded=1',
+                   'workItemId': work_id, 'version': 2537, 'phase': 'PR_OPEN', 'sourcePath': paths[0],
+                   'taskSpecDigest': 'd' * 64,
+                   'files': paths, 'diffBaseCommit': 'b' * 40, 'diffHeadCommit': 'c' * 40,
+                   'diffChangedFiles': paths}
+        self.assertEqual('PASS', assess(receipt, [work])['status'])
+        wrong_session = copy.deepcopy(receipt); wrong_session['entryUrl'] = wrong_session['entryUrl'].replace(session_id, 'session-other')
+        self.assertEqual('NOT_READY', assess(wrong_session, [work])['status'])
+        wrong_head = copy.deepcopy(receipt); wrong_head['diffHeadCommit'] = 'd' * 40
+        self.assertEqual('NOT_READY', assess(wrong_head, [work])['status'])
+        lagging_version = copy.deepcopy(receipt); lagging_version['version'] = 2536
+        self.assertEqual('PASS', assess(lagging_version, [work])['status'])
+        future_version = copy.deepcopy(receipt); future_version['version'] = 2538
+        self.assertEqual('NOT_READY', assess(future_version, [work])['status'])
+        wrong_digest = copy.deepcopy(receipt); wrong_digest['taskSpecDigest'] = 'e' * 64
+        self.assertEqual('NOT_READY', assess(wrong_digest, [work])['status'])
