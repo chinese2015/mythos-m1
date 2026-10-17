@@ -35,10 +35,16 @@ export function assertApproval(snapshot, body, progress) {
       body.planHash !== w.planHash || !progress.completed || progress.endSequence !== w.planEndSequence ||
       progress.latestUserSequence > w.planEndSequence || progress.pendingInputs?.length) throw conflict('方案已更新，请刷新并重新确认');
 }
-export function baselineReproduced(operation) {
+export const baselineExpectations = {
+  'FND-00009': ['maliciousInputReturnsNothing'],
+  'FND-00015': ['blocksTraversalOutsideReportDirectory'],
+  'FND-00003': ['noHardcodedAdminPassword', 'leakedDemoPasswordNotPresent'],
+};
+export function baselineReproduced(operation, findingId = 'FND-00009') {
   const j = operation?.evidence?.junit;
-  return operation?.state === 'FAILED' && operation.exitCode !== 0 && j?.tests === 2 && j.failures === 1 && j.errors === 0 && j.skipped === 0 && !j.invalidReports?.length &&
-    (j.failedTests ?? []).some(name => name === 'maliciousInputReturnsNothing' || name.endsWith('.maliciousInputReturnsNothing'));
+  const expected = baselineExpectations[findingId];
+  return !!expected && operation?.state === 'FAILED' && Number.isInteger(operation.exitCode) && operation.exitCode !== 0 && j?.tests === 2 && j.failures === expected.length && j.errors === 0 && j.skipped === 0 && !j.invalidReports?.length &&
+    expected.every(test => (j.failedTests ?? []).some(name => name === test || name.endsWith('.' + test)));
 }
 export function transcript(inspection) {
   return (inspection?.events ?? []).filter(e => ['user/message', 'assistant/message', 'tool/result', 'turn/end'].includes(e.type)).slice(-100).map(e => ({

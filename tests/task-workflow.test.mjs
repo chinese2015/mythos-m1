@@ -86,3 +86,12 @@ test('CODE filesystem policy becomes read-only during PR publication and review'
     for (const phase of ['PUBLISHING', 'PR_OPEN', 'CLOSING', 'COMPLETED']) { work.workflow.phase = phase; assert.equal(ctx.sandboxPolicy.resolve().mode, 'read-only'); }
   } finally { await ctx.fiber.dispose(); }
 });
+
+test('each approved mapped asset uses its own expected failing security tests', () => {
+  const op = names => ({ state: 'FAILED', exitCode: 1, evidence: { junit: { tests: 2, failures: names.length, errors: 0, skipped: 0, failedTests: names } } });
+  assert.equal(baselineReproduced(op(['blocksTraversalOutsideReportDirectory']), 'FND-00015'), true);
+  assert.equal(baselineReproduced(op(['maliciousInputReturnsNothing']), 'FND-00015'), false);
+  assert.equal(baselineReproduced(op(['noHardcodedAdminPassword','leakedDemoPasswordNotPresent']), 'FND-00003'), true);
+  assert.equal(baselineReproduced(op(['unrelatedTest','leakedDemoPasswordNotPresent']), 'FND-00003'), false);
+  assert.equal(baselineReproduced(op(['maliciousInputReturnsNothing']), 'FND-99999'), false);
+});

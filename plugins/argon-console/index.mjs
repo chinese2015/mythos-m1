@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 export const name = 'argon-console';
-export const inject = ['webServer', 'connection', 'argonWorkflow', 'argonSdlc'];
+export const inject = ['webServer', 'connection', 'argonWorkflow', 'argonSdlc', 'argonSubscribe'];
 const assets = new Map([['/', ['index.html', 'text/html; charset=utf-8']], ['/app.js', ['app.js', 'text/javascript; charset=utf-8']], ['/delivery-view.js', ['delivery-view.js', 'text/javascript; charset=utf-8']], ['/monitor-view.js', ['monitor-view.js', 'text/javascript; charset=utf-8']], ['/monitor-state.js', ['monitor-state.js', 'text/javascript; charset=utf-8']], ['/styles.css', ['styles.css', 'text/css; charset=utf-8']]]);
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
 function json(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(value)); }
@@ -14,7 +14,7 @@ async function bodyOf(req) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw failure('请求必须为对象');
   return { body, key };
 }
-export function consoleHandler({ connection, workflow, sdlc, assetReader = name => readFile(new URL('./public/' + name, import.meta.url)) }) {
+export function consoleHandler({ connection, workflow, sdlc, subscribe, assetReader = name => readFile(new URL('./public/' + name, import.meta.url)) }) {
   return async (req, res) => {
     try {
       const url = new URL(req.url, 'http://dsh.invalid');
@@ -46,6 +46,7 @@ export function consoleHandler({ connection, workflow, sdlc, assetReader = name 
       }
       if (req.method === 'POST') {
         const { body, key } = await bodyOf(req);
+        if (parts[0] === 'tasks' && parts[2] === 'decide' && parts.length === 3) return json(res, 200, await subscribe.decide(parts[1], body, key));
         if (parts[0] === 'tasks' && parts[2] === 'start' && parts.length === 3) return json(res, 202, await workflow.start(parts[1], body, key));
         if (parts[0] === 'work-items' && parts.length === 3) {
           if (parts[2] === 'publish-pr') return json(res, 202, await sdlc.publish(parts[1], body, key));
@@ -64,6 +65,6 @@ export function consoleHandler({ connection, workflow, sdlc, assetReader = name 
   };
 }
 export function apply(ctx) {
-  const handler = consoleHandler({ connection: ctx.connection, workflow: ctx.argonWorkflow.controller, sdlc: ctx.argonSdlc.controller });
+  const handler = consoleHandler({ connection: ctx.connection, workflow: ctx.argonWorkflow.controller, sdlc: ctx.argonSdlc.controller, subscribe: ctx.argonSubscribe.controller });
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/argon', handler }));
 }

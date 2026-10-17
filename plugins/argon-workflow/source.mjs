@@ -9,9 +9,9 @@ export function normalizeFinding(row) {
   const [repo, commit, path] = mapping;
   const exact = row.repositoryUrl === `http://127.0.0.1:3000/demo/${repo}.git` && row.baseCommit === commit && row.sourcePath === path;
   return { id: row.id, title: String(row.name ?? row.title ?? row.id), risk: String(row.risk ?? ''),
-    ownerId: String(row.ownerId ?? ''), repositoryUrl: String(row.repositoryUrl ?? ''), baseCommit: String(row.baseCommit ?? ''),
+    ownerId: String(row.ownerId ?? ''), ownerTeamsId: String(row.ownerTeamsId ?? ''), repositoryUrl: String(row.repositoryUrl ?? ''), baseCommit: String(row.baseCommit ?? ''),
     sourcePath: String(row.sourcePath ?? ''), revision: row.revision, status: String(row.status ?? ''),
-    description: String(row.category ?? row.description ?? ''), enabled: exact && row.id === 'FND-00009' };
+    description: String(row.category ?? row.description ?? ''), enabled: exact && ['HIGH', 'CRITICAL'].includes(row.risk) && row.status === 'Not Started' && row.closed !== 'Closed' && !row.workItemId };
 }
 export function sourceRecord(task) {
   const { id, title, risk, ownerId, repositoryUrl, baseCommit, sourcePath, revision, description } = task;

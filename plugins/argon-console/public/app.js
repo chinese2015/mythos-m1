@@ -47,23 +47,26 @@ import { renderMonitor } from './monitor-view.js';
   }
   function taskStatus(task) {
     if (task.workItemId) return {label:task.workStage || task.status || '处理中', cls:'running'};
-    return task.enabled ? {label:'可开始',cls:'enabled'} : {label:'预览',cls:''};
+    const states = { AWAITING_OWNER: '待 Owner 批准', NEEDS_REVIEW: '需人工复核', REJECTED: '已拒绝接管' };
+    if (states[task.intake?.state]) return {label:states[task.intake.state],cls:'pending'};
+    if (task.startable) return {label:'已批准接管',cls:'enabled'};
+    return {label:task.intake?.state === 'APPROVED' ? '来源已变化，需人工复核' : '等待自动研判',cls:''};
   }
   function riskClass(risk) { const v=String(risk||'').toLowerCase(); return /high|高|critical|严重/.test(v)?'high':(/low|低/.test(v)?'low':'medium'); }
   function riskName(risk) { const v=String(risk||''); return ({HIGH:'高风险',MEDIUM:'中风险',LOW:'低风险',high:'高风险',medium:'中风险',low:'低风险'})[v] || v || '未标记风险'; }
   function shortRepo(url) { if (!url) return '—'; try { const u=new URL(url); return (u.pathname.split('/').filter(Boolean).slice(-2).join('/') || u.host); } catch (_) { return url; } }
   function renderTasks(data) {
     const tasks = Array.isArray(data.tasks) ? data.tasks : [];
-    taskCache = tasks; navCount.textContent = String(tasks.filter(t=>t.enabled).length);
+    taskCache = tasks; const pending = tasks.filter(t=>t.intake?.state === 'AWAITING_OWNER').length; navCount.textContent = String(pending); navCount.title = '待 Owner 批准'; navCount.classList.toggle('has-pending', pending > 0);
     setCrumbs(null);
     const active = tasks.filter(t=>t.workItemId).length;
-    view.innerHTML = `<div class="page-heading"><div><div class="eyebrow">TASK INTAKE</div><h1>任务中心</h1><p>从已登记的问题开始。Argon 会准备工作区、复现基线并提交方案供你审批。</p></div><div class="heading-meta"><strong>${tasks.length}</strong>条来源任务</div></div>
-      <div class="summary-grid"><div class="summary-card"><span>来源任务</span><strong>${tasks.length}</strong><i class="summary-icon">▦</i></div><div class="summary-card"><span>可启动工作流</span><strong>${tasks.filter(t=>t.enabled).length}</strong><i class="summary-icon">↗</i></div><div class="summary-card"><span>进行中的任务</span><strong>${active}</strong><i class="summary-icon">◷</i></div></div>
+    view.innerHTML = `<div class="page-heading"><div><div class="eyebrow">TASK INTAKE</div><h1>任务中心</h1><p>新漏洞自动研判并生成 Owner 通知预览，批准接管后才准备工作区。代码修改仍需单独批准方案。</p></div><div class="heading-meta"><strong>${tasks.length}</strong>条来源任务</div></div>
+      <div class="summary-grid"><div class="summary-card"><span>来源任务</span><strong>${tasks.length}</strong><i class="summary-icon">▦</i></div><div class="summary-card"><span>待 Owner 批准</span><strong>${pending}</strong><i class="summary-icon">↗</i></div><div class="summary-card"><span>进行中的任务</span><strong>${active}</strong><i class="summary-icon">◷</i></div></div>
       <div class="section-heading"><h2>已映射的问题</h2><small>来源：Mock Findings · 刷新自动同步状态</small></div><div class="task-list" id="task-list"></div>`;
     const list = document.getElementById('task-list');
     if (!tasks.length) { list.innerHTML='<div class="empty-state">当前没有可展示的问题。来源数据恢复后会自动出现。</div>'; return; }
     tasks.forEach(task => {
-      const state=taskStatus(task), enabled=!!task.enabled;
+      const state=taskStatus(task), enabled=!!(task.startable || task.workItemId);
       const card=el('article',{class:`task-card ${enabled?'':'preview'}`});
       const content=el('div');
       const row=el('div',{class:'task-title-row'});
@@ -72,10 +75,20 @@ import { renderMonitor } from './monitor-view.js';
       const meta=el('div',{class:'task-meta'});
       meta.append(el('span',{},`仓库：`),el('b',{text:shortRepo(task.repositoryUrl)}),el('span',{class:'dotsep',text:'•'}),el('span',{},'基线：'),el('b',{class:'mono',text:(task.baseCommit||'—').slice(0,10)}),el('span',{class:'dotsep',text:'•'}),el('span',{},'来源：'),el('b',{text:`${task.ownerId||'—'} · ${task.revision||'—'}`}));
       content.append(row,desc,meta);
+      content.append(el('p',{class:'task-description',text:`Owner：${task.ownerId||'—'} · ${task.ownerTeamsId||'未登记团队'}`}));
+      if (task.intake?.triage?.reasons?.length) content.append(el('p',{class:'task-description',text:task.intake.triage.reasons.join('；')}));
+      if (task.intake?.lastError) content.append(el('p',{class:'task-description',text:'通知暂未完成，将自动重试：' + task.intake.lastError}));
+      else if (task.intake?.notifiedAt) content.append(el('small',{class:'subtle',text:'Owner 通知预览已生成（本地 outbox）'}));
       const side=el('div',{class:'task-side'}); side.append(el('span',{class:`status-pill ${state.cls}`,text:state.label}));
       if (enabled && task.workItemId) { const b=el('button',{class:'secondary-button',type:'button',text:'打开工作详情'}); b.addEventListener('click',()=>location.hash=`#/work/${encodeURIComponent(task.workItemId)}`); side.append(b); }
       else if (enabled) { const b=el('button',{class:'primary-button',type:'button',text:'开始处理'}); b.addEventListener('click',()=>startTask(task,b)); side.append(b); }
-      else side.append(el('span',{class:'preview-tag',text:'此演示暂不可启动'}));
+      else if (task.enabled && task.intake?.state === 'AWAITING_OWNER') {
+        for (const [decision,label,cls] of [['APPROVE','批准接管','primary-button'],['REJECT','拒绝','text-button']]) {
+          const button=el('button',{class:cls,type:'button',text:label});
+          button.addEventListener('click',async()=>{button.disabled=true;try{await request(`/tasks/${encodeURIComponent(task.id)}/decide`,{method:'POST',body:{decision,expectedRevision:task.intake.revision},mutation:true});await loadTasks(true);}catch(error){showNotice(error.message,'error');button.disabled=false;}});
+          side.append(button);
+        }
+      } else side.append(el('span',{class:'preview-tag',text:'批准前不会启动修复'}));
       card.append(content,side); list.append(card);
     });
   }
@@ -206,7 +219,7 @@ import { renderMonitor } from './monitor-view.js';
     finally{if(seq===requestEpoch)loading=false;}
   }
   function renderWork(data){workSnapshot=data;const item=itemOf(data);if(!item){showNotice('服务返回的数据中没有工作项。','error');return;}buildDetail(data);}
-  function routeChanged(){routeEpoch++;requestEpoch++;loading=false;if(timer){clearInterval(timer);timer=null;}workSnapshot=null;taskCache=[];hideNotice();const r=route();if(r.name==='work'){loadWork(true);timer=setInterval(()=>{if(!document.hidden)loadWork();},1800);}else loadTasks(true);}
+  function routeChanged(){routeEpoch++;requestEpoch++;loading=false;if(timer){clearInterval(timer);timer=null;}workSnapshot=null;taskCache=[];hideNotice();const r=route();if(r.name==='work'){loadWork(true);timer=setInterval(()=>{if(!document.hidden)loadWork();},1800);}else{loadTasks(true);timer=setInterval(()=>{if(!document.hidden)loadTasks();},5000);}}
   document.getElementById('refresh-button').addEventListener('click',()=>{const r=route();r.name==='work'?loadWork(true):loadTasks(true);});
   window.addEventListener('hashchange',routeChanged);
   routeChanged();

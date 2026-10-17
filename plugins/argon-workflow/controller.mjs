@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { M2Client } from '../argon-brain/client.mjs';
 import { FindingSource, sourceRecord } from './source.mjs';
-import { sessionProgress, assertApproval, baselineReproduced, conflict, transcript } from './rules.mjs';
+import { sessionProgress, assertApproval, baselineReproduced, baselineExpectations, conflict, transcript } from './rules.mjs';
+import { findingBinding } from '../argon-subscribe/triage.mjs';
 import { taskPreset } from './session-policy.mjs';
 
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -51,8 +52,9 @@ export class TaskWorkflow {
   }
   async listWorks() { return (await this.client.request('GET', '/api/brain/work-items')).workItems.filter(w => w.source?.type === 'ARGON' && w.sourceRecord && w.workflow); }
   async tasks() {
-    const [tasks, works] = await Promise.all([this.source.list(), this.listWorks()]);
-    return { tasks: tasks.map(task => { const work = works.find(w => w.source.id === task.id); return { ...task,
+    const [tasks, works, { intakes }] = await Promise.all([this.source.list(), this.listWorks(), this.client.request('GET', '/api/brain/source-intakes')]);
+    return { tasks: tasks.map(task => { const work = works.find(w => w.source.id === task.id), intake = intakes.find(i => i.findingId === task.id) ?? null; return { ...task,
+      intake, startable: !!work || !!(task.enabled && intake?.state === 'APPROVED' && intake.triage?.result === 'CONFIRMED' && intake.triage.binding === findingBinding(task)),
       ...(work ? { workItemId: work.workItemId, workStage: work.paused ? 'PAUSED' : work.workflow?.phase } : {}) }; }),
       operator: { id: this.owner, label: '演示操作员 ' + this.owner } };
   }
@@ -61,6 +63,9 @@ export class TaskWorkflow {
     if (existing) return existing;
     const task = await this.source.get(id);
     if (!task?.enabled) throw conflict('此来源任务暂未开放执行，或仓库基线已变化');
+    const { intakes } = await this.client.request('GET', '/api/brain/source-intakes');
+    const intake = intakes.find(i => i.findingId === id);
+    if (intake?.state !== 'APPROVED' || intake.triage?.result !== 'CONFIRMED' || intake.triage.binding !== findingBinding(task)) throw conflict('请等待 Owner 在任务中心批准接管');
     return this.client.request('POST', '/api/brain/tasks/claim', { key: this.key('claim', id, key), body: { sourceRecord: sourceRecord(task), expectedRevision: body.expectedRevision } });
   }); }
   async update(work, changes, { blocked = work.blocked, key } = {}) {
@@ -161,7 +166,8 @@ export class TaskWorkflow {
   prompt(work, role) {
     const wf = work.workflow, source = work.sourceRecord;
     if (wf.pendingMessage?.requestId === wf[role.toLowerCase() + 'RequestId']) return wf.pendingMessage.text;
-    const context = `任务 ${source.id}: ${source.title}\n仓库基线 ${source.baseCommit}\n只允许修改 ${source.sourcePath}。禁止读取参考修复分支，不修改测试/POM/构建配置，不创建 PR。\n已复现真实失败测试：maliciousInputReturnsNothing。`;
+    const expected = baselineExpectations[source.id]?.join('、') ?? '请查阅基线操作的 JUnit 证据';
+    const context = `任务 ${source.id}: ${source.title}\n仓库基线 ${source.baseCommit}\n只允许修改 ${source.sourcePath}。禁止读取参考修复分支，不修改测试/POM/构建配置，不创建 PR。\n已复现真实失败测试：${expected}。`;
     return role === 'PLAN' ? `${context}\n请用只读工具检查源码和现有测试，输出具体修改方案、风险与验证步骤，完成后等待人工审批。` :
       `${context}\n人工已批准方案：\n${wf.plan}\n请实际完成源码修改，保持现有测试不变，运行必要测试并用 git 提交你的修改；最后报告提交 SHA 和测试事实。独立 clean verify 将由工作流在新的容器执行。`;
   }
@@ -230,7 +236,7 @@ export class TaskWorkflow {
       if (!wf.baselineOperationId) return this.submitFixed(work, 'UNIT_TEST', 'mvn -B -o -s .cache/settings.xml test', 'baselineOperationId', work.sourceRecord.baseCommit);
       const op = await this.client.request('GET', opRoute(wf.baselineOperationId));
       if (!terminal.has(op.state)) return;
-      if (!baselineReproduced(op)) return this.block(work, '基线测试未复现预期失败，请检查操作日志和环境；没有将环境错误视为漏洞复现。');
+      if (!baselineReproduced(op, work.source.id)) return this.block(work, '基线测试未复现预期失败，请检查操作日志和环境；没有将环境错误视为漏洞复现。');
       return this.update(work, { phase: 'PLANNING', baselineReproduced: true, planSessionId: identity(work, 'PLAN'), planRequestId: this.key('prompt', work.workItemId, 'PLAN', 1) }, { blocked: false });
     }
     if (wf.phase === 'PLANNING') return this.observe(work, 'PLAN');

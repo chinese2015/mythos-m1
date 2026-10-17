@@ -4,6 +4,7 @@ import { TaskWorkflow } from '../plugins/argon-workflow/controller.mjs';
 import { consoleHandler } from '../plugins/argon-console/index.mjs';
 import { createServer } from 'node:http';
 import { bindTaskAgent } from '../plugins/argon-workflow/session-policy.mjs';
+import { findingBinding } from '../plugins/argon-subscribe/triage.mjs';
 const id = 'work-' + 'a'.repeat(32);
 function harness() {
   const work = { workItemId: id, ownerId: 'alice', source: { type: 'ARGON', id: 'FND-00009' }, sourceRecord: { baseCommit: 'b'.repeat(40), sourcePath: 'src/Fix.java' }, sessionIds: [], sandboxId: 'sb-task', version: 1, blocked: false, workflow: { phase: 'CLAIMED' } };
@@ -129,4 +130,53 @@ test('console proxies work-item events with cursor validation and auth fencing',
     assert.deepEqual(await ok.json(), { events: [{ sequence: 7, type: 'execution.started' }], nextCursor: 7 });
     assert.deepEqual(seen, { workId: 'work-x', after: 5 });
   } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
+test('new tasks fail closed before approval; existing work stays accessible', async () => {
+  const { controller, client, work } = harness();
+  const task = { id: 'FND-00015', title: 'Traversal', enabled: true, revision: 2 };
+  let intakes = [], claims = 0;
+  client.request = async (method, path) => {
+    if (path.endsWith('/source-intakes')) return { intakes };
+    if (path.endsWith('/work-items')) return { workItems: [] };
+    claims++; return { workItemId: id };
+  };
+  controller.source = { get: async () => task, list: async () => [task] };
+  await assert.rejects(() => controller.start(task.id, { expectedRevision: 2 }, 'none'), e => e.status === 409);
+  intakes = [{ findingId: task.id, revision: 2, state: 'AWAITING_OWNER', triage: { result: 'CONFIRMED' } }];
+  assert.equal((await controller.tasks()).tasks[0].startable, false);
+  await assert.rejects(() => controller.start(task.id, { expectedRevision: 2 }, 'pending'), e => e.status === 409);
+  assert.equal(claims, 0);
+  client.request = async () => ({ workItems: [work] });
+  assert.equal((await controller.start(work.source.id, {}, 'existing')).workItemId, work.workItemId);
+});
+test('console intake decisions use the same authentication and mutation fences', async () => {
+  const decisions = [];
+  const server = createServer(consoleHandler({ connection: { requestRejection: ({ headers }) => headers.cookie === 'session=valid' ? undefined : 401 },
+    subscribe: { decide: async (...args) => { decisions.push(args); return { state: 'APPROVED' }; } } }));
+  await new Promise(resolve => server.listen(0,'127.0.0.1',resolve)); const url = 'http://127.0.0.1:' + server.address().port + '/argon/api/tasks/FND-00015/decide';
+  try {
+    assert.equal((await fetch(url, { method: 'POST' })).status, 401);
+    const headers = { cookie: 'session=valid', 'Content-Type':'application/json', 'X-Argon-Action':'1', 'Idempotency-Key':'decision-42' };
+    assert.equal((await fetch(url, { method: 'POST', headers, body: '{"decision":"APPROVE","expectedRevision":2}' })).status, 200);
+    assert.deepEqual(decisions, [['FND-00015', { decision: 'APPROVE', expectedRevision: 2 }, 'decision-42']]);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
+test('approved exact assets start once while changed owner bindings stay gated', async () => {
+  const { controller, client } = harness();
+  const task = { id: 'FND-00015', title: 'Traversal', enabled: true, revision: 2, ownerId: 'owner-pixel-01' };
+  const intake = { findingId: task.id, revision: 2, state: 'APPROVED', triage: { result: 'CONFIRMED', binding: findingBinding(task) } };
+  let claims = 0;
+  client.request = async (method, path) => {
+    if (path.endsWith('/source-intakes')) return { intakes: [intake] };
+    if (path.endsWith('/work-items')) return { workItems: [] };
+    claims++; return { workItemId: id };
+  };
+  controller.source = { get: async () => task, list: async () => [task] };
+  assert.equal((await controller.tasks()).tasks[0].startable, true);
+  assert.equal((await controller.start(task.id, { expectedRevision: 2 }, 'approved')).workItemId, id);
+  task.ownerId = 'another-owner';
+  assert.equal((await controller.tasks()).tasks[0].startable, false);
+  await assert.rejects(() => controller.start(task.id, { expectedRevision: 2 }, 'changed'), e => e.status === 409);
+  assert.equal(claims, 1);
 });
