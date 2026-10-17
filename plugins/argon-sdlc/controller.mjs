@@ -36,7 +36,7 @@ export class SdlcController {
     if (wf.phase !== 'AWAITING_REVIEW' || work.version !== body.expectedVersion) throw conflict('请刷新并确认当前待审核的候选提交');
     return this.workflow.fence(wf.codeSessionId, async () => {
       await this.eligible(work);
-      const policy = isManagedWork(work) ? { requireHumanMerge: true, requireIdenticalMergedTree: true, ...work.taskSpec.reviewPolicy } : this.policy;
+      const policy = isManagedWork(work) ? { ...work.taskSpec.reviewPolicy, requireHumanMerge: true, requireIdenticalMergedTree: true } : this.policy;
       return this.workflow.update(work, { phase: 'PUBLISHING', reason: null, delivery: { ...identity, step: 'PUSH_PENDING', policy,
         requestedBy: work.ownerId, requestedAt: new Date().toISOString(), requestKey: key, attempts: 0, nextAttemptAt: null, lastError: null } });
     });

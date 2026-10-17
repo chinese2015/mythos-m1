@@ -48,7 +48,7 @@ function safeScope(value) {
   return !parts.some(p => !p || p === '.' || p === '..' || p === '.git' || p === '.cache');
 }
 
-export function changeAllowed(policy, paths) {
+function changeAllowed(policy, paths) {
   if (!policy || !Array.isArray(paths) || !paths.length || paths.some(p => typeof p !== 'string' || !safePath(p))) return false;
   if (new Set(paths).size > policy.maxFiles) return false;
   return paths.every(path =>
@@ -119,5 +119,3 @@ export function verifiedTaskCandidate(work, operation, git) {
   if (!evidencePassing(spec, evidence)) return false;
   return !!git && git.headCommit === wf.candidateCommit && !git.status && candidateAllowed(work, git);
 }
-
-export function frozenSpecDigest(work) { return isManagedWork(work) ? work.taskSpec.specDigest : undefined; }

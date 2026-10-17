@@ -134,3 +134,10 @@ test('manual publication requires the frozen specDigest on the stored approval',
   await assert.rejects(() => f.controller.publish(f.work.workItemId, { expectedVersion: 1 }, 'no-digest'), /409/);
   assert.equal(f.state.pushes, 0);
 });
+test('a frozen reviewPolicy can never disable the human-merge or identical-tree gates', async () => {
+  const f = manualFixture();
+  f.work.taskSpec = { ...f.work.taskSpec, reviewPolicy: { minApprovals: 0, requiredStatusContexts: [], requireHumanMerge: false, requireIdenticalMergedTree: false } };
+  await f.controller.publish(f.work.workItemId, { expectedVersion: 1 }, 'publish-gates');
+  assert.equal(f.work.workflow.delivery.policy.requireHumanMerge, true);
+  assert.equal(f.work.workflow.delivery.policy.requireIdenticalMergedTree, true);
+});

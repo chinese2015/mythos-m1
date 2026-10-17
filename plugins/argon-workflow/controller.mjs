@@ -107,6 +107,9 @@ export class TaskWorkflow {
   }
   approve(id, body, key) { return this.serial(async () => {
     const snap = await this.snapshot(id), work = snap.workItem, wf = work.workflow;
+    // A stored decision whose specDigest drifted from the immutable frozen TaskSpec means
+    // tampering, not a stale plan: block even a fresh approval request. A legitimately
+    // changed plan requires a new Work Item; do not reorder this before the replay check.
     if (isManagedWork(work) && wf.approval && wf.approval.specDigest !== work.taskSpec.specDigest) throw conflict('冻结任务策略已变化，请刷新后重新审批');
     // A replay is valid only for the exact approval decision already stored.
     if (wf.approval?.key === key && wf.approval.planHash === body.planHash && wf.approval.expectedVersion === body.expectedVersion) return work;

@@ -70,6 +70,9 @@ test('PR body is generated from actual frozen commands, report format and real c
   assert.match(commandBody, /command/);
   assert.match(commandBody, /退出码 0/);
   assert.doesNotMatch(commandBody, /JUnit \d+ tests/);
+  const noEvidenceBody = pullBody({ ...manualWork, taskSpec: commandSpec }, d, { ...commandOp, evidence: null });
+  assert.match(noEvidenceBody, /退出码 未知/);
+  assert.doesNotMatch(noEvidenceBody, /undefined/);
   const legacyBody = pullBody(work, deliveryIdentity(work), op);
   assert.match(legacyBody, /JUnit 2 tests \/ 0 failures \/ 0 errors/);
   assert.match(legacyBody, /仅修改 src\/Fix\.java/);

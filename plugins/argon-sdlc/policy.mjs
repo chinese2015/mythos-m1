@@ -38,7 +38,7 @@ export function pullBody(work, delivery, operation) {
     const spec = work.taskSpec, policy = spec.execution.evidence, j = operation?.evidence?.junit;
     lines.push(`基线命令：${spec.execution.baselineCommand}（${spec.execution.baselineMode}，超时 ${spec.execution.timeoutSeconds}s）`);
     lines.push(`验证命令：${spec.execution.verificationCommand}（新容器中独立执行）`);
-    if (policy.format === 'command') lines.push(`验证结果：command 模式，退出码 ${operation?.evidence?.exitCode}，无 JUnit 报告。`);
+    if (policy.format === 'command') lines.push(`验证结果：command 模式，退出码 ${operation?.evidence?.exitCode ?? '未知'}，无 JUnit 报告。`);
     else if (j) lines.push(`验证结果：JUnit ${j.tests} tests / ${j.failures} failures / ${j.errors} errors / ${j.skipped} skipped（至少 ${policy.minTests} 项）。`);
     const change = spec.changePolicy;
     lines.push(`变更范围：${change.allowedPaths.join('、')}（最多 ${change.maxFiles} 个文件${change.allowTestChanges ? '，含获批测试变更' : '，无测试变更'}）。`);
