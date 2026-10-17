@@ -1,13 +1,19 @@
 import hashlib
+import copy
+from concurrent.futures import ThreadPoolExecutor
+import threading
 import json
 from pathlib import Path
 import subprocess
+import sys
+from unittest.mock import patch
 import tempfile
 import unittest
 
-from brain.errors import Conflict, NotFound
+from brain.errors import Conflict, InvalidInput, NotFound
 from brain.git_host import GitHostClient
-from brain.publication import delivery_id, publication_branch, GitPublisher
+from brain.publication import delivery_id, publication_branch, GitPublisher, CREDENTIAL_HELPER
+from brain.git_credentials import helper_command
 from brain.store import Store
 from brain.task_spec import make_task_spec
 
@@ -98,6 +104,23 @@ class PublicationTests(unittest.TestCase):
             publisher=RacePublisher(type('Store',(),{'get_work_item':lambda *_:work})(),type('Executor',(),{'broker':object()})())
             with self.assertRaises(Conflict):publisher.publish('alice',work['workItemId'],intent['id'],'race',1)
             self.assertEqual(git('--git-dir='+str(remote),'rev-parse','refs/heads/'+branch),base)
+
+    def test_legacy_remote_query_keeps_the_existing_helper_and_sanitized_git_environment(self):
+        publisher = GitPublisher(self.store, type('ExecutorStub', (), {'broker': object()})())
+        real_popen = subprocess.Popen; captured = []
+        def transport(command, **kwargs):
+            captured.append((command, kwargs))
+            return real_popen([sys.executable, '-c', 'print(' + repr('b' * 40 + '\trefs/heads/argon/legacy') + ')'], **kwargs)
+        with patch('brain.publication.subprocess.Popen', side_effect=transport):
+            result = publisher._remote_commit(self.source['repositoryUrl'], 'argon/legacy', self.work)
+        self.assertEqual(result, 'b' * 40)
+        command, options = captured[0]
+        self.assertIn('credential.helper=' + CREDENTIAL_HELPER, command)
+        self.assertEqual(options['env']['GIT_CONFIG_NOSYSTEM'], '1')
+        self.assertEqual(options['env']['GIT_CONFIG_GLOBAL'], __import__('os').devnull)
+        self.assertEqual(options['env']['GIT_TERMINAL_PROMPT'], '0')
+        self.assertIn('core.hooksPath=/dev/null', command)
+        self.assertIn('http.followRedirects=false', command)
 
     def test_rejects_verification_with_skipped_tests_before_any_git_publication_io(self):
         source = dict(self.source)
@@ -266,6 +289,106 @@ class ManualPublicationTests(unittest.TestCase):
 
         return type('ExecutorStub', (), {'broker': BrokerStub(),
                                          'host': GitHostClient(self.secret)})()
+
+    def credential_transport(self, captured, created=None):
+        # Replace only HTTP transport. Real git credential fill invokes the actual
+        # configured helper; secrets are checked inside the child and never printed.
+        real_popen = subprocess.Popen
+        script = """import json, subprocess, sys
+p = json.loads(sys.argv[1])
+r = subprocess.run(p['prefix'] + ['credential', 'fill'], input=p['request'], capture_output=True, text=True)
+credentials = dict(line.split('=', 1) for line in r.stdout.splitlines() if '=' in line)
+if r.returncode or credentials.get('username') != 'argon-agent' or credentials.get('password') != 'p' * 24:
+    raise SystemExit(23)
+print(p['output'], end='')
+"""
+        def transport(command, **kwargs):
+            operation = next((arg for arg in command if arg in {'ls-remote', 'push'}), None)
+            if operation is None: return real_popen(command, **kwargs)
+            captured.append((list(command), kwargs))
+            index = command.index(operation); repository = next(arg for arg in command[index + 1:] if arg.startswith('http://'))
+            path = repository.removeprefix('http://127.0.0.1:3000/')
+            if operation == 'push':
+                if created is not None: created[0] = True
+                output = ''
+            else:
+                output = self.candidate + '\t' + command[-1] + '\n' if created is None or created[0] else ''
+            payload = {'prefix': command[:index], 'request': 'protocol=http\nhost=127.0.0.1:3000\npath=' + path + '\n', 'output': output}
+            return real_popen([sys.executable, '-c', script, json.dumps(payload)], **kwargs)
+        return transport
+
+    def test_manual_remote_query_uses_exact_target_helper_from_persisted_work(self):
+        spec, work = self.make_work()
+        publisher = GitPublisher(self.store, self.executor_stub(spec)); captured = []
+        spoofed = dict(work, source={'type': 'ARGON'}, taskSpec={**spec, 'repository': {**spec['repository'], 'cloneUrl': 'http://attacker/'}})
+        with patch('brain.publication.subprocess.Popen', side_effect=self.credential_transport(captured)):
+            result = publisher._remote_commit(spec['repository']['cloneUrl'], 'argon/scoped-query', spoofed)
+        self.assertEqual(result, self.candidate)
+        command, options = captured[0]
+        self.assertIn('credential.helper=' + helper_command(self.secret, spec['repository']['cloneUrl']), command)
+        self.assertNotIn('credential.helper=' + CREDENTIAL_HELPER, command)
+        self.assertIn('credential.useHttpPath=true', command)
+        self.assertIn('http.followRedirects=false', command)
+        self.assertNotIn('p' * 24, json.dumps(command) + json.dumps(options['env']))
+
+    def test_parallel_manual_queries_keep_credentials_scoped_to_each_frozen_repository(self):
+        spec, work = self.make_work()
+        config = copy.deepcopy(self.store.repository('alice', spec['repository']['repositoryId'])['config'])
+        config['fullName'] = 'demo/second-manual-api'
+        repo = self.store.register_repository('alice', config, 'register-second-query')
+        input = {'repositoryId': repo['repositoryId'], 'repositoryRevision': 1, 'title': 'Second', 'description': 'd', 'acceptanceCriteria': 'a'}
+        second_spec = make_task_spec('alice', repo, input, 'a' * 40)
+        second = self.store.create_manual_task('alice', input, second_spec, 'second-query-task')
+        executor = self.executor_stub(spec); host = executor.host; barrier = threading.Barrier(2)
+        class ConcurrentHost:
+            def git_context(self, config):
+                context = host.git_context(config); barrier.wait(timeout=5); return context
+        executor.host = ConcurrentHost(); publisher = GitPublisher(self.store, executor); captured = []
+        with patch('brain.publication.subprocess.Popen', side_effect=self.credential_transport(captured)):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                calls = [pool.submit(publisher._remote_commit, task['taskSpec']['repository']['cloneUrl'], 'argon/parallel', task) for task in [work, second]]
+                self.assertEqual([call.result(timeout=10) for call in calls], [self.candidate, self.candidate])
+        self.assertEqual(len(captured), 2)
+        for command, _ in captured:
+            url = next(arg for arg in command if arg.startswith('http://'))
+            self.assertIn('credential.helper=' + helper_command(self.secret, url), command)
+
+    def test_manual_remote_query_rejects_wrong_owner_and_legacy_url_mismatch_before_credentials(self):
+        spec, work = self.make_work()
+        executor = self.executor_stub(spec); executor.host = GitHostClient(Path(self.temp.name) / 'missing.json')
+        publisher = GitPublisher(self.store, executor)
+        with patch('brain.publication.subprocess.Popen', side_effect=AssertionError('Git must not start')):
+            with self.assertRaises(NotFound):
+                publisher._remote_commit(spec['repository']['cloneUrl'], 'argon/no-owner', dict(work, ownerId='bob'))
+            with self.assertRaises(InvalidInput) as raised:
+                publisher._remote_commit('http://127.0.0.1:3000/demo/demo-nova-catalog-api.git', 'argon/wrong-repo', work)
+            self.assertIn('frozen task repository', str(raised.exception))
+
+    def test_manual_publication_query_and_create_only_push_remain_frozen_after_revision_and_disable(self):
+        source = Path(self.temp.name) / 'git-source'; source.mkdir()
+        def git(*args): return subprocess.check_output(['git', *args], stderr=subprocess.DEVNULL, text=True).strip()
+        git('init', str(source)); git('-C', str(source), 'config', 'user.name', 'Test'); git('-C', str(source), 'config', 'user.email', 'test@example.invalid')
+        (source / 'candidate.txt').write_text('verified candidate')
+        git('-C', str(source), 'add', '.'); git('-C', str(source), 'commit', '-m', 'candidate')
+        self.candidate = git('-C', str(source), 'rev-parse', 'HEAD'); self.tree = git('-C', str(source), 'rev-parse', 'HEAD^{tree}')
+        bundle = Path(self.temp.name) / 'candidate.bundle'; git('-C', str(source), 'bundle', 'create', str(bundle), 'HEAD')
+        spec, work = self.make_work(); verify_id = self.verify_operation(work)
+        publisher, intent, version = self.ready(work, spec, verify_id, approval_digest=spec['specDigest'])
+        repo = self.store.repository('alice', spec['repository']['repositoryId']); changed = dict(repo['config'], fullName='demo/replacement-api', defaultBranch='replacement')
+        self.store.revise_repository('alice', repo['repositoryId'], {'expectedRevision': 1, 'config': changed, 'enabled': False}, 'replace-before-publish')
+        del publisher._remote_commit
+        publisher._export_bundle = lambda *_: bundle.read_bytes()
+        captured = []; created = [False]
+        with patch('brain.publication.subprocess.Popen', side_effect=self.credential_transport(captured, created)):
+            result = publisher.publish('alice', work['workItemId'], intent, 'publish-frozen-transport', version)
+        self.assertEqual((result['remoteCommit'], result['candidateTree']), (self.candidate, self.tree))
+        self.assertFalse(result['reconciled']); self.assertEqual(len(captured), 3)
+        expected = 'credential.helper=' + helper_command(self.secret, spec['repository']['cloneUrl'])
+        for command, _ in captured: self.assertIn(expected, command)
+        push = next(command for command, _ in captured if 'push' in command)
+        self.assertIn('--force-with-lease=refs/heads/' + result['branch'] + ':', push)
+        self.assertIn(self.candidate + ':refs/heads/' + result['branch'], push)
+        self.assertNotIn('replacement-api', json.dumps(captured))
 
     def test_manual_multi_file_candidate_publishes_from_frozen_repository(self):
         spec, work = self.make_work()

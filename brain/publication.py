@@ -12,9 +12,10 @@ from .errors import Conflict, InvalidInput
 from .evidence import passing_junit
 from .executor import validate_registered_repository, validate_repository
 from .git_host import GitHostClient
+from .git_credentials import helper_command
 from .store import ACTIVE, TERMINAL
-from .task_spec import (change_allowed, is_manual, repository_config_from_spec,
-                        validate_task_spec, verification_passes)
+from .task_spec import (change_allowed, frozen_task_spec, is_manual, repository_config_from_spec,
+                        verification_passes)
 from .workspace import TaskWorkspace
 
 MAX_BUNDLE = 32 * 1024 * 1024
@@ -78,8 +79,8 @@ class GitPublisher:
             try:
                 # An empty expected ref is a create-only CAS, never permission
                 # to rewrite an existing branch (even by fast-forward).
-                self._git(bare, ['push', '--force-with-lease=refs/heads/' + branch + ':',
-                                 repository, candidate + ':refs/heads/' + branch], auth=True)
+                self._authenticated_git(bare, ['push', '--force-with-lease=refs/heads/' + branch + ':',
+                                               repository, candidate + ':refs/heads/' + branch], repository, work)
             except RuntimeError:
                 # A lost acknowledgement or concurrent create is resolved only by
                 # authoritative ref state; never retry with force.
@@ -102,12 +103,11 @@ class GitPublisher:
         if is_manual(work):
             if work.get('ownerId') != owner or not isinstance(source, dict) or not source.get('ownerId'):
                 raise Conflict('Publication requires an owner-bound manual task')
-            spec = validate_task_spec(work['taskSpec'], owner)
-            host = getattr(self.executor, 'host', None) or GitHostClient()
-            context = host.git_context(repository_config_from_spec(spec))
-            if source.get('repositoryUrl') != context['url']:
+            spec = frozen_task_spec(self.store, {'ownerId': owner, 'workItemId': work['workItemId']})
+            repository = validate_registered_repository(self.store, owner, spec['repository']['cloneUrl'],
+                                                        work_id=work['workItemId'])
+            if source.get('repositoryUrl') != repository:
                 raise Conflict('Task repository binding does not match the frozen task spec')
-            repository = validate_registered_repository(self.store, owner, context['url'])
         else:
             if (work.get('ownerId') != owner or work.get('source', {}).get('type') != 'ARGON'
                     or not isinstance(source, dict) or not source.get('ownerId')
@@ -176,7 +176,8 @@ class GitPublisher:
         self._container_exec(owner, work['sandboxId'],
                              ['git', 'merge-base', '--is-ancestor', source['baseCommit'], candidate])
         remote = self._container_exec(owner, work['sandboxId'], ['git', 'remote', 'get-url', 'origin'])
-        if validate_registered_repository(self.store, owner, remote) != repository:
+        if validate_registered_repository(self.store, owner, remote,
+                                            work_id=work['workItemId'] if spec is not None else None) != repository:
             raise Conflict('Task workspace repository binding changed')
         return intent, candidate, verify_id, branch, repository
 
@@ -240,13 +241,29 @@ class GitPublisher:
             raise Conflict('Registered task container rejected fixed Git operation')
         return result['stdout'].strip()
 
-    def _git(self, cwd, args, auth=False):
+    def _authenticated_git(self, cwd, args, repository, work):
+        # Credentials belong to this call's persisted task, never publisher state
+        # or a caller-supplied TaskSpec. Parallel publications stay independent.
+        owner = work.get('ownerId')
+        work_id = work.get('workItemId') if owner is not None else None
+        validate_registered_repository(self.store, owner, repository, work_id=work_id)
+        spec = frozen_task_spec(self.store, {'ownerId': owner, 'workItemId': work_id}) if work_id is not None else None
+        if spec is None:
+            return self._git(cwd, args, auth=True)
+        host = getattr(self.executor, 'host', None) or GitHostClient()
+        context = host.git_context(repository_config_from_spec(spec))
+        if context['url'] != repository:
+            raise InvalidInput('Git credential context does not match the frozen task repository')
+        return self._git(cwd, args, auth=True, git_context=context)
+
+    def _git(self, cwd, args, auth=False, *, git_context=None):
         env = {'PATH': os.environ.get('PATH', '/usr/bin:/bin'), 'HOME': str(cwd),
                'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
                'GIT_TERMINAL_PROMPT': '0', 'GIT_ASKPASS': '/bin/false'}
-        command = ['git', '-c', 'core.hooksPath=/dev/null']
+        command = ['git', '-c', 'core.hooksPath=/dev/null', '-c', 'http.followRedirects=false']
         if auth:
-            command += ['-c', 'credential.helper=' + CREDENTIAL_HELPER,
+            helper = helper_command(git_context['credentialFile'], git_context['url']) if git_context is not None else CREDENTIAL_HELPER
+            command += ['-c', 'credential.helper=', '-c', 'credential.helper=' + helper,
                         '-c', 'credential.useHttpPath=true']
         command += args
         process = subprocess.Popen(command, cwd=str(cwd), env=env, stdout=subprocess.PIPE,
@@ -288,11 +305,10 @@ class GitPublisher:
         return b''.join(chunks).decode('utf-8', errors='replace')
 
     def _remote_commit(self, repository, branch, work):
-        validate_registered_repository(self.store, work.get('ownerId'), repository)
         # A private temporary directory provides a sanitized HOME and Git config.
         with tempfile.TemporaryDirectory(prefix='argon-publish-query-') as temp:
-            output = self._git(Path(temp), ['ls-remote', '--heads', repository,
-                                            'refs/heads/' + branch], auth=True)
+            output = self._authenticated_git(Path(temp), ['ls-remote', '--heads', repository,
+                                                          'refs/heads/' + branch], repository, work)
         rows = [line.split('\t', 1) for line in output.splitlines() if '\t' in line]
         if not rows:
             return None

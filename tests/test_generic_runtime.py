@@ -8,13 +8,16 @@ import sys
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from brain import container_runner
-from brain.errors import InvalidInput
+from brain.errors import InvalidInput, NotFound
 from brain.executor import DockerExecutor, validate_registered_repository
 from brain.git_host import GitHostClient
 from brain.store import Store
-from brain.task_spec import make_task_spec
+from brain.task_spec import make_task_spec, repository_config_from_spec
+from brain.workspace import TaskWorkspace
 from brain.worker import Worker
 from sandbox import SandboxBroker, validate_clone_target
 
@@ -124,6 +127,26 @@ class TaskAwareValidationTests(unittest.TestCase):
         with self.assertRaises(InvalidInput):
             validate_registered_repository(None, 'alice', registered)
 
+    def test_work_bound_repository_stays_frozen_after_fullname_revision_and_disable(self):
+        repo, spec, work = make_manual_work(self.store)
+        changed = repository_config(); changed['fullName'] = 'demo/replacement-api'
+        self.store.revise_repository('alice', repo['repositoryId'],
+            {'expectedRevision': 1, 'config': changed, 'enabled': False}, 'replace-and-disable')
+        self.assertEqual(repository_config_from_spec(spec)['fullName'], 'demo/demo-customer-api')
+        url = spec['repository']['cloneUrl']
+        self.assertEqual(validate_registered_repository(self.store, 'alice', url, work_id=work['workItemId']), url)
+
+    def test_work_bound_validation_checks_owner_and_exact_url_before_legacy_allowlist(self):
+        _, spec, work = make_manual_work(self.store)
+        legacy = 'http://127.0.0.1:3000/demo/demo-nova-catalog-api.git'
+        for url in [legacy, 'http://127.0.0.1:3000/demo/unregistered.git', spec['repository']['cloneUrl'] + '?x=1']:
+            with self.subTest(url=url), self.assertRaises(InvalidInput):
+                validate_registered_repository(self.store, 'alice', url, work_id=work['workItemId'])
+        with self.assertRaises(NotFound):
+            validate_registered_repository(self.store, 'bob', spec['repository']['cloneUrl'], work_id=work['workItemId'])
+        with self.assertRaises(NotFound):
+            validate_registered_repository(self.store, 'alice', legacy, work_id='work-missing')
+
     def test_unregistered_wrong_owner_and_malicious_urls_are_rejected(self):
         make_manual_work(self.store)
         registered = 'http://127.0.0.1:3000/demo/demo-customer-api.git'
@@ -199,6 +222,41 @@ class VerifierContextTests(unittest.TestCase):
         self.assertEqual((origin, branch), (self.url, 'main'))
         self.assertEqual(context['url'], self.url)
         self.assertEqual(context['credentialFile'], str(self.secret.absolute()))
+
+    def test_verifier_uses_original_task_transport_after_registry_revision_and_disable(self):
+        changed = repository_config(); changed['fullName'] = 'demo/replacement-api'; changed['defaultBranch'] = 'replacement'
+        self.store.revise_repository('alice', self.repo['repositoryId'],
+            {'expectedRevision': 1, 'config': changed, 'enabled': False}, 'revise-before-verify')
+        origin, branch, context = self.executor()._verifier_context(
+            {'ownerId': 'alice', 'workItemId': self.work['workItemId'], 'taskSpec': {'repository': {'cloneUrl': 'http://attacker/'}}}, self.url)
+        self.assertEqual((origin, branch, context['url']), (self.url, 'main', self.url))
+        self.assertEqual(context['credentialFile'], str(self.secret.absolute()))
+
+    def test_verifier_rejects_wrong_owner_or_other_legacy_remote_before_credentials(self):
+        executor = DockerExecutor(self.broker, self.store, GitHostClient(Path(self.temp.name) / 'missing.json'))
+        with self.assertRaises(NotFound):
+            executor._verifier_context({'ownerId': 'bob', 'workItemId': self.work['workItemId']}, self.url)
+        with self.assertRaises(InvalidInput) as raised:
+            executor._verifier_context({'ownerId': 'alice', 'workItemId': self.work['workItemId'], 'taskSpec': self.spec},
+                'http://127.0.0.1:3000/demo/demo-nova-catalog-api.git')
+        self.assertIn('frozen task repository', str(raised.exception))
+
+    def test_workspace_clone_uses_frozen_branch_and_url_after_registry_revision_and_disable(self):
+        repo, spec, work = self.repo, self.spec, self.work
+        changed = repository_config(); changed['fullName'] = 'demo/replacement-api'; changed['defaultBranch'] = 'replacement'
+        self.store.revise_repository('alice', repo['repositoryId'],
+            {'expectedRevision': 1, 'config': changed, 'enabled': False}, 'revise-before-clone')
+        calls = []; record = {'sandbox_id': 'sb-clone', 'workspace_path': '/workspace/repo', 'container_name': 'container-clone'}
+        def create(*args, **kwargs): calls.append((args, kwargs)); return record
+        broker = SimpleNamespace(create=create, registry=SimpleNamespace(list_owned=lambda owner: [], get=lambda owner, sandbox: record))
+        workspace = TaskWorkspace(self.store, SimpleNamespace(broker=broker, host=GitHostClient(self.secret)))
+        with patch.object(workspace, '_exec', side_effect=lambda owner, sandbox, argv: 'a' * 40 if argv == ['git', 'rev-parse', 'HEAD'] else ''), \
+             patch.object(workspace, '_ready', return_value=True), patch('brain.workspace.subprocess.run'):
+            prepared = workspace.prepare('alice', work['workItemId'], work['version'])
+        self.assertEqual(prepared['stage'], 'BASELINE', prepared.get('workspaceProvision'))
+        self.assertEqual(calls[0][0][2], spec['repository']['cloneUrl'])
+        self.assertEqual(calls[0][1], {'branch': 'main', 'git_context':
+            {'url': spec['repository']['cloneUrl'], 'credentialFile': str(self.secret.absolute())}})
 
     def test_unregistered_remote_is_rejected_before_any_verifier_io(self):
         executor = self.executor()

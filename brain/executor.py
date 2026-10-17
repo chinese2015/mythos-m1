@@ -25,10 +25,22 @@ def validate_repository(url):
     return url
 
 
-def validate_registered_repository(store, owner, url):
-    """Task-aware entry point: the legacy allowlist stays, and repositories
-    registered by this owner are also accepted. Rejected before any Git,
-    Docker, or credential I/O."""
+def validate_registered_repository(store, owner, url, *, work_id=None):
+    """Authorize persisted task transport, or preserve registry-only compatibility.
+
+    A Work Item always binds the exact owner-validated frozen URL before the
+    legacy allowlist is considered. Current repository revisions affect only
+    callers without a frozen Work Item, never an existing task.
+    """
+    if work_id is not None:
+        if store is None:
+            raise InvalidInput('Persisted task repository authorization is required')
+        spec = frozen_task_spec(store, {'ownerId': owner, 'workItemId': work_id})
+        if spec is not None:
+            if url != spec['repository']['cloneUrl']:
+                raise InvalidInput('Repository does not match the frozen task repository')
+            return url
+        return validate_repository(url)
     try:
         return validate_repository(url)
     except InvalidInput:
@@ -93,7 +105,7 @@ class DockerExecutor:
             return validate_repository(remote), 'main', None
         if remote != spec['repository']['cloneUrl']:
             raise InvalidInput('Verification remote does not match the frozen task repository')
-        validate_registered_repository(self.store, op['ownerId'], remote)
+        validate_registered_repository(self.store, op['ownerId'], remote, work_id=op['workItemId'])
         context = self.host.git_context(repository_config_from_spec(spec))
         return context['url'], spec['repository']['baseBranch'], context
 

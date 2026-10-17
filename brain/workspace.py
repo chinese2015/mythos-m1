@@ -58,10 +58,9 @@ class TaskWorkspace:
             context = None
             if is_manual(work):
                 spec = validate_task_spec(work['taskSpec'], owner)
-                self.store.repository(owner, spec['repository']['repositoryId'])
                 if source.get('repositoryUrl') != spec['repository']['cloneUrl']:
                     raise InvalidInput('Task repository binding does not match the frozen task spec')
-                validate_registered_repository(self.store, owner, spec['repository']['cloneUrl'])
+                validate_registered_repository(self.store, owner, spec['repository']['cloneUrl'], work_id=work_id)
                 context = (self.executor.host or GitHostClient()).git_context(repository_config_from_spec(spec))
                 branch = spec['repository']['baseBranch']
             else:
