@@ -19,7 +19,7 @@
 ## Canonical Contract（所有任务引用，保持字段不漂移）
 
 Repository input:
-`{displayName,connectionId:'local-gitea',fullName:'demo/demo-customer-api',defaultBranch:'main',runtimeProfile:'java17-maven-offline-v1'|'standard-tools-v1',execution:{baselineCommand,verificationCommand,baselineMode:'record'|'must-pass'|'must-fail',timeoutSeconds:300,evidence:{format:'junit'|'command',reportDirs:['target/surefire-reports'],minTests:1,allowSkipped:false}},changePolicy:{allowedPaths:['src/'],allowTestChanges:false,maxFiles:100}}`。
+`{displayName,connectionId:'local-gitea',fullName:'demo/demo-customer-api',defaultBranch:'main',runtimeProfile:'java17-maven-offline-v1'|'standard-tools-v1',execution:{baselineCommand,verificationCommand,baselineMode:'record'|'must-pass'|'must-fail',timeoutSeconds:300,evidence:{format:'junit'|'command',reportDirs:['target/surefire-reports'],minTests:1,allowSkipped:false}},changePolicy:{allowedPaths:['src/'],allowTestChanges:false,maxFiles:100},reviewPolicy:{minApprovals:0,requiredStatusContexts:[]}}`。
 
 Repository output:
 `{repositoryId:'repo-'+32hex,ownerId,revision:1,enabled:true,config:<normalized input>,createdAt,updatedAt}`。
@@ -30,8 +30,8 @@ Manual input:
 baseCommit 可省略；若给出，首版必须等于所选分支当前 HEAD，陈旧/不匹配返回409。基线 SHA 总由 Gitea refs 读取验证；不接受未验证任意 SHA。
 
 TaskSpec:
-`{specVersion:1,ownerId,repository:{repositoryId,revision,connectionId,provider:'gitea',origin:'http://127.0.0.1:3000',fullName,cloneUrl,baseBranch},baseCommit:<40hex>,task:{title,description,acceptanceCriteria},runtimeProfile,execution:<frozen>,changePolicy:<frozen>,specDigest:<sha256>}`。
-specDigest=SHA256(UTF8 JSON、递归键排序、无空格、ensure_ascii=False、不含 specDigest 本身)。只允许安全字段和有限相对路径/目录前缀，任务范围只能收窄仓库范围；测试许可不能从 false 扩成 true。command 模式 reportDirs=[]、minTests=0；JUnit minTests>=1。禁止 `.git`/内部 `.cache`/路径逃逸；构建配置仅在批准范围明确覆盖时允许。
+`{specVersion:1,ownerId,repository:{repositoryId,revision,connectionId,provider:'gitea',origin:'http://127.0.0.1:3000',fullName,cloneUrl,baseBranch},baseCommit:<40hex>,task:{title,description,acceptanceCriteria},runtimeProfile,execution:<frozen>,changePolicy:<frozen>,reviewPolicy:<frozen>,specDigest:<sha256>}`。
+specDigest=SHA256(UTF8 JSON、递归键排序、无空格、ensure_ascii=False、不含 specDigest 本身)。只允许安全字段和有限相对路径/目录前缀，任务范围只能收窄仓库范围；测试许可不能从 false 扩成 true；任务省略 allowTestChanges 时默认 false，即使仓库允许。command 模式 reportDirs=[]、minTests=0；JUnit minTests>=1。reviewPolicy 默认 minApprovals=0/requiredStatusContexts=[]，minApprovals 0..20、contexts最多20条非空<=200字；TaskSpec冻结该值，人工合并/合并树一致始终强制，不能用配置关闭。禁止 `.git`/内部 `.cache`/路径逃逸；构建配置仅在批准范围明确覆盖时允许。
 
 Manual Work Item:
 顶层 taskSpec=上述冻结值，source={type:'MANUAL',id:'TASK-<12hex>',revision:1}，sourceRecord 提供 id/title/description/ownerId/repositoryUrl/baseCommit/revision，sourcePaths=允许范围，sourcePath=''（不假冒单文件），其余结构与 ARGON 受管任务相同。
@@ -49,7 +49,7 @@ Manual Work Item:
 **Files:** Create `brain/task_spec.py`, `brain/repository_store.py`, `brain/repositories.py`, `brain/git_host.py`, `tests/test_task_spec.py`, `tests/test_repositories.py`, `tests/fixtures/generic-task-spec.json`; modify `brain/store.py`, `brain/api.py`。
 
 **Interfaces:**
-- task_spec.py: `normalize_repository(config)->dict`, `make_task_spec(owner,repository,input,base_commit)->dict`, `validate_task_spec(spec,owner=None)->dict`, `is_manual(work)->bool`, `change_allowed(spec,paths)->bool`, `verification_passes(spec,operation,evidence=None)->bool`（精确候选、命令、报告/退出码、fresh B 关系在调用者提供时核验）。导出 legacy 对照所需纯逻辑，不导入 Store。
+- task_spec.py: `repository_config_from_spec(spec)->dict`（只从已校验冻结快照还原完整 transport config，不读最新Store配置）, `normalize_repository(config)->dict`, `make_task_spec(owner,repository,input,base_commit)->dict`, `validate_task_spec(spec,owner=None)->dict`, `is_manual(work)->bool`, `change_allowed(spec,paths)->bool`, `verification_passes(spec,operation,evidence=None)->bool`（精确候选、命令、报告/退出码、fresh B 关系在调用者提供时核验）。导出 legacy 对照所需纯逻辑，不导入 Store。
 - RepositoryStore mixin 提供 `register_repository(owner,config,key)`, `repositories(owner)`, `repository(owner,id)`, `revise_repository(owner,id,body,key)`, `manual_retry(owner,input,key)`, `create_manual_task(owner,input,spec,key)`。使用 Store.connection/_retry/_remember/_event；Store 初始化增量建表，原数据不变。
 - GitHostClient: `__init__(credential_file=None)`, `check(config)->{fullName,defaultBranch,pushPermission}`, `resolve(config,branch)->40hex`, `git_context(config)->{url:<canonical clone URL>,credentialFile:<private configured path>}`。默认私有文件 `~/gitea/secrets/argon-agent.json`；GET 使用 Basic、禁止重定向、超时/响应上限；仅既定 origin。懒读凭据，不打印 secret。
 - RepositoryService(store,host=None): `register(owner,body,key)`, `revise(owner,id,body,key)`, `check(owner,id)`, `create_task(owner,input,key)`。create_task 先查 manual_retry，再读当前注册版本/真实 ref，构造冻结 spec；最后事务再验 repo revision/enabled。
@@ -64,7 +64,7 @@ Manual Work Item:
 
 **Files:** Create `brain/git_credentials.py`, `tests/test_generic_runtime.py`; modify `sandbox.py`, `brain/executor.py`, `brain/workspace.py`, `brain/container_runner.py`, `brain/worker.py`, `brain/publication.py`, `brain/__main__.py`, `brain/store.py`（仅submit额外门禁）；extend `tests/test_brain_executor.py`, `tests/test_brain_evidence.py`, `tests/test_publication.py`。
 
-**Interfaces:** Consume Task1 TaskSpec、Store.repository、GitHostClient.git_context；legacy validate_repository(url)仍三仓库默认允许。新增 task-aware 验证入口，不能简单删除全局白名单。
+**Interfaces:** Consume Task1 TaskSpec、repository_config_from_spec、Store.repository、GitHostClient.git_context；legacy validate_repository(url)仍三仓库默认允许。新增 task-aware 验证入口，不能简单删除全局白名单。
 - SandboxBroker.create 可增加 keyword-only branch='main',git_context=None；原三参数调用不变。手工任务 clone 使用批准分支和限定目的地的宿主凭据 helper，Git配置隔离，helper拒绝非精确目标，容器不含凭据。
 - DockerExecutor 支持可选 store/GitHostClient，CLI/API/worker正确接线；取 spec 必须从持久化 Work Item，不信任模型传入 op 的 taskSpec。A/B 均使用冻结 repo/ref；fresh B 仍真实重建。legacy 无需新配置。
 - TaskWorkspace prepare/evidence 支持 MANUAL 分支/范围；Git改动名用NUL结果，显示列表与策略可正确处理删除/重命名/奇异文件名。
@@ -93,7 +93,7 @@ Manual Work Item:
 
 **Interfaces:** Consumes `workflow.intake` 与Task3受管任务列表。console代理 GET/POST `/api/repositories`、POST `/{id}/revisions|check`、POST `/api/tasks/manual`，全部先认证/同源/JSON/Idempotency门禁。静态资源登记 intake-view.js。
 
-- [ ] 写 HTTP 失败测试验证代理、401/403/415、key/body/version透传；表单有效输入产生canonical request，无令牌/路径配置。已有任务列表/详情回归。
+- [ ] 写 HTTP 失败测试验证代理、401/403/415、key/body/version透传；表单有效输入产生canonical request，无令牌/路径配置；断线/刷新重试同一表单保留业务幂等键，成功确认后才清除，改参需显式新意图，避免随机UUID重试产生重复任务。已有任务列表/详情回归。
 - [ ] 页面提供仓库列表/登记/连接检查/版本更新和新建任务表单，显示策略与状态；标题/描述/验收、基线分支、允许范围、测试许可可审阅。列表同时显示Finding与手工Work Item，不重新Start；手工详情不显示虚假风险或单源文件。
 - [ ] JUnit和command结果分别如实展示；报告缺失不渲染为0项通过。保留原生Session、Diff、Run Monitor、PR面板。
 - [ ] Node全套 GREEN，页面实际检查/截图；提交 `feat: add repository registry and manual task intake UI`。
