@@ -108,7 +108,7 @@ Manual Work Item:
 - [x] 真实只读方案→批准→模型改源码并补获批回归测试（至少两文件）→3+ tests真实通过→精确候选独立B→PR保持开放。若模型异常如实记录阶段，不代写修复伪造模型成功。
 - [x] 小型标准库Node/Python仓库证明command模式：新B实际exit0，无JUnit不伪造用例；非零/UNKNOWN不能发布。至少包含一次失败/门禁路径真实检查。
 - [x] 重启/重复请求保持同任务/Session/operation/PR，旧Nova/Pixel/Orion数据不退化；检查新增任务与并行Vibe工作台适配边界。
-- [ ] 最终合适回归、独立全分支审查、记录修复/裁定和限制，提交文档与探针；提供可访问入口及真实PR/证据。
+- [x] 最终回归与独立全分支审查完成；修复 review findings 并提交代码、文档和探针。既有远程全链路回执为 v4/PASSED；审查修复后的远端重放因 SSH 主机暂不可达未完成，限制已记入 progress。
 
 ## Self-review
 

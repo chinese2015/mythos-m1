@@ -131,7 +131,7 @@ Spec: ../Argon_AI_Brain_总体方案_v2.0.md §8.1 and user-approved Sandbox/nat
 - legacy 当前检查：Orion/Nova/Pixel 三个原 Work Item 均仍 `PR_OPEN`；PR #2 均仍 open、未合并且 head 与原快照相同；主服务维持 API 3081、DSH 3080。隔离通用实例为 API 3083、console 3093。
 - 重启复核发现 SDLC Gitea 仓库授权只保存在客户端内存，重启后 MANUAL PR 状态轮询失败。已用 TDD 修复：每轮 delivery step 从 owner 绑定的冻结 TaskSpec 恢复精确授权，并在 Gitea I/O 前拒绝 delivery 字段漂移。另将 PR facts 的相等比较改成键序无关的 canonical JSON；Python Store 会按排序键持久化，旧 Node `JSON.stringify` 比较会导致每 10 秒重复写入。新修复仅部署到隔离 DSH 3093；PR 告警清除，跨 12 秒轮询周期 Work Item version 和 event cursor 稳定。
 - 本地最终回归：Python 166 项（165 通过、1 个既有 Linux 专属用例跳过）；Node 187/187 通过。新增测试覆盖重启授权、目标漂移、canonical facts、delivery 错误/重试门禁和浏览器快照绑定。
-- 现场验收完成；整分支独立评审是计划中剩余的一项。
+- 现场验收完成；后续全分支独立评审、修复与本地回归见下方 2026-10-18 收尾记录。
 
 ## 2026-10-18 — 通用任务分支审查收尾
 
