@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 export const name = 'argon-console';
 export const inject = ['webServer', 'connection', 'argonWorkflow', 'argonSdlc', 'argonSubscribe'];
-const assets = new Map([['/', ['index.html', 'text/html; charset=utf-8']], ['/app.js', ['app.js', 'text/javascript; charset=utf-8']], ['/delivery-view.js', ['delivery-view.js', 'text/javascript; charset=utf-8']], ['/monitor-view.js', ['monitor-view.js', 'text/javascript; charset=utf-8']], ['/monitor-state.js', ['monitor-state.js', 'text/javascript; charset=utf-8']], ['/styles.css', ['styles.css', 'text/css; charset=utf-8']]]);
+const assets = new Map([['/', ['index.html', 'text/html; charset=utf-8']], ['/app.js', ['app.js', 'text/javascript; charset=utf-8']], ['/intake-view.js', ['intake-view.js', 'text/javascript; charset=utf-8']], ['/delivery-view.js', ['delivery-view.js', 'text/javascript; charset=utf-8']], ['/monitor-view.js', ['monitor-view.js', 'text/javascript; charset=utf-8']], ['/monitor-state.js', ['monitor-state.js', 'text/javascript; charset=utf-8']], ['/styles.css', ['styles.css', 'text/css; charset=utf-8']]]);
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
 function json(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(value)); }
 async function bodyOf(req) {
@@ -33,6 +33,7 @@ export function consoleHandler({ connection, workflow, sdlc, subscribe, assetRea
       const parts = path.slice(5).split('/');
       if (req.method === 'GET') {
         if (path === '/api/tasks') return json(res, 200, await workflow.tasks());
+        if (path === '/api/repositories') return json(res, 200, await workflow.intake.repositories());
         if (path === '/api/work-items') return json(res, 200, { workItems: await workflow.listWorks() });
         if (parts[0] === 'work-items' && parts.length === 2) return json(res, 200, await workflow.detail(parts[1]));
         if (parts[0] === 'operations' && parts.length === 3 && parts[2] === 'logs') {
@@ -46,6 +47,10 @@ export function consoleHandler({ connection, workflow, sdlc, subscribe, assetRea
       }
       if (req.method === 'POST') {
         const { body, key } = await bodyOf(req);
+        if (path === '/api/repositories') return json(res, 201, await workflow.intake.register(body, key));
+        if (path === '/api/tasks/manual') return json(res, 202, await workflow.intake.create(body, key));
+        if (parts[0] === 'repositories' && parts.length === 3 && parts[2] === 'revisions') return json(res, 200, await workflow.intake.revise(parts[1], body, key));
+        if (parts[0] === 'repositories' && parts.length === 3 && parts[2] === 'check') return json(res, 200, await workflow.intake.check(parts[1]));
         if (parts[0] === 'tasks' && parts[2] === 'decide' && parts.length === 3) return json(res, 200, await subscribe.decide(parts[1], body, key));
         if (parts[0] === 'tasks' && parts[2] === 'start' && parts.length === 3) return json(res, 202, await workflow.start(parts[1], body, key));
         if (parts[0] === 'work-items' && parts.length === 3) {

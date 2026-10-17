@@ -1,5 +1,6 @@
 import { renderDelivery } from './delivery-view.js';
 import { renderMonitor } from './monitor-view.js';
+import { renderIntake, sourceFacts, evidenceLine } from './intake-view.js';
 (() => {
   'use strict';
   const API = '/argon/api';
@@ -20,7 +21,7 @@ import { renderMonitor } from './monitor-view.js';
   };
   function showNotice(message, kind = 'info') { notice.textContent = message; notice.className = `notice ${kind}`; notice.hidden = false; }
   function hideNotice() { notice.hidden = true; notice.textContent = ''; }
-  function route() { const h = location.hash || '#/tasks'; const match = h.match(/^#\/work\/([^/?#]+)/); return match ? {name:'work',id:decodeURIComponent(match[1])} : {name:'tasks'}; }
+  function route() { const h = location.hash || '#/tasks'; const match = h.match(/^#\/work\/([^/?#]+)/); if (match) return {name:'work',id:decodeURIComponent(match[1])}; return h === '#/intake' ? {name:'intake'} : {name:'tasks'}; }
   function setCrumbs(workItem) {
     if (!workItem) { crumbs.textContent = '任务中心'; return; }
     crumbs.replaceChildren();
@@ -28,10 +29,10 @@ import { renderMonitor } from './monitor-view.js';
     const sep = el('span',{class:'sep'},'/'); const title = el('strong',{},`${workItem.source?.id || workItem.sourceRecord?.id || '任务'} · 工作详情`);
     crumbs.append(a,sep,title);
   }
-  async function request(path, {method='GET',body, mutation=false} = {}) {
+  async function request(path, {method='GET',body, mutation=false, idempotencyKey} = {}) {
     const headers = {'Accept':'application/json'};
     if (body !== undefined) headers['Content-Type'] = 'application/json';
-    if (mutation) { headers['X-Argon-Action'] = '1'; headers['Idempotency-Key'] = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`; }
+    if (mutation) { headers['X-Argon-Action'] = '1'; headers['Idempotency-Key'] = idempotencyKey || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`); }
     let response;
     try { response = await fetch(`${API}${path}`, {method,headers,credentials:'same-origin',body:body === undefined ? undefined : JSON.stringify(body)}); }
     catch (_) { throw new Error('无法连接 Argon 工作流服务。请检查连接后重试。'); }
@@ -70,7 +71,8 @@ import { renderMonitor } from './monitor-view.js';
       const card=el('article',{class:`task-card ${enabled?'':'preview'}`});
       const content=el('div');
       const row=el('div',{class:'task-title-row'});
-      row.append(el('span',{class:'finding-id',text:task.id}),el('span',{class:'task-title',text:task.title||'未命名问题'}),el('span',{class:`risk ${riskClass(task.risk)}`,text:riskName(task.risk)}));
+      row.append(el('span',{class:'finding-id',text:task.id}),el('span',{class:'task-title',text:task.title||'未命名问题'}));
+      row.append(task.manual ? el('span',{class:'manual-tag',text:'手工任务'}) : el('span',{class:`risk ${riskClass(task.risk)}`,text:riskName(task.risk)}));
       const desc=el('p',{class:'task-description',text:task.description||'来源问题将通过独立工作区处理，原始问题状态不会被自动关闭。'});
       const meta=el('div',{class:'task-meta'});
       meta.append(el('span',{},`仓库：`),el('b',{text:shortRepo(task.repositoryUrl)}),el('span',{class:'dotsep',text:'•'}),el('span',{},'基线：'),el('b',{class:'mono',text:(task.baseCommit||'—').slice(0,10)}),el('span',{class:'dotsep',text:'•'}),el('span',{},'来源：'),el('b',{text:`${task.ownerId||'—'} · ${task.revision||'—'}`}));
@@ -176,7 +178,11 @@ import { renderMonitor } from './monitor-view.js';
     const sourcePanel=el('section',{class:'panel'}); sourcePanel.append(panelHead('来源与基线','不可变来源快照'));
     const sb=el('div',{class:'panel-body'}), info=el('div',{class:'info-grid'});
     const addInfo=(label,value,mono=false)=>{const x=el('div',{class:'info-item'});x.append(el('label',{text:label}),el('div',{class:mono?'mono':'',text:value||'—'}));info.append(x);};
-    addInfo('来源问题',fid);addInfo('风险等级',riskName(source.risk||item.sourceRecord?.risk));addInfo('仓库',source.repositoryUrl||item.sourceRecord?.repositoryUrl);addInfo('基线提交',source.baseCommit||item.sourceRecord?.baseCommit,true);addInfo('源文件',source.sourcePath||item.sourceRecord?.sourcePath,true);addInfo('来源修订',source.revision||item.sourceRecord?.revision,true);
+    const facts = sourceFacts(source, item.taskSpec || null);
+    addInfo('来源问题',fid);addInfo('风险等级',facts.riskLabel ?? '—');addInfo('仓库',source.repositoryUrl||item.sourceRecord?.repositoryUrl);addInfo('基线提交',source.baseCommit||item.sourceRecord?.baseCommit,true);
+    addInfo(facts.singleFile ? '源文件' : '允许范围', facts.singleFile ? (source.sourcePath||item.sourceRecord?.sourcePath) : (facts.scopeLabel ?? '—'), true);
+    addInfo('来源修订',source.revision||item.sourceRecord?.revision,true);
+    if (facts.evidenceLabel) addInfo('验收证据', facts.evidenceLabel);
     sb.append(info); sourcePanel.append(sb); col1.append(sourcePanel);
     col1.append(renderDelivery({ work:item,workflow,el,panelHead,request,reload:()=>loadWork(true),notice:showNotice }));
     const baseline=el('section',{class:'panel'});baseline.append(panelHead('基线复现','真实测试运行结果'));const bb=el('div',{class:'panel-body'});
@@ -186,7 +192,9 @@ import { renderMonitor } from './monitor-view.js';
     const reproduced=workflow.baselineReproduced===true||item.workflow?.baselineReproduced===true;
     const baselineLabel=reproduced?'已复现预期失败':baseOp?statusText(baseOp):(phaseIndex(phase)>=2?'正在准备或运行基线测试':'等待基线测试');
     const junit=baseOp?.junit;
-    const btext=el('div',{class:'baseline-box'});btext.append(el('strong',{text:baselineLabel}),el('span',{text:baseOp?`${baseOp.summary||`操作 ${baseOp.operationId} · ${statusText(baseOp)}${baseOp.exitCode!=null?` · 退出码 ${baseOp.exitCode}`:''}`}${junit?` · JUnit ${junit.tests??junit.testCount??'?'} 项，${junit.failures??'?'} 失败，${junit.errors??'?'} 错误`:''}`:'固定基线测试会在独立工作区运行；仅按真实测试结果推进。'}));bb.append(btext);baseline.append(bb);col1.append(baseline);
+    const evidenceFmt = item.taskSpec?.execution?.evidence?.format ?? (junit ? 'junit' : null);
+    const baselineLine = evidenceLine(evidenceFmt, junit);
+    const btext=el('div',{class:'baseline-box'});btext.append(el('strong',{text:baselineLabel}),el('span',{text:baseOp?`${baseOp.summary||`操作 ${baseOp.operationId} · ${statusText(baseOp)}${baseOp.exitCode!=null?` · 退出码 ${baseOp.exitCode}`:''}`}${baselineLine?` · ${baselineLine}`:''}`:'固定基线测试会在独立工作区运行；仅按真实测试结果推进。'}));bb.append(btext);baseline.append(bb);col1.append(baseline);
     const plan=el('section',{class:'panel'});plan.append(panelHead('实施方案',workflow.plan?'模型提交的方案':'等待只读分析完成'));const pb=el('div',{class:'panel-body'});
     if(workflow.plan){pb.append(el('div',{class:'plan-text',text:workflow.plan}));}else{pb.append(el('div',{class:'plan-placeholder',text:'只读分析完成后，方案会显示在这里。批准前工作流不会进入代码修改阶段。'}));}
     const approval=workflow.approval||{};const bar=el('div',{class:'approval-bar'});
@@ -205,7 +213,7 @@ import { renderMonitor } from './monitor-view.js';
     const gitPanel=el('section',{class:'panel'});gitPanel.append(panelHead('代码变更','与来源基线比较'));const gb=el('div',{class:'panel-body'});
     if(git){const meta=el('div',{class:'operation-details'});meta.append(el('span',{text:`分支 ${git.branch||'—'}`}),el('span',{class:'mono',text:`HEAD ${git.headCommit||'—'}`}));gb.append(meta);if(git.changedFiles?.length)gb.append(el('div',{class:'operation-details',text:`变更文件：${git.changedFiles.join('、')}`}));if(git.diff){const pre=el('pre',{class:'diff-box'});pre.textContent=git.diff;gb.append(pre);}else gb.append(el('div',{class:'diff-empty',text:'当前没有代码差异。'}));if(git.diffTruncated)gb.append(el('div',{class:'subtle',text:'差异内容已截断。'}));}
     else gb.append(el('div',{class:'diff-empty',text:'工作区准备完成后，代码差异会显示在这里。'}));gitPanel.append(gb);col2.append(gitPanel);
-    const evidence=el('section',{class:'panel'});evidence.append(panelHead('验证证据','基线与独立验证'));const eb=el('div',{class:'panel-body'});const evList=d.evidence||[];if(evList.length){evList.forEach(e=>{const line=el('div',{class:'operation'});line.append(el('div',{class:'operation-top'},''));const top=line.firstElementChild;top.append(el('span',{class:'operation-name',text:e.label||e.kind||e.type||'验证证据'}),el('span',{class:`operation-status ${String(e.status||e.result||'').toUpperCase()==='PASSED'?'succeeded':''}`,text:e.status||e.result||''}));const meta=el('div',{class:'operation-details'});if(e.operationId)meta.append(el('span',{text:`操作 ${e.operationId}`}));if(e.sourceCommit)meta.append(el('span',{class:'mono',text:`来源提交 ${e.sourceCommit}${e.sourceDirty?'（含未提交变更）':''}`}));const j=e.junit;if(j)meta.append(el('span',{text:`JUnit：${j.tests??j.testCount??'?'} 项 · ${j.failures??'?'} 失败 · ${j.errors??'?'} 错误`}));line.append(meta);eb.append(line);});}else eb.append(el('div',{class:'diff-empty',text:'真实验证证据会在对应操作完成后显示。'}));evidence.append(eb);col2.append(evidence);
+    const evidence=el('section',{class:'panel'});evidence.append(panelHead('验证证据','基线与独立验证'));const eb=el('div',{class:'panel-body'});const evList=d.evidence||[];if(evList.length){evList.forEach(e=>{const line=el('div',{class:'operation'});line.append(el('div',{class:'operation-top'},''));const top=line.firstElementChild;top.append(el('span',{class:'operation-name',text:e.label||e.kind||e.type||'验证证据'}),el('span',{class:`operation-status ${String(e.status||e.result||'').toUpperCase()==='PASSED'?'succeeded':''}`,text:e.status||e.result||''}));const meta=el('div',{class:'operation-details'});if(e.operationId)meta.append(el('span',{text:`操作 ${e.operationId}`}));if(e.sourceCommit)meta.append(el('span',{class:'mono',text:`来源提交 ${e.sourceCommit}${e.sourceDirty?'（含未提交变更）':''}`}));const eLine=evidenceLine(item.taskSpec?.execution?.evidence?.format ?? (e.junit ? 'junit' : null), e.junit);if(eLine)meta.append(el('span',{text:eLine}));line.append(meta);eb.append(line);});}else eb.append(el('div',{class:'diff-empty',text:'真实验证证据会在对应操作完成后显示。'}));evidence.append(eb);col2.append(evidence);
     grid.append(col1,col2);target.append(grid);patchChildren(view,target);window.scrollTo(0,scrollY);if(restoreInputFocus){const next=view.querySelector('.message-form input');next?.focus({preventScroll:true});next?.setSelectionRange(draft.length,draft.length);}
   }
   function panelHead(title,sub){const h=el('div',{class:'panel-head'});h.append(el('h2',{text:title}),el('small',{text:sub||''}));return h;}
@@ -219,8 +227,9 @@ import { renderMonitor } from './monitor-view.js';
     finally{if(seq===requestEpoch)loading=false;}
   }
   function renderWork(data){workSnapshot=data;const item=itemOf(data);if(!item){showNotice('服务返回的数据中没有工作项。','error');return;}buildDetail(data);}
-  function routeChanged(){routeEpoch++;requestEpoch++;loading=false;if(timer){clearInterval(timer);timer=null;}workSnapshot=null;taskCache=[];hideNotice();const r=route();if(r.name==='work'){loadWork(true);timer=setInterval(()=>{if(!document.hidden)loadWork();},1800);}else{loadTasks(true);timer=setInterval(()=>{if(!document.hidden)loadTasks();},5000);}}
-  document.getElementById('refresh-button').addEventListener('click',()=>{const r=route();r.name==='work'?loadWork(true):loadTasks(true);});
+  function routeChanged(){routeEpoch++;requestEpoch++;loading=false;if(timer){clearInterval(timer);timer=null;}workSnapshot=null;taskCache=[];hideNotice();const r=route();document.querySelectorAll('.side-link').forEach(a=>a.classList.toggle('active',a.getAttribute('href')==='/argon/#/'+r.name));if(r.name==='work'){loadWork(true);timer=setInterval(()=>{if(!document.hidden)loadWork();},1800);}else if(r.name==='intake'){crumbs.textContent='仓库与新建任务';intake.mount(view);intake.load(true);timer=setInterval(()=>{if(!document.hidden)intake.load();},5000);}else{loadTasks(true);timer=setInterval(()=>{if(!document.hidden)loadTasks();},5000);}}
+  const intake = renderIntake({ el, panelHead, request, notice: showNotice, goWork: id => { location.hash = '#/work/' + encodeURIComponent(id); } });
+  document.getElementById('refresh-button').addEventListener('click',()=>{const r=route();r.name==='work'?loadWork(true):r.name==='intake'?intake.load(true):loadTasks(true);});
   window.addEventListener('hashchange',routeChanged);
   routeChanged();
 })();
