@@ -16,6 +16,15 @@ test('publication binds deterministic unique branch and exact independent clean 
   assert.equal(verifiedCandidate(work, op, { ...git, status: ' M src/Fix.java' }), false);
   assert.equal(verifiedCandidate(work, { ...op, evidence: { ...op.evidence, sourceCommit: 'c'.repeat(40) } }, git), false);
 });
+test('legacy delivery accepts the exact FND-00016 invoice repository and rejects nearby names', () => {
+  const bola = { ...work, source: { id: 'FND-00016' }, sourceRecord: {
+    repositoryUrl: 'http://127.0.0.1:3000/demo/demo-tenant-invoice-api.git',
+    baseCommit: '43e06161b97113cecc9282e67c7a634dc825e310',
+    sourcePath: 'src/main/java/com/example/invoice/InvoiceController.java' } };
+  assert.equal(deliveryIdentity(bola).repository, 'demo/demo-tenant-invoice-api');
+  assert.throws(() => deliveryIdentity({ ...bola, sourceRecord: { ...bola.sourceRecord,
+    repositoryUrl: 'http://127.0.0.1:3000/demo/demo-tenant-invoice-api-evil.git' } }), /交付仓库不在允许列表/);
+});
 test('closed, changed head, bot merge or changed merge tree cannot close a source Finding', () => {
   const d = { ...deliveryIdentity(work), candidateTree: 'e'.repeat(40), policy: { minApprovals: 0, requiredStatusContexts: [], requireHumanMerge: true } };
   const facts = { pull: { number: 1, state: 'closed', merged: true, merged_by: { login: 'human' }, merge_commit_sha: 'c'.repeat(40), head: { ref: d.headBranch, sha: d.candidateCommit, repo: { full_name: d.repository } }, base: { ref: 'main', repo: { full_name: d.repository } } }, reviews: [], statuses: [], candidateTree: d.candidateTree, mergedTree: d.candidateTree };

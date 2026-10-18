@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { isManagedWork, verifiedTaskCandidate } from '../argon-workflow/task-spec.mjs';
 const sha = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
-const legacyRepos = /^\/demo\/demo-(nova-catalog-api|orion-notes-api|pixel-reports-batch)\.git$/;
+const legacyRepos = /^\/demo\/demo-(nova-catalog-api|orion-notes-api|pixel-reports-batch|tenant-invoice-api)\.git$/;
 export function deliveryIdentity(work) {
   const candidateCommit = work.workflow.candidateCommit, verificationOperationId = work.workflow.verificationOperationId;
   if (!/^work-[a-f0-9]{32}$/.test(work.workItemId) || !sha(candidateCommit) || !/^exec-[a-f0-9]{32}$/.test(verificationOperationId)) throw new Error('任务交付标识无效');

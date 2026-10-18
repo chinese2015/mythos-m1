@@ -83,7 +83,7 @@ public class AiCompletionController {
             if (repositoryParts.length != 3 || !"".equals(repositoryParts[0]) || !"demo".equals(repositoryParts[1])
                 || !repositoryParts[2].endsWith(".git")) return false;
             String repositoryName = repositoryParts[2].substring(0, repositoryParts[2].length() - 4);
-            if (!java.util.Set.of("demo-nova-catalog-api", "demo-orion-notes-api", "demo-pixel-reports-batch").contains(repositoryName)) return false;
+            if (!java.util.Set.of("demo-nova-catalog-api", "demo-orion-notes-api", "demo-pixel-reports-batch", "demo-tenant-invoice-api").contains(repositoryName)) return false;
             return prParts.length == 5 && "".equals(prParts[0]) && "demo".equals(prParts[1])
                 && repositoryName.equals(prParts[2]) && "pulls".equals(prParts[3])
                 && prParts[4].matches("[1-9][0-9]{0,8}");

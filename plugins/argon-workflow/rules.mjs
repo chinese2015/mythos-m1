@@ -42,6 +42,7 @@ export const baselineExpectations = {
   'FND-00009': ['maliciousInputReturnsNothing'],
   'FND-00015': ['blocksTraversalOutsideReportDirectory'],
   'FND-00003': ['noHardcodedAdminPassword', 'leakedDemoPasswordNotPresent'],
+  'FND-00016': ['crossTenantInvoiceReadIsHidden'],
 };
 export function baselineReproduced(operation, findingId = 'FND-00009') {
   const j = operation?.evidence?.junit;

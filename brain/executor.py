@@ -13,7 +13,7 @@ from .git_host import GitHostClient
 from .task_spec import frozen_task_spec, repository_config_from_spec
 
 REPOSITORIES = {'http://127.0.0.1:3000/demo/' + name + '.git' for name in [
-    'demo-orion-notes-api', 'demo-nova-catalog-api', 'demo-pixel-reports-batch']}
+    'demo-orion-notes-api', 'demo-nova-catalog-api', 'demo-pixel-reports-batch', 'demo-tenant-invoice-api']}
 SETTINGS = '<settings><mirrors><mirror><id>aliyun</id><mirrorOf>*</mirrorOf><url>https://maven.aliyun.com/repository/public</url></mirror></mirrors></settings>\n'
 
 _CLONE_URL = re.compile(r'http://127\.0\.0\.1:3000/([A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99})\.git')

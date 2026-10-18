@@ -25,3 +25,22 @@ test('changed source ownership or a different resolved target never authorizes a
     const f = fixture(); mutate(f.state); await assert.rejects(() => f.source.complete(work, delivery), /409/); assert.equal(f.writes(), 0);
   }
 });
+test('FND-00016 completion is enabled only for the exact mapped invoice repository and source', async () => {
+  const bola = { workItemId: 'work-' + 'b'.repeat(32), source: { id: 'FND-00016' }, sourceRecord: {
+    ownerId: 'owner-aster-01', repositoryUrl: 'http://127.0.0.1:3000/demo/demo-tenant-invoice-api.git',
+    baseCommit: '43e06161b97113cecc9282e67c7a634dc825e310', sourcePath: 'src/main/java/com/example/invoice/InvoiceController.java' } };
+  const candidate = { candidateCommit: 'd'.repeat(40), pullUrl: 'http://127.0.0.1:3000/demo/demo-tenant-invoice-api/pulls/1' };
+  const state = { ...bola.sourceRecord, id: 'FND-00016', workItemId: bola.workItemId, remediationJobId: bola.workItemId,
+    revision: 2, status: 'In Progress', closed: 'Open', verificationResult: 'NOT_RUN' };
+  class BolaSource extends FindingSource {
+    async request(path, method = 'GET', body) {
+      if (method === 'GET') return structuredClone(state);
+      assert.equal(path, '/api/findings/FND-00016/ai-completion');
+      Object.assign(state, body, { status: 'Resolved', closed: 'Closed', verificationResult: 'PASSED', revision: state.revision + 1 });
+      return structuredClone(state);
+    }
+  }
+  const result = await new BolaSource().complete(bola, candidate);
+  assert.equal(result.status, 'Resolved');
+  await assert.rejects(() => new BolaSource().complete({ ...bola, sourceRecord: { ...bola.sourceRecord, sourcePath: 'src/other.java' } }, candidate), /409/);
+});

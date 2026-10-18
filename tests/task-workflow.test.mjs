@@ -11,12 +11,21 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
 const source = { id: 'FND-00009', name: 'SQL injection', risk: 'HIGH', ownerId: 'owner-nova-01', revision: 2,
   repositoryUrl: 'http://127.0.0.1:3000/demo/demo-nova-catalog-api.git', baseCommit: '7fd32b0535fac3f6ce105a8494e2dcbba7ce355b',
   sourcePath: 'src/main/java/com/example/catalog/CatalogSearchService.java', status: 'Not Started' };
+const bolaSource = { id: 'FND-00016', name: "Invoice endpoint exposes another tenant's invoice by ID", risk: 'CRITICAL', ownerId: 'owner-aster-01', revision: 1,
+  repositoryUrl: 'http://127.0.0.1:3000/demo/demo-tenant-invoice-api.git', baseCommit: '43e06161b97113cecc9282e67c7a634dc825e310',
+  sourcePath: 'src/main/java/com/example/invoice/InvoiceController.java', status: 'Not Started', closed: 'Open' };
 test('source adapter enables only exact Nova mapping and disables altered baselines', () => {
   const task = normalizeFinding(source);
   assert.equal(task.enabled, true); assert.equal(task.revision, 2);
   assert.equal(normalizeFinding({ ...source, baseCommit: 'a'.repeat(40) }).enabled, false);
   assert.equal(normalizeFinding({ ...source, repositoryUrl: 'file:///etc' }).enabled, false);
   assert.equal(normalizeFinding({ ...source, id: 'FND-00999' }), null);
+});
+test('source adapter enables FND-00016 only for its exact invoice repository, baseline, and source path', () => {
+  assert.equal(normalizeFinding(bolaSource).enabled, true);
+  assert.equal(normalizeFinding({ ...bolaSource, baseCommit: 'a'.repeat(40) }).enabled, false);
+  assert.equal(normalizeFinding({ ...bolaSource, sourcePath: 'src/other.java' }).enabled, false);
+  assert.equal(normalizeFinding({ ...bolaSource, repositoryUrl: 'http://127.0.0.1:3000/demo/demo-tenant-invoice-api-evil.git' }).enabled, false);
 });
 
 const frames = [
@@ -46,6 +55,9 @@ test('baseline reproduction requires actual expected failing JUnit evidence', ()
   assert.equal(baselineReproduced(operation), true);
   assert.equal(baselineReproduced({ state: 'FAILED', exitCode: 1, evidence: { junit: { tests: 0 } } }), false);
   assert.equal(baselineReproduced({ ...operation, evidence: { junit: { ...operation.evidence.junit, failedTests: ['findsMatchingItems'] } } }), false);
+  const bola = { state: 'FAILED', exitCode: 1, evidence: { junit: { tests: 2, failures: 1, errors: 0, skipped: 0, failedTests: ['crossTenantInvoiceReadIsHidden'] } } };
+  assert.equal(baselineReproduced(bola, 'FND-00016'), true);
+  assert.equal(baselineReproduced({ ...bola, evidence: { junit: { ...bola.evidence.junit, failedTests: ['sameTenantAdminAndAnonymousAccessRemainCorrect'] } } }, 'FND-00016'), false);
 });
 test('native inbox admission is durable and canceled prompts are never treated as new work', () => {
   const inbox = [{ seq: 1, type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [{ id: 'message', role: 'user', source: { rpcId: 'code-request', kind: 'user' } }] } }];

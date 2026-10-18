@@ -30,6 +30,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 class AiCompletionIntegrationTests {
     private static final String ID = "FND-00003";
+    private static final String BOLA_ID = "FND-00016";
+    private static final String BOLA_REPOSITORY = "http://127.0.0.1:3000/demo/demo-tenant-invoice-api.git";
+    private static final String BOLA_BASE = "43e06161b97113cecc9282e67c7a634dc825e310";
+    private static final String BOLA_PATH = "src/main/java/com/example/invoice/InvoiceController.java";
     private static final String COMMIT = "0123456789abcdef0123456789abcdef01234567";
     private static final String REPOSITORY = "http://127.0.0.1:3000/demo/demo-orion-notes-api.git";
     private static final String PR = "http://127.0.0.1:3000/demo/demo-orion-notes-api/pulls/17";
@@ -51,6 +55,20 @@ class AiCompletionIntegrationTests {
         f.codeFixCommit = null;
         f.prUrl = null;
         findings.saveAndFlush(f);
+
+        Finding bola = findings.findById(BOLA_ID).orElseThrow();
+        bola.ownerId = "owner-aster-01";
+        bola.repositoryUrl = BOLA_REPOSITORY;
+        bola.baseCommit = BOLA_BASE;
+        bola.sourcePath = BOLA_PATH;
+        bola.workItemId = "work-bola";
+        bola.remediationJobId = "work-bola";
+        bola.status = "In Progress";
+        bola.closed = "Open";
+        bola.verificationResult = "NOT_RUN";
+        bola.codeFixCommit = null;
+        bola.prUrl = null;
+        findings.saveAndFlush(bola);
     }
 
     private String body(long revision) throws Exception {
@@ -149,7 +167,7 @@ class AiCompletionIntegrationTests {
     }
 
     @Test void acceptsEveryAllowlistedLocalGiteaRepository() throws Exception {
-        for (String repository : new String[]{"demo-nova-catalog-api", "demo-orion-notes-api", "demo-pixel-reports-batch"}) {
+        for (String repository : new String[]{"demo-nova-catalog-api", "demo-orion-notes-api", "demo-pixel-reports-batch", "demo-tenant-invoice-api"}) {
             String repositoryUrl = "http://127.0.0.1:3000/demo/" + repository + ".git";
             String prUrl = "http://127.0.0.1:3000/demo/" + repository + "/pulls/17";
             Finding finding = findings.findById(ID).orElseThrow();
@@ -166,6 +184,36 @@ class AiCompletionIntegrationTests {
                 .andExpect(jsonPath("$.repositoryUrl").value(repositoryUrl))
                 .andExpect(jsonPath("$.prUrl").value(prUrl));
         }
+    }
+
+    @Test void acceptsBoundBolaRepositoryAndRejectsNearbyUnlistedName() throws Exception {
+        Finding before = findings.findById(BOLA_ID).orElseThrow();
+        String prUrl = "http://127.0.0.1:3000/demo/demo-tenant-invoice-api/pulls/1";
+        mvc.perform(post("/api/findings/{id}/ai-completion", BOLA_ID).contentType(MediaType.APPLICATION_JSON)
+                .content(bolaBody(before.revision, BOLA_REPOSITORY, prUrl)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.repositoryUrl").value(BOLA_REPOSITORY))
+            .andExpect(jsonPath("$.prUrl").value(prUrl));
+
+        Finding changed = findings.findById(BOLA_ID).orElseThrow();
+        changed.status = "In Progress";
+        changed.closed = "Open";
+        changed.verificationResult = "NOT_RUN";
+        changed.codeFixCommit = null;
+        changed.prUrl = null;
+        changed.repositoryUrl = "http://127.0.0.1:3000/demo/demo-tenant-invoice-api-evil.git";
+        changed = findings.saveAndFlush(changed);
+        mvc.perform(post("/api/findings/{id}/ai-completion", BOLA_ID).contentType(MediaType.APPLICATION_JSON)
+                .content(bolaBody(changed.revision, changed.repositoryUrl,
+                    "http://127.0.0.1:3000/demo/demo-tenant-invoice-api-evil/pulls/1")))
+            .andExpect(status().isConflict());
+    }
+
+    private String bolaBody(long revision, String repositoryUrl, String prUrl) throws Exception {
+        return mapper.writeValueAsString(Map.of(
+            "expectedRevision", revision, "workItemId", "work-bola", "ownerId", "owner-aster-01",
+            "repositoryUrl", repositoryUrl, "baseCommit", BOLA_BASE, "sourcePath", BOLA_PATH,
+            "codeFixCommit", COMMIT, "prUrl", prUrl));
     }
 
     @Test void exactLostAcknowledgementReplaySucceedsWithOldRevision() throws Exception {
