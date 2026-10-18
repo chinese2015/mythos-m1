@@ -65,7 +65,7 @@ Fixture 有两个 JUnit 测试方法，以兼容现有 legacy ARGON `tests === 2
 3. `plugins/argon-workflow/source.mjs` 映射 FND-00016 到新 repo、base SHA 和唯一源码路径；`rules.mjs` 为其声明唯一预期失败名。订阅器依现有映射规则完成 triage，任务中心按既有流程等待 Owner 审批。
 4. ARGON 执行/交付白名单及 Mock 完成回写白名单加入新 repo。增加对应 mapping、baseline、repo allowlist、CAS 绑定端点与完成回写测试；不改 `tests/live_generic_intake.py` 的旧固定库存。
 5. Owner 批准后复用现有 PLAN、CODE、VERIFY、PR 链路。候选仅修映射源码文件；PR 保持 open/unmerged，代码服务不自动合并或关闭 Finding。
-6. 新增 `tests/live_bola_acceptance.py`，只读核对 FND-00016 身份和映射、baseline 失败证据、候选单文件干净状态、fresh B 通过证据、PR 精确 head、重启前后 Work Item/Session/operation 身份，以及浏览器任务详情和 read-only Diff。完整通过后输出私有回执，不包含 token 或原始日志。
+6. 新增 `tests/live_bola_acceptance.py`，只读核对 FND-00016 身份和映射、baseline 失败证据、候选单文件干净状态、fresh B 通过证据、PR 精确 head、重启前后 Work Item/Session/operation 身份，以及浏览器任务详情和 read-only Diff。人工观察写入私有 `state/bola-browser.json`（mode 0600）；完整通过后输出私有验收回执，不包含 token 或原始日志。
 
 ## 运行时安全和恢复
 
