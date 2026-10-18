@@ -24,7 +24,7 @@
 | `plugins/argon-workflow/source.mjs` | 只映射 FND-00003、00009、00015 | 为 FND-00016 添加仓库、真实 base SHA、源码路径映射 |
 | `plugins/argon-workflow/rules.mjs` | 仅有三个 Finding 的固定失败测试名 | 为 FND-00016 登记跨租户失败测试名，并继续要求精确基线证据 |
 | `brain/executor.py`、`plugins/argon-sdlc/policy.mjs` | ARGON 仓库白名单固定为三个旧 repo | 将新 repo 加入执行和交付白名单；保留原 owner/URL/commit 绑定 |
-| 远端 Git 凭据助手 `/home/hx/gitea/repositories.json` | helper 只为三个旧 repo 提供 Git 凭据 | 为新私有 repo 添加唯一精确 allowlist 项；保留其他项并原子写入 |
+| 远端 Git 凭据助手 `/home/hx/gitea/repositories.json` | helper 只为三个旧 repo 提供 Git 凭据 | 为新私有 repo 添加唯一精确 allowlist 项；保留其他项/文件权限，先存私有备份再原子写入 |
 | `plugins/argon-sdlc/policy.mjs`、`plugins/argon-workflow/task-spec.mjs` | legacy ARGON 验证要求恰好 2 项 JUnit，候选只准改一个映射源码文件且不准改测试 | Fixture 保留 2 个 JUnit 测试方法；基线已有失败回归，候选只修源码，不放宽既有门禁 |
 | `integrations/mock-source/AiCompletionController.java` | 完成回写只接受三个 repo | 将新 repo 加入精确本地 Gitea 白名单并补拒绝/接受测试 |
 | 远端 Mock `SeedData.java` | FND-00016 已存在但仍指向 placeholder repo、假 SHA、`sourcePath=null`；`run()` 在数据库非空时直接返回 | 在不重置数据库、不覆盖已领取 Finding 的前提下，安全绑定新 repo 和路径 |
@@ -38,7 +38,7 @@
 2. 仅通过通用 MANUAL TaskSpec 注册新 repo。实现改动较少，但跳过自动 Finding 研判、Owner 审批和来源绑定，不能验证 M3 的新漏洞接入路径。
 3. 新建 Finding 和新 owner。需要额外处理 Mock seed、编号和通知身份，当前已存在语义匹配且未领取的 FND-00016，收益有限。
 
-采用方案 1。新项目位于 `demo/demo-tenant-invoice-api`，本地可复建源放在 `samples/security/demo-tenant-invoice-api/`。仓库首个脆弱 commit 建成后，真实 SHA 和唯一源码路径才写入 Finding mapping；不得提前填假 SHA。主机 Git 凭据助手的 `repositories.json` 只新增这个 repo 的名字，供现有 helper 对该仓库使用已有账号凭据。
+采用方案 1。新项目位于 `demo/demo-tenant-invoice-api`，本地可复建源放在 `samples/security/demo-tenant-invoice-api/`。仓库首个脆弱 commit 建成后，真实 SHA 和唯一源码路径才写入 Finding mapping；不得提前填假 SHA。主机 Git 凭据助手的 `repositories.json` 只新增这个 repo 的名字，供现有 helper 对该仓库使用已有账号凭据；写入前将原文件以 0600 保存到私有 artifacts 目录，并原子替换且保留原 owner/mode。
 
 ## 项目和漏洞行为
 
@@ -61,7 +61,7 @@ Fixture 有两个 JUnit 测试方法，以兼容现有 legacy ARGON `tests === 2
 
 ## Finding 与交付流程
 
-1. 在本地 Gitea 的 `demo` 组织创建私有仓库，先将精确仓库名加入主机 `repositories.json` helper allowlist，再由现有 credential helper 推送脆弱基线 commit；记录真实 commit SHA、默认分支、源码路径和两项测试。重复运行不新增仓库、commit 或 allowlist 重复项；已有非预期仓库内容时停止。
+1. 在本地 Gitea 的 `demo` 组织创建私有仓库，先备份并将精确仓库名加入主机 `repositories.json` helper allowlist，再由现有 credential helper 推送脆弱基线 commit；记录真实 commit SHA、默认分支、源码路径和两项测试。重复运行不新增仓库、commit、allowlist 重复项或冗余备份；已有非预期仓库内容时停止。
 2. `integrations/mock-source/` 增加 loopback-only、CAS 保护的 `POST /api/findings/{id}/bind-demo-repository`。请求 `{expectedRevision, repositoryId, repositoryUrl, baseCommit, sourcePath, lineRange}` 只接受 FND-00016、`owner-aster-01`、预期 revision、原始 placeholder 身份，以及项目实际生成的 `REPO-demo-tenant-invoice-api`、本地 Gitea URL、40 位 base SHA 和固定源码路径。原记录已领取、状态变化或字段漂移时返回 409；非 loopback 调用拒绝。精确相同的已完成绑定幂等成功且不增加 revision。绑定器不接受任意仓库 URL。
 3. `plugins/argon-workflow/source.mjs` 映射 FND-00016 到新 repo、base SHA 和唯一源码路径；`rules.mjs` 为其声明唯一预期失败名。订阅器依现有映射规则完成 triage，任务中心按既有流程等待 Owner 审批。
 4. ARGON 执行/交付白名单及 Mock 完成回写白名单加入新 repo。增加对应 mapping、baseline、repo allowlist、CAS 绑定端点与完成回写测试；不改 `tests/live_generic_intake.py` 的旧固定库存。
@@ -72,6 +72,7 @@ Fixture 有两个 JUnit 测试方法，以兼容现有 legacy ARGON `tests === 2
 
 - 所有服务、仓库和浏览器地址维持现有 loopback Gitea/Mock 配置；不接受 Finding 提供的任意 clone URL。
 - 绑定过程经由新的 Mock CAS API，不读写 H2 文件、不重置数据库；endpoint 校验 owner、revision、未领取状态和原始 placeholder，避免覆盖其他任务或 Finding 更新。
+- Git helper allowlist 仅增加 `demo-tenant-invoice-api`；备份不包含 credential 内容，原文件 owner/mode 保持不变，写入失败时不推送仓库。
 - 只使用合成账号/发票；测试服务器只绑定 loopback。仓库、PR 和浏览器工作台都显示样例身份与合成数据。
 - FND-00016 已由现有 `SeedData.java` 在干净数据库中创建为未映射样例。新的绑定 API 和启动文档必须说明如何在空库或已存在数据库中建立精确映射；重复调用不得重建 Finding 或推进 revision。
 - PR 与源 Finding 维持待人工审核/合并状态；没有配置的 CI 或 review gate 如实显示“未配置/未运行”。
