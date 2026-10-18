@@ -51,13 +51,13 @@ if "OptimisticLockingFailureException" not in errors.read_text().split("public c
 ''' + text[closing:]
     errors.write_text(text)
 
-for name in ['AiCompletionController.java', 'OwnerNotificationController.java']:
+for name in ['AiCompletionController.java', 'OwnerNotificationController.java', 'DemoFindingBindingController.java']:
     target = backend / 'src/main/java/com/example/argondemo/api' / name
     source = (overlay / name).read_text()
     if target.exists() and target.read_text() != source:
         raise SystemExit(f'refusing to overwrite different file: {target}')
     target.write_text(source)
-for name in ['AiCompletionIntegrationTests.java', 'OwnerNotificationIntegrationTests.java']:
+for name in ['AiCompletionIntegrationTests.java', 'OwnerNotificationIntegrationTests.java', 'DemoFindingBindingIntegrationTests.java']:
     target = backend / 'src/test/java/com/example/argondemo' / name
     source = (overlay / 'tests' / name).read_text()
     if target.exists() and target.read_text() != source:
