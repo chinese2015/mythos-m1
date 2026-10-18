@@ -1,0 +1,15 @@
+{
+  "workItemId": "work-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "version": 50,
+  "phase": "PR_OPEN",
+  "sessionId": "session-bola-demo",
+  "entryLinkObserved": true,
+  "entryUrl": "http://127.0.0.1:3080/?argonVibeTask=work-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&argonSession=session-bola-demo&argonEmbedded=1",
+  "filePaneReadOnly": true,
+  "files": ["src/main/java/com/example/invoice/InvoiceController.java"],
+  "sourcePath": "src/main/java/com/example/invoice/InvoiceController.java",
+  "diffBaseCommit": "43e06161b97113cecc9282e67c7a634dc825e310",
+  "diffHeadCommit": "cccccccccccccccccccccccccccccccccccccccc",
+  "diffChangedFiles": ["src/main/java/com/example/invoice/InvoiceController.java"],
+  "runMonitorVisible": true
+}
