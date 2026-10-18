@@ -103,11 +103,13 @@ function validBaselineEvidence(work, operation) {
   }
 
   const junit = evidence.junit;
+  // The baseline proves that genuine tests ran. `minTests` is the final
+  // VERIFY threshold, which can be higher after an approved regression is added.
   if (!junit || !Array.isArray(junit.reports) || !junit.reports.length ||
       !Array.isArray(junit.invalidReports) || junit.invalidReports.length !== 0 ||
       !['tests', 'failures', 'errors', 'skipped'].every(key => Number.isInteger(junit[key]) && junit[key] >= 0) ||
       junit.failures + junit.errors + junit.skipped > junit.tests ||
-      junit.tests - junit.skipped < policy.minTests ||
+      junit.tests - junit.skipped < 1 ||
       (junit.skipped > 0 && !policy.allowSkipped) ||
       !junit.reports.every(report => report && typeof report.path === 'string' && safePath(report.path) &&
         policy.reportDirs.some(dir => within(report.path, trimSlash(dir) + '/')))) return false;

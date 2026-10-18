@@ -108,8 +108,10 @@ test('legacy works keep the original single-file policy and baseline contract', 
 });
 
 test('baseline readiness follows the frozen baselineMode and rejects UNKNOWN or environment loss', () => {
-  const mode = m => manualWork({ taskSpec: { ...fixture.taskSpec, execution: { ...fixture.taskSpec.execution, baselineMode: m } } });
-  const op = (work, state, exitCode, { tests = 4, failures = state === 'FAILED' ? 1 : 0, errors = 0, ...changes } = {}) => {
+  const baselineSpec = { ...fixture.taskSpec, execution: { ...fixture.taskSpec.execution,
+    evidence: { ...fixture.taskSpec.execution.evidence, minTests: 4 } } };
+  const mode = m => manualWork({ taskSpec: { ...baselineSpec, execution: { ...baselineSpec.execution, baselineMode: m } } });
+  const op = (work, state, exitCode, { tests = 3, failures = state === 'FAILED' ? 1 : 0, errors = 0, ...changes } = {}) => {
     const command = work.taskSpec.execution.baselineCommand;
     const sourceCommit = work.sourceRecord.baseCommit;
     const junit = { reports: [{ path: 'target/surefire-reports/TEST-baseline.xml' }], invalidReports: [],
@@ -260,7 +262,9 @@ test('multi-file and approved test changes reach VERIFYING; out-of-scope changes
 });
 
 test('frozen verification command and real report counts decide review readiness', async () => {
-  const verifyingWork = () => { const work = manualWork({ taskSpec: { ...fixture.taskSpec, changePolicy: { ...fixture.taskSpec.changePolicy, allowTestChanges: true } } });
+  const verifyingWork = () => { const work = manualWork({ taskSpec: { ...fixture.taskSpec,
+    changePolicy: { ...fixture.taskSpec.changePolicy, allowTestChanges: true },
+    execution: { ...fixture.taskSpec.execution, evidence: { ...fixture.taskSpec.execution.evidence, minTests: 4 } } } });
     work.workflow = { phase: 'VERIFYING', approval: { actor: 'alice', specDigest: work.taskSpec.specDigest }, candidateCommit: candidate,
       verificationOperationId: null, codeSessionId: 'session-code', codeRequestId: 'req-code', codeEndSequence: 4 };
     work.sessionIds = ['session-code']; work.sandboxId = 'sb-manual'; return work; };
@@ -276,9 +280,19 @@ test('frozen verification command and real report counts decide review readiness
   Object.assign(op, { state: 'SUCCEEDED', exitCode: 0, sourceCommit: candidate, command: fixture.taskSpec.execution.verificationCommand,
     sandboxId: 'sb-manual', runtime: { sandboxId: 'sb-fresh', freshTargetAbsent: true },
     evidence: { exitCode: 0, sourceCommit: candidate, sourceDirty: false, sandboxId: 'sb-fresh',
-      junit: { reports: [{ path: 'target/surefire-reports/TEST-customer.xml' }], invalidReports: [], tests: 3, failures: 0, errors: 0, skipped: 0 } } });
+      junit: { reports: [{ path: 'target/surefire-reports/TEST-customer.xml' }], invalidReports: [], tests: 4, failures: 0, errors: 0, skipped: 0 } } });
   await h.controller.step(structuredClone(h.work));
   assert.equal(h.work.workflow.phase, 'AWAITING_REVIEW');
+  const h3 = harness(verifyingWork(), { events: done });
+  h3.controller.workspace = h.controller.workspace;
+  await h3.controller.step(structuredClone(h3.work));
+  const op3 = h3.ops.get(h3.work.workflow.verificationOperationId);
+  Object.assign(op3, { state: 'SUCCEEDED', exitCode: 0, sourceCommit: candidate, command: fixture.taskSpec.execution.verificationCommand,
+    sandboxId: 'sb-manual', runtime: { sandboxId: 'sb-fresh', freshTargetAbsent: true },
+    evidence: { exitCode: 0, sourceCommit: candidate, sourceDirty: false, sandboxId: 'sb-fresh',
+      junit: { reports: [{ path: 'target/surefire-reports/TEST-customer.xml' }], invalidReports: [], tests: 3, failures: 0, errors: 0, skipped: 0 } } });
+  await h3.controller.step(structuredClone(h3.work));
+  assert.equal(h3.work.workflow.phase, 'BLOCKED', 'final VERIFY must still enforce the frozen minimum test count');
   // A masqueraded command can never reach review.
   const h2 = harness(verifyingWork(), { events: done });
   h2.controller.workspace = h.controller.workspace;

@@ -247,12 +247,14 @@ def baseline_evidence_ready(spec, work, operation):
                 (state == 'SUCCEEDED' and code == 0) or (state == 'FAILED' and code != 0))
         else:
             junit = evidence.get('junit')
+            # Baselines need at least one genuine test; frozen minTests is the
+            # final VERIFY threshold and can rise with an approved regression.
             if (not isinstance(junit, dict) or not isinstance(junit.get('reports'), list) or not junit['reports']
                     or junit.get('invalidReports') != []
                     or any(type(junit.get(key)) is not int or junit[key] < 0
                            for key in ['tests', 'failures', 'errors', 'skipped'])
                     or junit['failures'] + junit['errors'] + junit['skipped'] > junit['tests']
-                    or junit['tests'] - junit['skipped'] < policy['minTests']
+                    or junit['tests'] - junit['skipped'] < 1
                     or (junit['skipped'] and not policy['allowSkipped'])):
                 return False
             for report in junit['reports']:

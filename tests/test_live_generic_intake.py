@@ -13,9 +13,10 @@ import live_generic_intake as live_probe
 
 
 class GenericEvidenceProbeTests(unittest.TestCase):
-    def fixtures(self, command=False):
+    def fixtures(self, command=False, min_tests=None):
         fixture = json.loads((Path(__file__).parent / 'fixtures/generic-task-spec.json').read_text())
         config = copy.deepcopy(fixture['repositoryConfig']); config['changePolicy']['allowTestChanges'] = True
+        if min_tests is not None: config['execution']['evidence']['minTests'] = min_tests
         if command:
             config['execution']['evidence'] = {'format': 'command', 'reportDirs': [], 'minTests': 0, 'allowSkipped': False}
         repo = {'repositoryId': fixture['manualInput']['repositoryId'], 'ownerId': 'alice', 'revision': 1, 'enabled': True, 'config': config}
@@ -75,7 +76,7 @@ class GenericEvidenceProbeTests(unittest.TestCase):
         self.assertEqual(assess_work(work, op, git, pulls, 'alice', registry=registry, operations=[op] if op else [])['status'], 'NOT_READY')
 
     def test_frozen_baseline_evidence_requires_bound_command_and_valid_junit(self):
-        work, _, _, _ = self.fixtures()
+        work, _, _, _ = self.fixtures(min_tests=4)
         work['workflow']['baselineOperationId'] = 'exec-' + 'c' * 32
         spec = work['taskSpec']
         baseline = {'operationId': work['workflow']['baselineOperationId'], 'workItemId': work['workItemId'],
@@ -86,7 +87,7 @@ class GenericEvidenceProbeTests(unittest.TestCase):
                                 'sourceDirty': False, 'command': baseline['command'], 'exitCode': 1,
                                 'kind': 'UNIT_TEST', 'sandboxId': work['sandboxId'],
                                 'junit': {'reports': [{'path': 'target/surefire-reports/TEST-baseline.xml'}],
-                                          'invalidReports': [], 'tests': 4, 'failures': 1, 'errors': 0, 'skipped': 0}}
+                                          'invalidReports': [], 'tests': 3, 'failures': 1, 'errors': 0, 'skipped': 0}}
         self.assertTrue(baseline_evidence_ready(spec, work, baseline))
         for mutate in [
             lambda op: op.update(command='mvn -q verify'),
@@ -100,7 +101,7 @@ class GenericEvidenceProbeTests(unittest.TestCase):
             with self.subTest(probe=probe): self.assertFalse(baseline_evidence_ready(spec, work, probe))
 
     def test_live_receipt_cannot_pass_without_valid_baseline_observation(self):
-        work, op, git, pulls = self.fixtures()
+        work, op, git, pulls = self.fixtures(min_tests=4)
         work['workflow']['baselineOperationId'] = 'exec-' + 'c' * 32
         baseline = {'operationId': work['workflow']['baselineOperationId'], 'workItemId': work['workItemId'],
                     'ownerId': 'alice', 'sandboxId': work['sandboxId'], 'kind': 'UNIT_TEST', 'state': 'FAILED',
@@ -113,7 +114,7 @@ class GenericEvidenceProbeTests(unittest.TestCase):
         self.assertFalse(baseline_evidence_ready(work['taskSpec'], work, baseline))
 
         baseline['evidence']['junit'] = {'reports': [{'path': 'target/surefire-reports/TEST-baseline.xml'}],
-                                         'invalidReports': [], 'tests': 4, 'failures': 1, 'errors': 0, 'skipped': 0}
+                                         'invalidReports': [], 'tests': 3, 'failures': 1, 'errors': 0, 'skipped': 0}
         baseline.update(state='FAILED', exitCode=1)
         baseline['evidence']['exitCode'] = 1
 

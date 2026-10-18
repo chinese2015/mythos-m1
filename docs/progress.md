@@ -137,5 +137,7 @@ Spec: ../Argon_AI_Brain_总体方案_v2.0.md §8.1 and user-approved Sandbox/nat
 
 - 独立全分支审查发现并修复 4 项 Important 和 1 项 Minor：真实 Git rename 同时纳入源/目标路径；baseline 必须绑定冻结命令、基线 SHA 和有效 JUnit/命令证据；报告目录路径归一化并拒绝别名重复；工作区 Diff ETag 纳入状态/差异指纹且浏览器轮询刷新；MANUAL 成功基线不再显示成“预期失败已复现”。
 - 新增真实 Git rename、坏/缺 JUnit、错误命令/SHA、报告目录别名、同版本 HEAD 的 Diff ETag 变化、live receipt baseline readiness 回归；新增 `baselineReady` 冻结证据规则。
-- 修复后本地最终回归：Node 189/189，Python 171 项（170 通过、1 个现有 macOS 平台跳过）。隔离实例原始 v4 全链路回执仍为 PASSED；更新代码的远端 replay 等 SSH 恢复后重新确认。
+- 修复后本地最终回归：Node 189/189，Python 171 项（170 通过、1 个现有 macOS 平台跳过）。复核时发现 Customer 冻结 `minTests=4`，但真实基线只有 3 项测试；修正为基线需至少 1 项有效、未跳过测试，`minTests` 仍只约束最终 VERIFY。对应 Node/Python 测试及文档已更新。
+- 更新代码在隔离服务重启后的最终只读回执：`~/argon-m1-generic/artifacts/task5-baseline-semantics-post-restart-2026-10-18.json`，`PASSED`、`task5Complete=true`；Customer、Command 各 18/18，restart 3/3、legacy 6/6、browser 5/5。Customer 基线真实记录为 FAILED/exit 1、JUnit 3 项/1 失败；最终独立 VERIFY 仍是 JUnit 4 项全过。两条 PR 保持 open/unmerged，head 与各自已验证候选一致。
+- 用浏览器重载隔离 DSH 后再次打开 Customer 和 Command 工作详情；Customer 只读工作台的源码、两文件 Diff 和运行监控均可见，base/candidate 与服务端一致。Command 页面显示“基线失败符合要求”；未改动 main 服务、PR 或来源任务。
 - Coding workbench 独立分支审查另发现并修复 `listWorks()` 漏掉当前 owner 过滤，避免任务 selector 泄露其他 owner 的 ID/元数据；该分支已提交 `e256ac0`，Node 100/100、Python 85 项（84 通过、1 个 macOS 平台跳过）。
