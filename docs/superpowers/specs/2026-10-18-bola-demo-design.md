@@ -30,7 +30,7 @@
 | 远端 Mock `SeedData.java` | FND-00016 已存在但仍指向 placeholder repo、假 SHA、`sourcePath=null`；`run()` 在数据库非空时直接返回 | 在不重置数据库、不覆盖已领取 Finding 的前提下，安全绑定新 repo 和路径 |
 | 现场验收脚本 | `tests/live_generic_intake.py` 固定检查 Task 5 的两条 MANUAL 任务及三条 legacy Finding | 新增专用 BOLA 回执，避免改写已完成 Task 5 的固定库存契约 |
 
-在远端 Mock 的只读观察中，FND-00016 当前为 `CRITICAL`、CWE-284、Owner `owner-aster-01`、`Not Started`、`Open`、revision 1、无 Work Item；它的标题已是“Example multi-user notes view lacks mock tenant scope”。当前仓库 URL 是 `https://git.example.test/demo/demo-aster-ui-service.git`，base SHA 为 `6a11c9d2e8f34b0a9d5e7c61f2b8a0d4e6c3f1a2`，`sourcePath=null`。因此复用这个未绑定 Finding，比另造编号和 Owner 更稳妥；它目前不能直接启动。
+在远端 Mock 的只读观察中，FND-00016 当前为 `CRITICAL`、CWE-284、Owner `owner-aster-01`、`Not Started`、`Open`、revision 1、无 Work Item；它的标题是“Example multi-user notes view lacks mock tenant scope”。当前仓库 URL 是 `https://git.example.test/demo/demo-aster-ui-service.git`，base SHA 为 `6a11c9d2e8f34b0a9d5e7c61f2b8a0d4e6c3f1a2`，`sourcePath=null`。因此复用这个未绑定 Finding，比另造编号和 Owner 更稳妥；绑定时将标题改为“Invoice endpoint exposes another tenant's invoice by ID”，让任务中心、Owner 通知和代码项目一致。Owner、CWE 类别、风险等级、状态及 Finding ID 不变。
 
 ## 方案选择
 
@@ -62,7 +62,7 @@ Fixture 有两个 JUnit 测试方法，以兼容现有 legacy ARGON `tests === 2
 ## Finding 与交付流程
 
 1. 在本地 Gitea 的 `demo` 组织创建私有仓库，先备份并将精确仓库名加入主机 `repositories.json` helper allowlist，再由现有 credential helper 推送脆弱基线 commit；记录真实 commit SHA、默认分支、源码路径和两项测试。重复运行不新增仓库、commit、allowlist 重复项或冗余备份；已有非预期仓库内容时停止。
-2. `integrations/mock-source/` 增加 loopback-only、CAS 保护的 `POST /api/findings/{id}/bind-demo-repository`。请求 `{expectedRevision, repositoryId, repositoryUrl, baseCommit, sourcePath, lineRange}` 只接受 FND-00016、`owner-aster-01`、预期 revision、原始 placeholder 身份，以及项目实际生成的 `REPO-demo-tenant-invoice-api`、本地 Gitea URL、40 位 base SHA 和固定源码路径。原记录已领取、状态变化或字段漂移时返回 409；非 loopback 调用拒绝。精确相同的已完成绑定幂等成功且不增加 revision。绑定器不接受任意仓库 URL。
+2. `integrations/mock-source/` 增加 loopback-only、CAS 保护的 `POST /api/findings/{id}/bind-demo-repository`。请求 `{expectedRevision, repositoryId, repositoryUrl, baseCommit, sourcePath, lineRange, findingName}` 只接受 FND-00016、`owner-aster-01`、预期 revision、原始 placeholder 身份，以及项目实际生成的 `REPO-demo-tenant-invoice-api`、本地 Gitea URL、40 位 base SHA、固定源码路径和目标标题。原记录已领取、状态变化或字段漂移时返回 409；非 loopback 调用拒绝。精确相同的已完成绑定幂等成功且不增加 revision。绑定器不接受任意仓库 URL，也不改 Owner、category、risk、score 或工作流状态。
 3. `plugins/argon-workflow/source.mjs` 映射 FND-00016 到新 repo、base SHA 和唯一源码路径；`rules.mjs` 为其声明唯一预期失败名。订阅器依现有映射规则完成 triage，任务中心按既有流程等待 Owner 审批。
 4. ARGON 执行/交付白名单及 Mock 完成回写白名单加入新 repo。增加对应 mapping、baseline、repo allowlist、CAS 绑定端点与完成回写测试；不改 `tests/live_generic_intake.py` 的旧固定库存。
 5. Owner 批准后复用现有 PLAN、CODE、VERIFY、PR 链路。候选仅修映射源码文件；PR 保持 open/unmerged，代码服务不自动合并或关闭 Finding。

@@ -24,6 +24,8 @@ import java.net.InetAddress;
 public class DemoFindingBindingController {
     private static final String FINDING_ID = "FND-00016";
     private static final String OWNER_ID = "owner-aster-01";
+    private static final String PLACEHOLDER_NAME = "Example multi-user notes view lacks mock tenant scope";
+    private static final String INVOICE_FINDING_NAME = "Invoice endpoint exposes another tenant's invoice by ID";
     private static final String OLD_REPOSITORY_ID = "REPO-demo-aster-ui-service";
     private static final String OLD_REPOSITORY_URL = "https://git.example.test/demo/demo-aster-ui-service.git";
     private static final String OLD_BASE_COMMIT = "6a11c9d2e8f34b0a9d5e7c61f2b8a0d4e6c3f1a2";
@@ -43,7 +45,8 @@ public class DemoFindingBindingController {
             @NotBlank @Size(max = 500) String repositoryUrl,
             @NotBlank @Pattern(regexp = "[0-9a-f]{40}") String baseCommit,
             @NotBlank @Size(max = 500) String sourcePath,
-            @NotBlank @Size(max = 24) @Pattern(regexp = "[0-9]+(?:-[0-9]+)?") String lineRange) {}
+            @NotBlank @Size(max = 24) @Pattern(regexp = "[0-9]+(?:-[0-9]+)?") String lineRange,
+            @NotBlank @Size(max = 500) String findingName) {}
 
     @PostMapping("/{id}/bind-demo-repository")
     @Transactional
@@ -71,13 +74,15 @@ public class DemoFindingBindingController {
         finding.baseCommit = request.baseCommit();
         finding.sourcePath = request.sourcePath();
         finding.lineRange = request.lineRange();
+        finding.name = request.findingName();
         return findings.saveAndFlush(finding);
     }
 
     private static boolean validNewTarget(BindingRequest request) {
         return NEW_REPOSITORY_ID.equals(request.repositoryId())
                 && NEW_REPOSITORY_URL.equals(request.repositoryUrl())
-                && NEW_SOURCE_PATH.equals(request.sourcePath());
+                && NEW_SOURCE_PATH.equals(request.sourcePath())
+                && INVOICE_FINDING_NAME.equals(request.findingName());
     }
 
     private static boolean alreadyBound(Finding finding, BindingRequest request) {
@@ -85,11 +90,13 @@ public class DemoFindingBindingController {
                 && NEW_REPOSITORY_URL.equals(finding.repositoryUrl)
                 && request.baseCommit().equals(finding.baseCommit)
                 && NEW_SOURCE_PATH.equals(finding.sourcePath)
-                && request.lineRange().equals(finding.lineRange);
+                && request.lineRange().equals(finding.lineRange)
+                && INVOICE_FINDING_NAME.equals(finding.name);
     }
 
     private static boolean isOriginalUnclaimedFinding(Finding finding) {
         return OWNER_ID.equals(finding.ownerId)
+                && PLACEHOLDER_NAME.equals(finding.name)
                 && OLD_REPOSITORY_ID.equals(finding.repositoryId)
                 && OLD_REPOSITORY_URL.equals(finding.repositoryUrl)
                 && OLD_BASE_COMMIT.equals(finding.baseCommit)

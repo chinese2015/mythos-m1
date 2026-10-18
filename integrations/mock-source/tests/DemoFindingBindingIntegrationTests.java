@@ -32,6 +32,8 @@ class DemoFindingBindingIntegrationTests {
     private static final String PLACEHOLDER_REPOSITORY_ID = "REPO-demo-aster-ui-service";
     private static final String PLACEHOLDER_URL = "https://git.example.test/demo/demo-aster-ui-service.git";
     private static final String PLACEHOLDER_COMMIT = "6a11c9d2e8f34b0a9d5e7c61f2b8a0d4e6c3f1a2";
+    private static final String PLACEHOLDER_NAME = "Example multi-user notes view lacks mock tenant scope";
+    private static final String INVOICE_FINDING_NAME = "Invoice endpoint exposes another tenant's invoice by ID";
     private static final String REPOSITORY_ID = "REPO-demo-tenant-invoice-api";
     private static final String REPOSITORY_URL = "http://127.0.0.1:3000/demo/demo-tenant-invoice-api.git";
     private static final String SOURCE_PATH = "src/main/java/com/example/invoice/InvoiceController.java";
@@ -46,6 +48,7 @@ class DemoFindingBindingIntegrationTests {
     void resetUnclaimedFnd16Placeholder() {
         Finding finding = findings.findById(ID).orElseThrow();
         finding.ownerId = "owner-aster-01";
+        finding.name = PLACEHOLDER_NAME;
         finding.repositoryId = PLACEHOLDER_REPOSITORY_ID;
         finding.repositoryUrl = PLACEHOLDER_URL;
         finding.baseCommit = PLACEHOLDER_COMMIT;
@@ -66,6 +69,9 @@ class DemoFindingBindingIntegrationTests {
     @Test
     void bindsExactPlaceholderAndExactReplayDoesNotAdvanceRevision() throws Exception {
         Finding before = findings.findById(ID).orElseThrow();
+        String owner = before.ownerId, category = before.category, risk = before.risk;
+        double score = before.score;
+        String status = before.status, closed = before.closed;
         String request = body(before.revision, REPOSITORY_ID, REPOSITORY_URL, BASE_COMMIT, SOURCE_PATH, "18-26");
 
         var first = mvc.perform(post("/api/findings/{id}/bind-demo-repository", ID)
@@ -76,12 +82,20 @@ class DemoFindingBindingIntegrationTests {
         assertEquals(REPOSITORY_URL, bound.repositoryUrl);
         assertEquals(BASE_COMMIT, bound.baseCommit);
         assertEquals(SOURCE_PATH, bound.sourcePath);
+        assertEquals(INVOICE_FINDING_NAME, bound.name);
+        assertEquals(owner, bound.ownerId);
+        assertEquals(category, bound.category);
+        assertEquals(risk, bound.risk);
+        assertEquals(score, bound.score);
+        assertEquals(status, bound.status);
+        assertEquals(closed, bound.closed);
         assertEquals(before.revision + 1, bound.revision);
 
         var replay = mvc.perform(post("/api/findings/{id}/bind-demo-repository", ID)
                         .contentType(MediaType.APPLICATION_JSON).content(request))
                 .andExpect(status().isOk()).andReturn();
         Finding replayed = mapper.readValue(replay.getResponse().getContentAsString(), Finding.class);
+        assertEquals(INVOICE_FINDING_NAME, replayed.name);
         assertEquals(bound.revision, replayed.revision);
     }
 
@@ -147,6 +161,6 @@ class DemoFindingBindingIntegrationTests {
                         String sourcePath, String lineRange) throws Exception {
         return mapper.writeValueAsString(Map.of("expectedRevision", revision, "repositoryId", repositoryId,
                 "repositoryUrl", repositoryUrl, "baseCommit", baseCommit, "sourcePath", sourcePath,
-                "lineRange", lineRange));
+                "lineRange", lineRange, "findingName", INVOICE_FINDING_NAME));
     }
 }
