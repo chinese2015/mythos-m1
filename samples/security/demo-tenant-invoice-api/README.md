@@ -12,6 +12,14 @@ The base commit is expected to report exactly two tests with one failure: `cross
 
 For a raw local checkout, run `mvn -B -o test`; the parent repository's `tests/test_bola_demo_fixture.py` runs the frozen command in a temporary copy with local Maven settings and checks the exact baseline report.
 
+The Argon demo operator can seed the private Gitea project and bind the pre-existing FND-00016 from the M1 host:
+
+```sh
+python3 tools/provision_bola_demo.py
+```
+
+The command uses the existing local Gitea credential helper, adds only this repository to its exact push allowlist, and leaves the PR and Finding open for the normal Owner-approved workflow. It prints the repository, base commit, source path, and Finding revision; it never prints credentials.
+
 Start the synthetic loopback server with:
 
 ```sh
