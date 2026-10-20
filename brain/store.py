@@ -279,8 +279,10 @@ class Store:
             if work['sandboxId']:
                 return work, False
             provision = work.get('workspaceProvision')
-            if provision:
+            if provision and provision.get('state') in {'PREPARING', 'UNKNOWN'}:
                 return work, False
+            # A FAILED provision is terminal and retryable: re-acquire with a fresh intent
+            # so the next prepare allocates a new sandbox once the cause is cleared.
             self._version(work, expected_version)
             work['workspaceProvision'] = {'state': 'PREPARING', 'label': 'task-' + work_id.split('-')[-1], 'startedAt': now()}
             work['stage'] = 'PREPARING'

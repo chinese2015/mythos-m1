@@ -87,6 +87,46 @@ class TaskStoreContracts(unittest.TestCase):
         workspace._active.add(work_id)
         self.assertIs(workspace.prepare('alice', work_id, 1), current)
 
+    def test_failed_preparation_can_be_retried_after_the_cause_is_cleared(self):
+        item = self.store.claim_task('alice', SOURCE, '2', 'claim-a')
+        prepared, acquired = self.store.begin_prepare('alice', item['workItemId'], item['version'])
+        self.assertTrue(acquired)
+        failed = self.store.finish_prepare('alice', item['workItemId'], error='Sandbox concurrency quota exhausted')
+        self.assertEqual(failed['workspaceProvision']['state'], 'FAILED')
+        retry, acquired_again = Store(self.temp.name).begin_prepare('alice', item['workItemId'], failed['version'])
+        self.assertTrue(acquired_again)
+        self.assertEqual(retry['workspaceProvision']['state'], 'PREPARING')
+        self.assertNotIn('error', retry['workspaceProvision'])
+
+    def test_prepare_retry_ignores_dead_sandbox_rows_from_the_failed_attempt(self):
+        from unittest.mock import patch
+        item = self.store.claim_task('alice', SOURCE, '2', 'claim-a')
+        prepared, _ = self.store.begin_prepare('alice', item['workItemId'], item['version'])
+        label = prepared['workspaceProvision']['label']
+        failed = self.store.finish_prepare('alice', item['workItemId'], error='docker failed')
+        dead = {'workspace_id': label, 'sandbox_id': 'sb-dead', 'state': 'failed'}
+        created = []
+        class FakeRegistry:
+            def list_owned(self, owner):
+                return [dead]
+            def get(self, owner, sandbox_id):
+                return {'workspace_path': '/tmp/ws', 'container_name': 'c-' + sandbox_id}
+        class FakeBroker:
+            registry = FakeRegistry()
+            def create(self, owner, workspace, source):
+                created.append((owner, workspace))
+                return {'sandbox_id': 'sb-new'}
+            def execute_capture(self, owner, sandbox_id, argv, timeout=None):
+                if argv[:2] == ['git', 'rev-parse'] and argv[-1] == 'HEAD':
+                    return {'stdout': SOURCE['baseCommit'] + '\n', 'stderr': '', 'exitCode': 0}
+                return {'stdout': '', 'stderr': '', 'exitCode': 0}
+        workspace = TaskWorkspace(self.store, SimpleNamespace(broker=FakeBroker()))
+        workspace._ready = lambda *args: True
+        with patch('brain.workspace.subprocess.run', return_value=SimpleNamespace(returncode=0)):
+            result = workspace.prepare('alice', item['workItemId'], failed['version'])
+        self.assertEqual(created, [('alice', label)])
+        self.assertEqual(result['sandboxId'], 'sb-new')
+
     def test_session_cannot_be_claimed_by_another_work_item(self):
         a = self.store.claim_task('alice', SOURCE, '2', 'claim-a')
         other_source = dict(SOURCE, id='FND-00010')

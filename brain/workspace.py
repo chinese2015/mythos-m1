@@ -28,7 +28,8 @@ class TaskWorkspace:
                 in_process = work_id in self._active
             if in_process:
                 return work
-        matches = [r for r in self.broker.registry.list_owned(owner) if r['workspace_id'] == label]
+        matches = [r for r in self.broker.registry.list_owned(owner)
+                   if r['workspace_id'] == label and r['state'] not in {'stopped', 'failed'}]
         if not acquired:
             if len(matches) == 1:
                 record = matches[0]

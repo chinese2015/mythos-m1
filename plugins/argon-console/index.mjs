@@ -5,13 +5,13 @@ const assets = new Map([['/', ['index.html', 'text/html; charset=utf-8']], ['/ap
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
 function json(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(value)); }
 async function bodyOf(req) {
-  if (req.headers['x-argon-action'] !== '1' || !/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) throw failure('需要 JSON 工作台操作请求', 415);
+  if (req.headers['x-argon-action'] !== '1' || !/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) throw failure('JSON workspace action request required', 415);
   const key = req.headers['idempotency-key'];
-  if (typeof key !== 'string' || !/^[A-Za-z0-9_-]{1,150}$/.test(key)) throw failure('缺少有效的操作标识');
+  if (typeof key !== 'string' || !/^[A-Za-z0-9_-]{1,150}$/.test(key)) throw failure('Missing a valid action idempotency key');
   let size = 0; const chunks = [];
-  for await (const chunk of req) { size += chunk.length; if (size > 20000) throw failure('请求过长', 413); chunks.push(chunk); }
-  let body; try { body = JSON.parse(Buffer.concat(chunks).toString()); } catch { throw failure('无效的 JSON'); }
-  if (!body || typeof body !== 'object' || Array.isArray(body)) throw failure('请求必须为对象');
+  for await (const chunk of req) { size += chunk.length; if (size > 20000) throw failure('Request too large', 413); chunks.push(chunk); }
+  let body; try { body = JSON.parse(Buffer.concat(chunks).toString()); } catch { throw failure('Invalid JSON'); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw failure('Request body must be an object');
   return { body, key };
 }
 export function consoleHandler({ connection, workflow, sdlc, subscribe, assetReader = name => readFile(new URL('./public/' + name, import.meta.url)) }) {
@@ -20,10 +20,11 @@ export function consoleHandler({ connection, workflow, sdlc, subscribe, assetRea
       const url = new URL(req.url, 'http://dsh.invalid');
       if (url.pathname === '/argon') { res.writeHead(302, { Location: '/argon/' }); res.end(); return; }
       const path = url.pathname.slice('/argon'.length);
-      const rejection = connection.requestRejection({ headers: req.headers });
-      if (rejection) return json(res, rejection, { error: rejection === 401 ? '请先在 DSH 主页面完成登录' : '请求来源不受信任' });
+      // The push intake endpoint is unauthenticated for the demo: the mock source and IM links have no DSH session.
+      const rejection = path === '/api/source-findings' ? null : connection.requestRejection({ headers: req.headers });
+      if (rejection) return json(res, rejection, { error: rejection === 401 ? 'Sign in on the DSH main page first' : 'Request origin is not trusted' });
       if (!path.startsWith('/api/')) {
-        if (req.method !== 'GET' || !assets.has(path)) throw failure('页面不存在', 404);
+        if (req.method !== 'GET' || !assets.has(path)) throw failure('Page not found', 404);
         const [name, type] = assets.get(path);
         const bytes = await assetReader(name);
         res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
@@ -36,16 +37,17 @@ export function consoleHandler({ connection, workflow, sdlc, subscribe, assetRea
         if (path === '/api/work-items') return json(res, 200, { workItems: await workflow.listWorks() });
         if (parts[0] === 'work-items' && parts.length === 2) return json(res, 200, await workflow.detail(parts[1]));
         if (parts[0] === 'operations' && parts.length === 3 && parts[2] === 'logs') {
-          const after = Number(url.searchParams.get('after') ?? 0); if (!Number.isSafeInteger(after) || after < 0) throw failure('无效日志游标');
+          const after = Number(url.searchParams.get('after') ?? 0); if (!Number.isSafeInteger(after) || after < 0) throw failure('Invalid log cursor');
           return json(res, 200, await workflow.logs(parts[1], after));
         }
         if (parts[0] === 'work-items' && parts.length === 3 && parts[2] === 'events') {
-          const after = Number(url.searchParams.get('after') ?? 0); if (!Number.isSafeInteger(after) || after < 0) throw failure('无效事件游标');
+          const after = Number(url.searchParams.get('after') ?? 0); if (!Number.isSafeInteger(after) || after < 0) throw failure('Invalid event cursor');
           return json(res, 200, await workflow.events(parts[1], after));
         }
       }
       if (req.method === 'POST') {
         const { body, key } = await bodyOf(req);
+        if (parts[0] === 'source-findings' && parts.length === 1) return json(res, 202, await workflow.ingest(body, key));
         if (parts[0] === 'tasks' && parts[2] === 'decide' && parts.length === 3) return json(res, 200, await subscribe.decide(parts[1], body, key));
         if (parts[0] === 'tasks' && parts[2] === 'start' && parts.length === 3) return json(res, 202, await workflow.start(parts[1], body, key));
         if (parts[0] === 'work-items' && parts.length === 3) {
@@ -57,10 +59,10 @@ export function consoleHandler({ connection, workflow, sdlc, subscribe, assetRea
         }
         if (parts[0] === 'operations' && parts[2] === 'cancel' && parts.length === 3) return json(res, 202, await workflow.cancel(parts[1], body, key));
       }
-      throw failure('接口不存在', 404);
+      throw failure('Endpoint not found', 404);
     } catch (error) {
       const status = error.status >= 400 && error.status <= 599 ? error.status : 503;
-      json(res, status, { error: error.status ? error.message : '工作流服务暂不可用，请刷新查看最新状态' });
+      json(res, status, { error: error.status ? error.message : 'Workflow service temporarily unavailable, refresh to see the latest state' });
     }
   };
 }

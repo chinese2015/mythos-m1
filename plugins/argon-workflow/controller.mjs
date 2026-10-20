@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { M2Client } from '../argon-brain/client.mjs';
-import { FindingSource, sourceRecord } from './source.mjs';
+import { FindingSource, mappings, normalizeFinding, sourceRecord } from './source.mjs';
 import { sessionProgress, assertApproval, baselineReproduced, baselineExpectations, conflict, transcript } from './rules.mjs';
-import { findingBinding } from '../argon-subscribe/triage.mjs';
+import { findingBinding, triageFinding } from '../argon-subscribe/triage.mjs';
 import { taskPreset } from './session-policy.mjs';
 
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -22,13 +22,13 @@ export class TaskWorkflow {
     this.workState = new Map(); this.inputFences = new Set();
   }
   inputRejection(workId, role, sessionId) {
-    if (this.closed) return '任务工作流暂不可用';
+    if (this.closed) return 'Task workflow is temporarily unavailable';
     const work = this.workState.get(workId);
-    if (this.inputFences.has(sessionId)) return '任务决策处理中，请稍后重试输入';
-    if (!work) return '任务状态加载中，请稍后重试输入';
-    if (work.paused) return '请先在任务工作台恢复工作流';
-    if (role === 'PLAN' && work.workflow.approval) return '计划已批准，请向编码会话发送后续说明';
-    if (role === 'CODE' && (!work.workflow.approval || work.workflow.phase !== 'CODING')) return '编码输入会使验证失效，请从任务工作台发送补充说明';
+    if (this.inputFences.has(sessionId)) return 'A task decision is in progress, retry the input shortly';
+    if (!work) return 'Task state is loading, retry the input shortly';
+    if (work.paused) return 'Resume the workflow from the Task Workspace first';
+    if (role === 'PLAN' && work.workflow.approval) return 'Plan approved; send follow-up notes to the coding session';
+    if (role === 'CODE' && (!work.workflow.approval || work.workflow.phase !== 'CODING')) return 'Input during coding would invalidate verification; send supplementary notes from the Task Workspace';
   }
   async fence(sessionId, fn) {
     this.inputFences.add(sessionId);
@@ -44,9 +44,9 @@ export class TaskWorkflow {
   }
   key(...parts) { return 'task-' + hash(parts); }
   async snapshot(id) {
-    if (!/^work-[a-f0-9]{32}$/.test(id)) throw Object.assign(new Error('工作项不存在'), { status: 404 });
+    if (!/^work-[a-f0-9]{32}$/.test(id)) throw Object.assign(new Error('Work item not found'), { status: 404 });
     const snap = await this.client.request('GET', route(id));
-    if (snap.workItem.ownerId !== this.owner || snap.workItem.source?.type !== 'ARGON' || !snap.workItem.sourceRecord || !snap.workItem.workflow) throw Object.assign(new Error('工作项不存在'), { status: 404 });
+    if (snap.workItem.ownerId !== this.owner || snap.workItem.source?.type !== 'ARGON' || !snap.workItem.sourceRecord || !snap.workItem.workflow) throw Object.assign(new Error('Work item not found'), { status: 404 });
     this.remember(snap.workItem);
     return snap;
   }
@@ -56,17 +56,43 @@ export class TaskWorkflow {
     return { tasks: tasks.map(task => { const work = works.find(w => w.source.id === task.id), intake = intakes.find(i => i.findingId === task.id) ?? null; return { ...task,
       intake, startable: !!work || !!(task.enabled && intake?.state === 'APPROVED' && intake.triage?.result === 'CONFIRMED' && intake.decision?.binding === findingBinding(task)),
       ...(work ? { workItemId: work.workItemId, workStage: work.paused ? 'PAUSED' : work.workflow?.phase } : {}) }; }),
-      operator: { id: this.owner, label: '演示操作员 ' + this.owner } };
+      operator: { id: this.owner, label: 'Demo operator ' + this.owner } };
   }
   start(id, body, key) { return this.serial(async () => {
     const existing = (await this.listWorks()).find(w => w.source.id === id);
     if (existing) return existing;
     const task = await this.source.get(id);
-    if (!task?.enabled) throw conflict('此来源任务暂未开放执行，或仓库基线已变化');
+    if (!task?.enabled) throw conflict('This source task is not open for execution yet, or the repository baseline has changed');
     const { intakes } = await this.client.request('GET', '/api/brain/source-intakes');
     const intake = intakes.find(i => i.findingId === id);
-    if (intake?.state !== 'APPROVED' || intake.triage?.result !== 'CONFIRMED' || intake.decision?.binding !== findingBinding(task)) throw conflict('请等待 Owner 在任务中心批准接管');
+    if (intake?.state !== 'APPROVED' || intake.triage?.result !== 'CONFIRMED' || intake.decision?.binding !== findingBinding(task)) throw conflict('Wait for the Owner to approve takeover in the Task Center');
     return this.client.request('POST', '/api/brain/tasks/claim', { key: this.key('claim', id, key), body: { sourceRecord: sourceRecord(task), expectedRevision: body.expectedRevision } });
+  }); }
+  // Push entry: a source system (or an IM link click) delivers a finding and the workflow starts from the request.
+  ingest(body, key) { return this.serial(async () => {
+    const id = body?.findingId;
+    if (!Object.hasOwn(mappings, id)) throw Object.assign(new Error('Source is not within the mapped assets'), { status: 404 });
+    let raw = null;
+    if (body.finding && typeof body.finding === 'object') raw = body.finding;
+    else {
+      try { raw = await this.source.request('/api/findings/' + id); } catch { raw = null; }
+      if (!raw || raw.id !== id) throw Object.assign(new Error('Source does not exist or is unreachable'), { status: 404 });
+    }
+    if (body.expectedRevision != null && raw.revision !== body.expectedRevision) throw conflict('Source revision changed; retry against the latest version');
+    const existing = (await this.listWorks()).find(w => w.source.id === id);
+    const triage = triageFinding(raw, mappings[id]);
+    const intakeRoute = '/api/brain/source-intakes/' + id;
+    await this.client.request('PUT', intakeRoute, { body: { revision: raw.revision, triage } });
+    // Re-deliveries about an already-running finding stay idempotent instead of triage-rejecting an in-progress source.
+    if (existing) return { status: 'ALREADY_RUNNING', workItemId: existing.workItemId };
+    if (triage.result !== 'CONFIRMED') throw conflict('Triage did not pass: ' + triage.reasons.join('; '));
+    const { intakes } = await this.client.request('GET', '/api/brain/source-intakes');
+    const state = intakes.find(i => i.findingId === id)?.state;
+    if (state === 'AWAITING_OWNER') await this.client.request('POST', intakeRoute + '/decide', { key: this.key('intake-decide', id, key), body: { expectedRevision: raw.revision, decision: 'APPROVED' } });
+    else if (state === 'REJECTED') throw conflict('Source takeover was rejected');
+    if (existing) return { status: 'ALREADY_RUNNING', workItemId: existing.workItemId };
+    const claimed = await this.client.request('POST', '/api/brain/tasks/claim', { key: this.key('claim', id, key), body: { sourceRecord: sourceRecord(normalizeFinding(raw)), expectedRevision: raw.revision } });
+    return { status: 'STARTED', workItemId: claimed.workItemId ?? claimed.workItem?.workItemId };
   }); }
   async update(work, changes, { blocked = work.blocked, key } = {}) {
     const result = await this.client.request('POST', route(work.workItemId) + '/workflow', { key: key ?? this.key('workflow', work.workItemId, work.version, changes),
@@ -89,7 +115,7 @@ export class TaskWorkflow {
       const inspected = await this.sessions.inspect(sid);
       const requestId = work.workflow[role.toLowerCase() + 'RequestId']; const progress = sessionProgress(inspected, requestId);
       const { items } = await this.sessions.list({}); const row = items.find(x => x.sessionId === sid);
-      result.session = { sessionId: sid, role, running: !!row?.running, activity: progress.completed ? '本轮已完成' : row?.running ? 'Agent 运行中' : '等待输入',
+      result.session = { sessionId: sid, role, running: !!row?.running, activity: progress.completed ? 'Round complete' : row?.running ? 'Agent running' : 'Awaiting input',
         transcript: transcript(inspected), url: '/?argonSession=' + encodeURIComponent(sid) + '&argonEmbedded=1' };
     }
     return result;
@@ -98,34 +124,34 @@ export class TaskWorkflow {
     const snap = await this.snapshot(id), work = snap.workItem, wf = work.workflow;
     // A replay is valid only for the exact approval decision already stored.
     if (wf.approval?.key === key && wf.approval.planHash === body.planHash && wf.approval.expectedVersion === body.expectedVersion) return work;
-    if (!wf.planSessionId) throw conflict('只读方案尚未完成');
+    if (!wf.planSessionId) throw conflict('The read-only plan is not complete yet');
     return this.fence(wf.planSessionId, async () => {
     const progress = sessionProgress(await this.sessions.inspect(wf.planSessionId), wf.planRequestId);
     assertApproval(snap, body, progress);
-    if (work.paused) throw conflict('请先恢复工作流');
+    if (work.paused) throw conflict('Resume the workflow first');
     const git = (await this.workspace(work, true)).git;
-    if (git.headCommit !== work.sourceRecord.baseCommit || git.status || git.changedFiles.length) throw conflict('审批前工作区出现变更，需要人工检查');
+    if (git.headCommit !== work.sourceRecord.baseCommit || git.status || git.changedFiles.length) throw conflict('Workspace changed before approval; manual inspection required');
     return this.update(work, { phase: 'CODING', reason: null, approval: { actor: this.owner, approvedAt: new Date().toISOString(), planHash: body.planHash, expectedVersion: body.expectedVersion, key },
       pendingMessage: null, codeSessionId: identity(work, 'CODE'), codeRequestId: this.key('prompt', id, 'CODE', 1) }, { blocked: false, key: this.key('approve', id, key) });
     });
   }); }
   pause(id, paused, body, key) { return this.serial(async () => {
     const { workItem } = await this.snapshot(id);
-    if (!paused && workItem.workflow.phase === 'BLOCKED') throw conflict('任务已阻塞。请查看原因；会话中断可发送补充说明明确继续，执行状态未知需先检查沙箱');
+    if (!paused && workItem.workflow.phase === 'BLOCKED') throw conflict('Task is blocked. Check the reason; if the session was interrupted, send supplementary notes to continue explicitly; if the execution state is unknown, inspect the sandbox first');
     const result = await this.client.request('POST', route(id) + (paused ? '/pause' : '/resume'), { key: this.key('pause', id, key), body });
     this.remember(result); return result;
   }); }
   message(id, body, key) { return this.serial(async () => {
-    if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > 16000) throw Object.assign(new Error('请输入 1–16000 字的补充说明'), { status: 400 });
+    if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > 16000) throw Object.assign(new Error('Enter supplementary notes of 1–16000 characters'), { status: 400 });
     const snap = await this.snapshot(id), work = snap.workItem, wf = work.workflow;
-    if (work.paused || snap.operations.some(o => o.state === 'UNKNOWN')) throw conflict('请先检查或恢复暂停/未知的执行');
-    if (['PUBLISHING', 'PR_OPEN', 'CLOSING', 'COMPLETED'].includes(wf.phase)) throw conflict('当前候选正在交付、审核或已完成。需要修改时，请先在 Gitea 关闭未合并的 PR，再发送补充说明');
+    if (work.paused || snap.operations.some(o => o.state === 'UNKNOWN')) throw conflict('Inspect or resume the paused/unknown execution first');
+    if (['PUBLISHING', 'PR_OPEN', 'CLOSING', 'COMPLETED'].includes(wf.phase)) throw conflict('The current candidate is being delivered, under review, or completed. To modify it, close the unmerged PR in Gitea first, then send supplementary notes');
     const role = wf.approval ? 'CODE' : 'PLAN'; const sid = wf[role.toLowerCase() + 'SessionId'];
-    if (!sid || !work.sessionIds.includes(sid)) throw conflict('当前还没有可接收说明的工作会话');
+    if (!sid || !work.sessionIds.includes(sid)) throw conflict('No active work session can receive notes right now');
     const requestId = this.key('message', id, key);
     if (wf.pendingMessage && wf.pendingMessage.requestId !== requestId && !(role === 'CODE' && wf.pendingMessage.requestId === wf.planRequestId)) {
       const previous = sessionProgress(await this.sessions.inspect(sid), wf.pendingMessage.requestId);
-      if (!previous.found) throw conflict('上一条补充说明正在投递，请稍后再发送');
+      if (!previous.found) throw conflict('The previous supplementary note is still being delivered; send again shortly');
     }
     if (wf[role.toLowerCase() + 'RequestId'] !== requestId) await this.update(work, {
       phase: role === 'CODE' ? 'CODING' : 'PLANNING', reason: null,
@@ -136,7 +162,7 @@ export class TaskWorkflow {
     return { accepted: true, requestId };
   }); }
   async operation(id) {
-    if (!/^exec-[a-f0-9]{32}$/.test(id)) throw Object.assign(new Error('操作不存在'), { status: 404 });
+    if (!/^exec-[a-f0-9]{32}$/.test(id)) throw Object.assign(new Error('Operation not found'), { status: 404 });
     const op = await this.client.request('GET', opRoute(id)); await this.snapshot(op.workItemId); return op;
   }
   async logs(id, after) { await this.operation(id); return this.client.request('GET', opRoute(id) + '/logs?after=' + after + '&limit=100'); }
@@ -159,17 +185,17 @@ export class TaskWorkflow {
       work = (await this.snapshot(work.workItemId)).workItem;
       work = await this.client.request('POST', route(work.workItemId) + '/sessions', { key: this.key('session', work.workItemId, role),
         body: { sessionId: sid, role, expectedVersion: work.version } });
-      await this.sessions.rename({ sessionId: sid, title: work.source.id + (role === 'PLAN' ? ' · 计划' : ' · 编码') });
+      await this.sessions.rename({ sessionId: sid, title: work.source.id + (role === 'PLAN' ? ' · Plan' : ' · Code') });
     }
     return work;
   }
   prompt(work, role) {
     const wf = work.workflow, source = work.sourceRecord;
     if (wf.pendingMessage?.requestId === wf[role.toLowerCase() + 'RequestId']) return wf.pendingMessage.text;
-    const expected = baselineExpectations[source.id]?.join('、') ?? '请查阅基线操作的 JUnit 证据';
-    const context = `任务 ${source.id}: ${source.title}\n仓库基线 ${source.baseCommit}\n只允许修改 ${source.sourcePath}。禁止读取参考修复分支，不修改测试/POM/构建配置，不创建 PR。\n已复现真实失败测试：${expected}。`;
-    return role === 'PLAN' ? `${context}\n请用只读工具检查源码和现有测试，输出具体修改方案、风险与验证步骤，完成后等待人工审批。` :
-      `${context}\n人工已批准方案：\n${wf.plan}\n请实际完成源码修改，保持现有测试不变，运行必要测试并用 git 提交你的修改；最后报告提交 SHA 和测试事实。独立 clean verify 将由工作流在新的容器执行。`;
+    const expected = baselineExpectations[source.id]?.join(', ') ?? 'Consult the JUnit evidence of the baseline operation';
+    const context = `Task ${source.id}: ${source.title}\nRepository baseline ${source.baseCommit}\nOnly ${source.sourcePath} may be modified. Reading the reference fix branch is forbidden; do not modify tests, POM, or build configuration, and do not create PRs.\nReproduced real failing tests: ${expected}.`;
+    return role === 'PLAN' ? `${context}\nUse read-only tools to inspect the source and existing tests, then output a concrete change plan, risks, and validation steps, and wait for human approval when done.` :
+      `${context}\nA human has approved the plan:\n${wf.plan}\nActually complete the source modification, keep the existing tests unchanged, run the necessary tests, and commit your changes with git; finally report the commit SHA and test facts. The workflow will run independent clean verification in a fresh container.`;
   }
   async observe(work, role) {
     work = await this.ensureSession(work, role);
@@ -179,30 +205,30 @@ export class TaskWorkflow {
       await this.sessions.prompt({ sessionId: sid, requestId, mode: 'queue', content: [{ type: 'text', text: this.prompt(work, role) }], clientTimeZone: 'Asia/Shanghai' }, new AbortController().signal);
       return;
     }
-    if (progress.failed) return this.block(work, 'DSH 会话本轮未正常完成：' + progress.reason + '。可发送补充说明明确继续。');
+    if (progress.failed) return this.block(work, 'DSH session did not complete this round: ' + progress.reason + '. Send supplementary notes to continue explicitly.');
     if (wf.pendingMessage?.requestId === requestId) return this.update(work, { pendingMessage: null });
     if (!progress.completed) {
       if (progress.pending) return;
       const { items } = await this.sessions.list({}); const row = items.find(x => x.sessionId === sid);
-      if (row && !row.running) return this.block(work, 'DSH 会话已中断，未自动重放。可发送补充说明明确继续。');
+      if (row && !row.running) return this.block(work, 'DSH session was interrupted and not auto-replayed. Send supplementary notes to continue explicitly.');
       return;
     }
     if (progress.latestUserSequence > progress.endSequence) {
       const latest = inspected.events.filter(e => e.type === 'user/message').at(-1);
       if (latest.data?.source?.rpcId) return this.update(work, { [role.toLowerCase() + 'RequestId']: latest.data.source.rpcId });
-      return this.block(work, '会话有新的人工输入，请发送说明明确下一步');
+      return this.block(work, 'The session has new human input; send notes to clarify the next step');
     }
     if (role === 'PLAN') {
-      if (!progress.text.trim()) return this.block(work, '计划会话未产出可供审批的方案');
+      if (!progress.text.trim()) return this.block(work, 'The planning session produced no approvable plan');
       const git = (await this.workspace(work, true)).git;
-      if (git.headCommit !== work.sourceRecord.baseCommit || git.status || git.changedFiles.length) return this.block(work, '计划阶段工作区发生变化，需要人工检查');
+      if (git.headCommit !== work.sourceRecord.baseCommit || git.status || git.changedFiles.length) return this.block(work, 'Workspace changed during planning; manual inspection required');
       return this.update(work, { phase: 'AWAITING_PLAN_APPROVAL', plan: progress.text, planHash: hash([sid, requestId, progress.endSequence, progress.text]), planEndSequence: progress.endSequence });
     }
     const snap = await this.snapshot(work.workItemId);
     if (snap.operations.some(op => !terminal.has(op.state))) return;
     const git = (await this.workspace(work, true)).git;
     if (git.headCommit === work.sourceRecord.baseCommit || git.status || git.testsChanged.length || git.changedFiles.length !== 1 || git.changedFiles[0] !== work.sourceRecord.sourcePath)
-      return this.block(snap.workItem, '编码结束，但候选提交必须已提交、工作区干净且只修改指定源文件。可发送说明修正后继续。');
+      return this.block(snap.workItem, 'Coding finished, but the candidate must be committed, the workspace clean, and only the designated source file modified. Send notes to fix and continue.');
     return this.update(snap.workItem, { phase: 'VERIFYING', candidateCommit: git.headCommit, codeEndSequence: progress.endSequence, verificationOperationId: null }, { blocked: false });
   }
   async block(work, reason) { return this.update(work, { returnPhase: work.workflow.phase, phase: 'BLOCKED', reason }, { blocked: true }); }
@@ -229,14 +255,14 @@ export class TaskWorkflow {
     if (wf.phase === 'PREPARING') {
       const prepared = await this.client.request('POST', route(work.workItemId) + '/prepare', { key: this.key('prepare', work.workItemId), body: { expectedVersion: work.version } });
       if (prepared.sandboxId) return this.update(prepared, { phase: 'BASELINE' });
-      if (['FAILED', 'UNKNOWN'].includes(prepared.workspaceProvision?.state)) return this.block(prepared, '工作区准备失败：' + prepared.workspaceProvision.error);
+      if (['FAILED', 'UNKNOWN'].includes(prepared.workspaceProvision?.state)) return this.block(prepared, 'Workspace preparation failed: ' + prepared.workspaceProvision.error);
       return;
     }
     if (wf.phase === 'BASELINE') {
       if (!wf.baselineOperationId) return this.submitFixed(work, 'UNIT_TEST', 'mvn -B -o -s .cache/settings.xml test', 'baselineOperationId', work.sourceRecord.baseCommit);
       const op = await this.client.request('GET', opRoute(wf.baselineOperationId));
       if (!terminal.has(op.state)) return;
-      if (!baselineReproduced(op, work.source.id)) return this.block(work, '基线测试未复现预期失败，请检查操作日志和环境；没有将环境错误视为漏洞复现。');
+      if (!baselineReproduced(op, work.source.id)) return this.block(work, 'Baseline tests did not reproduce the expected failure; check the operation logs and environment. Environment errors were not counted as vulnerability reproduction.');
       return this.update(work, { phase: 'PLANNING', baselineReproduced: true, planSessionId: identity(work, 'PLAN'), planRequestId: this.key('prompt', work.workItemId, 'PLAN', 1) }, { blocked: false });
     }
     if (wf.phase === 'PLANNING') return this.observe(work, 'PLAN');
@@ -255,14 +281,14 @@ export class TaskWorkflow {
       const inspected = await this.sessions.inspect(wf.codeSessionId), progress = sessionProgress(inspected, wf.codeRequestId);
       const { items } = await this.sessions.list({});
       if (!progress.completed || progress.latestUserSequence > wf.codeEndSequence || progress.pendingInputs.length || items.some(r => r.sessionId === wf.codeSessionId && r.running))
-        return this.block(work, '验证期间编码会话有新的活动，旧验证结果不会发布为待审核。请从任务工作台发送说明继续。');
+        return this.block(work, 'The coding session had new activity during verification; the stale verification result will not be published for review. Send notes from the Task Workspace to continue.');
       if (!wf.verificationOperationId) return this.submitFixed(work, 'VERIFY', 'mvn -B -o -s .cache/settings.xml clean verify', 'verificationOperationId', wf.candidateCommit);
       const op = await this.client.request('GET', opRoute(wf.verificationOperationId));
       if (!terminal.has(op.state)) return;
       const j = op.evidence?.junit, git = (await this.workspace(work, true)).git;
       if (op.state !== 'SUCCEEDED' || op.evidence?.sourceCommit !== wf.candidateCommit || op.evidence?.sourceDirty || j?.tests !== 2 || j.failures || j.errors || j.skipped || j.invalidReports?.length ||
           git.headCommit !== wf.candidateCommit || git.status || git.testsChanged.length || git.changedFiles.length !== 1 || git.changedFiles[0] !== work.sourceRecord.sourcePath)
-        return this.block(work, '独立验证未通过，或候选提交/测试完整性已变化。请检查日志与差异。');
+        return this.block(work, 'Independent verification did not pass, or the candidate commit or test integrity changed. Check the logs and the diff.');
       return this.update(work, { phase: 'AWAITING_REVIEW', reason: null, verifiedAt: new Date().toISOString() });
     }
   }

@@ -5,11 +5,7 @@ class SubscribeService extends Service {
   constructor(ctx, config) {
     super(ctx, 'argonSubscribe');
     this.controller = new SubscribeController(config, { report: (error, id) => ctx.logger?.warn('Argon intake ' + id + ': ' + error.message) });
-    ctx.effect(() => {
-      const sync = () => { void this.controller.syncOnce().catch(error => ctx.logger?.warn('Argon subscription: ' + error.message)); };
-      const timer = setInterval(sync, config.pollIntervalMs ?? 30000);
-      return async () => { clearInterval(timer); await this.controller.dispose(); };
-    });
+    ctx.effect(() => async () => { await this.controller.dispose(); });
   }
 }
 export function apply(ctx, config) { new SubscribeService(ctx, config); }

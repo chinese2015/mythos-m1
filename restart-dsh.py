@@ -28,14 +28,14 @@ env['JAVA_HOME'] = str(h / 'tools/jdk')
 logfile = h / 'dsh-run/dsh.log'
 with logfile.open('wb') as log:
     logfile.chmod(0o600)
-    child = subprocess.Popen([str(h / 'dsh-run/node_modules/.bin/dsh'), 'web', '--no-open', '--host', '127.0.0.1', '--port', '3080'],
+    child = subprocess.Popen([str(h / 'dsh-run/node_modules/.bin/dsh'), 'web', '--no-open', '--host', '127.0.0.1', '--port', '13080'],
                              cwd=h / 'dsh-run', env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                              start_new_session=True)
 for _ in range(60):
     if child.poll() is not None:
         raise RuntimeError('DSH startup failed; inspect private dsh.log')
     if 'dsh web:' in logfile.read_text(errors='replace'):
-        print('DSH Web ready on 127.0.0.1:3080, pid=' + str(child.pid))
+        print('DSH Web ready on 127.0.0.1:13080, pid=' + str(child.pid))
         break
     time.sleep(.5)
 else:
