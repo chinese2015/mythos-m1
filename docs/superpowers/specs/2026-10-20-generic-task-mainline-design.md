@@ -13,7 +13,8 @@
 - 对每个手工任务冻结仓库 revision、实际分支 HEAD、执行命令、证据格式、改动范围和评审要求；批准绑定冻结摘要。
 - 手工任务复用 PLAN → 人工审批 → CODE → 新容器独立验证 → 人工发布 PR；不伪造 Finding，不回写 Mock Finding。
 - 把通用代码阅读体验与其 Diff 缓存修复接到现有任务绑定工作台。
-- 修正部署需要的 Gitea origin／端口一致性与当前无认证推送路径，然后备份和更新远端主 DSH/Brain。
+- 统一新增仓库/手工任务路径所需的 Gitea origin 和端口，然后备份和更新远端主 DSH/Brain。
+- 现有 Finding 推送接入、免 DSH 登录校验和自动接管行为原样保留；本次不重做该流程。
 - 不复制 generic 的 Work Item、TaskSpec、审批、Session、沙箱、PR 记录或 Brain 数据库。generic 实例的数据与服务不变。仓库配置在主实例重新登记。
 
 ## 两种任务共用主线，不互相伪装
@@ -32,11 +33,11 @@ Brain 中继续保存同一 Work Item 模型，但依据 `source.type` 分流：
 
 手工任务发布使用从冻结 TaskSpec 得来的 Gitea 仓库身份和精确 repository-scoped credential helper。Git push 是 create-only；发生超时或重启时只对账，不覆盖已存在分支。PR 描述从真实冻结命令及运行证据生成。人类合并、合并树等于已验证候选树、配置的独立审批和 CI 门禁继续生效。未配置的门禁显示未配置，不宣称通过。手工任务 PR 通过门禁后完成 Work Item，不调用 Finding source completion。
 
-## 推送接单安全与人工入口
+## 与现有 Finding 推送流程的边界
 
-当前主线 `POST /argon/api/source-findings` 绕过 DSH 登录验证；其 `ingest()` 会自动批准 Finding 接管并领取任务。Mock 的 `/api/findings/{id}/push-task` 也没有用户登录身份。仅添加服务端签名不能解决未认证调用者可触发公开 Mock action 的问题。
+现有主线 `POST /argon/api/source-findings`、Mock `/api/findings/{id}/push-task`、来源 triage、自动接管与 Work Item 领取按当前行为保留。本次不得要求这个入口增加 DSH 登录态，不得改自动 approve/claim 的时机或来源推送 UI。新增仓库注册与手工任务 API 使用主 Console 现有认证及 Brain owner 身份，并与 Finding 流程并行。
 
-部署前必须消除这个未认证自动执行入口。推送可以登记已映射 Finding 并生成待处理 triage，但不得自动批准或领取 Work Item；只有经过 DSH 登录认证的 Console 操作员通过现有 decide/start UI 明确批准后，才可准备沙箱或启动模型工作。需要校验现有 intake CAS、重复 push 和已有 Work Item 对账保持幂等。此调整不移除来源推送能力，也不改变独立的 PLAN/CODE 方案审批。
+新增任务读取和列表合并时须保留现有 ARGON source intake/idempotency 语义。涉及共享 controller 时，对 Finding 既有行为只做必要的兼容改动，不重构或收紧来源入口。该来源入口的访问控制不在本次范围。
 
 ## Console 和只读代码工作台
 
@@ -50,7 +51,7 @@ Diff ETag 需纳入 branch、工作树状态、changed files 与 diff SHA256；�
 
 ## 服务地址、身份与凭据
 
-统一使用主机本地 Gitea HTTP origin `http://127.0.0.1:13000`；repo clone URL、Brain Git API/branch 查询、credential helper、SDLC allowlist、Finding mappings 和 UI 链接必须由同一配置派生。不可把 3000 和 13000 做无差别替换；Gitea 本身、容器发布端口和外部 IPv6 转发均不在本次改动范围。
+新增仓库/手工任务路径使用主机本地 Gitea HTTP origin `http://127.0.0.1:13000`；其 repo clone URL、Git API/branch 查询和精确 credential helper 必须一致。不可把 3000 和 13000 做无差别替换；保留 Finding allowlist、来源映射和现有 Finding 交付路径。Gitea 本身、容器发布端口和外部 IPv6 转发均不在本次改动范围。
 
 主 Brain API 为 loopback `13081`，DSH Web 为 `13080`，Mock 为 `18081`；通用端口 `13083/13093` 不动。DSH owner bearer、Gitea 账号/密码和服务私钥只保存在现有远端私有文件中；不写进 URL、浏览器、TaskSpec、命令日志或 Git。credential helper 只响应 TaskSpec 中精确仓库。
 
@@ -62,7 +63,7 @@ Diff ETag 需纳入 branch、工作树状态、changed files 与 diff SHA256；�
 
 若 API/Worker/DSH 未在 timeout 内健康，或原有任务读取/批准不满足预期，使用同次备份还原主代码与 profile 并恢复原进程；数据库没有兼容性变更时不替换数据库备份。部署脚本必须逐个明确文件和服务，输出不包含 token、cookie、credential 或 DSH 启动登录链接。
 
-部署后只读验证：主 DSH 登录要求仍在；`/argon/` 静态资源加载；`/argon/api/tasks` 与工作项详情受认证保护；仓库新页面加载，owner 无权时不能读写别人的登记；现有 Finding 和 Work Item 仍能读取；Gitea API/认证 helper 使用统一 origin；旧 `/argon/api/source-findings` 未登录请求不能触发 Work Item、沙箱或模型；已登录 Console 可批准来源；确认手工任务表/路由加载且空注册表状态正确。验收不需要在远端创建模型任务、PR 或新沙箱。
+部署后只读检查：主 DSH 登录要求仍在；`/argon/` 静态资源加载；现有任务与工作项读取不受影响；仓库新页面加载，owner 无权时不能读写别人的登记；手工任务表/路由加载且空注册表状态正确；新增 Gitea API/credential helper 使用统一 origin；Finding 推送路由和原自动接管行为保持原样。验收不需要在远端创建模型任务、PR 或新沙箱。
 
 ## 可验证验收条件
 
@@ -71,7 +72,7 @@ Diff ETag 需纳入 branch、工作树状态、changed files 与 diff SHA256；�
 3. TaskSpec digest 与规范化内容一致；审批、PLAN 修改/模型修订、CODE、candidate checks、独立 VERIFY、PR identity 全程绑定同一摘要。
 4. command 与 JUnit 模式展示真实证据；baseline/skip/invalid/UNKNOWN 与构建错误遵循配置化门禁；测试改动和构建配置两层策略生效。
 5. MANUAL PR 仅从已验证 SHA 创建，精确仓库凭据不泄露，重启可恢复 delivery；PR 人工合并且合并树匹配后仅完成 Work Item。
-6. 原 Finding 推送入口没有未认证的自动批准/领取；已认证的人工批准后原生 Finding 工作流继续可用。方案人工编辑与模型修订仍绑定准确的 plan hash 和 TaskSpec digest。
+6. 原 Finding 推送入口的登录校验例外、自动批准/领取和来源 UI 行为与改动前一致；方案人工编辑与模型修订仍绑定准确的 plan hash 和 TaskSpec digest。
 7. 只读工作台高亮和引用源行准确；未提交 Diff 更改生成新 ETag；页面卸载/切换工作项不收到旧异步响应；仍无文件写能力。
 8. 本地新/现有测试覆盖关键差异；部署前记录当前已存在失败的名字和原因，不能把同步后未全绿的 Node/Python 套件说成通过。远端只做低风险只读验收。
 9. 主实例部署与回滚均有安全回执；generic 实例与其原有数据库、TaskSpec、PR 和 Session 未修改。
