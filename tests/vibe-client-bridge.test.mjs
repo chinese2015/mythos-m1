@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { acceptMessage, referenceText, fileNavigation } from '../plugins/argon-vibe/shared/bridge-browser.mjs';
-import * as bridge from '../plugins/argon-vibe/shared/bridge-browser.mjs';
+import { acceptMessage, referenceText, fileNavigation } from '../plugins/mythos-vibe/shared/bridge-browser.mjs';
+import * as bridge from '../plugins/mythos-vibe/shared/bridge-browser.mjs';
 
 const frame = {};
 const binding = { workItemId: 'poc-nova', sessionId: 'session-poc-nova', bindingId: 'binding-one' };

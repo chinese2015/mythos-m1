@@ -15,7 +15,7 @@ MAX_RESPONSE = 1024 * 1024
 
 class GitHostClient:
     def __init__(self, credential_file=None):
-        self.credential_file = Path(credential_file).expanduser() if credential_file is not None else Path.home() / 'gitea/secrets/argon-agent.json'
+        self.credential_file = Path(credential_file).expanduser() if credential_file is not None else Path.home() / 'gitea/secrets/mythos-agent.json'
 
     def _credentials(self):
         fd = None

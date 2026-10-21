@@ -4,7 +4,7 @@
   "phase": "PR_OPEN",
   "sessionId": "session-bola-demo",
   "entryLinkObserved": true,
-  "entryUrl": "http://127.0.0.1:3080/?argonVibeTask=work-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&argonSession=session-bola-demo&argonEmbedded=1",
+  "entryUrl": "http://127.0.0.1:3080/?mythosVibeTask=work-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&mythosSession=session-bola-demo&mythosEmbedded=1",
   "filePaneReadOnly": true,
   "files": ["src/main/java/com/example/invoice/InvoiceController.java"],
   "sourcePath": "src/main/java/com/example/invoice/InvoiceController.java",

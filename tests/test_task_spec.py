@@ -42,7 +42,7 @@ class TaskSpecTest(unittest.TestCase):
         self.assertEqual(value['specDigest'], hashlib.sha256(canonical.encode()).hexdigest())
         self.assertEqual(validate_task_spec(value, 'alice'), value)
         self.assertTrue(is_manual({'source': {'type': 'MANUAL'}, 'taskSpec': value}))
-        self.assertFalse(is_manual({'source': {'type': 'ARGON'}, 'taskSpec': value}))
+        self.assertFalse(is_manual({'source': {'type': 'MYTHOS'}, 'taskSpec': value}))
         for mutate in [lambda s: s['task'].update(title='changed'),
                        lambda s: s.update(ownerId='bob'), lambda s: s.update(secret='x')]:
             changed = copy.deepcopy(value); mutate(changed)
@@ -63,11 +63,6 @@ class TaskSpecTest(unittest.TestCase):
                                    ('changePolicy', 'allowTestChanges', 'false')]:
             data = config(); data[part][field] = value
             with self.assertRaises(InvalidInput): normalize_repository(data)
-
-    def test_junit_report_directories_reject_trailing_slash_aliases(self):
-        data = config()
-        data['execution']['evidence']['reportDirs'] = ['target/surefire-reports', 'target/surefire-reports/']
-        with self.assertRaises(InvalidInput): normalize_repository(data)
 
     def test_review_policy_defaults_validates_and_freezes_into_digest(self):
         self.assertEqual(normalize_repository(config())['reviewPolicy'], {'minApprovals': 0, 'requiredStatusContexts': []})

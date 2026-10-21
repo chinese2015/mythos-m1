@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { renderIntake } from '../plugins/argon-console/public/intake-view.js';
+import { renderIntake } from '../plugins/mythos-console/public/intake-view.js';
 
 // Minimal tree/event DOM for this module's mounted form contract. append moves
 // nodes and coerces non-nodes to text, including undefined, just like native DOM.
@@ -81,7 +81,7 @@ test('mounted manual form submits its editable acceptance criteria in the canoni
   assert.equal(call.path, '/tasks/manual'); assert.equal(call.method, 'POST'); assert.equal(call.mutation, true);
   assert.deepEqual(call.body, { repositoryId: repo.repositoryId, repositoryRevision: 1, title: '修复客户', description: 'Support multiple files', acceptanceCriteria: 'Tests pass' });
   assert.match(call.idempotencyKey, /^[A-Za-z0-9_-]{1,150}$/);
-  assert.equal(env.storage.getItem('argon-intent:manual-task'), null);
+  assert.equal(env.storage.getItem('mythos-intent:manual-task'), null);
   assert.ok(env.notices.some(([message, kind]) => kind === 'info' && message.includes('TASK-abcdef123456')));
   await button(root, '打开工作详情').fire('click'); assert.deepEqual(env.opened, [work.workItemId]);
 });
@@ -107,7 +107,7 @@ test('mounted manual creation fails closed on unreadable, unwritable, or corrupt
     const storage = memoryStorage();
     if (mode === 'read') storage.getItem = () => { throw new Error('read failed'); };
     if (mode === 'write') storage.setItem = () => { throw new Error('write failed'); };
-    if (mode === 'corrupt') storage.setItem('argon-intent:manual-task', '{broken');
+    if (mode === 'corrupt') storage.setItem('mythos-intent:manual-task', '{broken');
     const env = environment(t, storage); const root = await env.mount(); await fillTask(root).fire('submit');
     assert.equal(env.calls.length, 0);
     assert.ok(env.notices.some(([message, kind]) => kind === 'error' && /存储|意向/.test(message)));
@@ -118,11 +118,11 @@ test('a lost acknowledgement and remount retry reuse the durable key and origina
   const env = environment(t); let acceptedKey;
   const first = await env.mount(async (_path, options) => { acceptedKey = options.idempotencyKey; throw new Error('response lost after acceptance'); });
   await fillTask(first).fire('submit');
-  assert.equal(env.calls.length, 1); assert.ok(env.storage.getItem('argon-intent:manual-task'));
+  assert.equal(env.calls.length, 1); assert.ok(env.storage.getItem('mythos-intent:manual-task'));
   const reloaded = await env.mount(async (_path, options) => { assert.equal(options.idempotencyKey, acceptedKey); return work; });
   await fillTask(reloaded).fire('submit');
   assert.equal(env.calls.length, 2); assert.deepEqual(env.calls[1].body, env.calls[0].body);
-  assert.equal(env.storage.getItem('argon-intent:manual-task'), null);
+  assert.equal(env.storage.getItem('mythos-intent:manual-task'), null);
   assert.ok(reloaded.textContent.includes('重复提交已按原结果返回'));
 });
 
@@ -143,20 +143,20 @@ test('a mounted retry stops while a lost-ACK intent is unreadable and resumes wi
   const env = environment(t, storage); let accepted = false;
   const root = await env.mount(async () => { if (!accepted) { accepted = true; throw new Error('response lost after acceptance'); } return work; });
   const form = fillTask(root); await form.fire('submit');
-  const key = env.calls[0].idempotencyKey; const pending = read('argon-intent:manual-task');
+  const key = env.calls[0].idempotencyKey; const pending = read('mythos-intent:manual-task');
   unreadable = true; await form.fire('submit');
-  assert.equal(env.calls.length, 1); assert.equal(read('argon-intent:manual-task'), pending);
+  assert.equal(env.calls.length, 1); assert.equal(read('mythos-intent:manual-task'), pending);
   unreadable = false; await form.fire('submit');
   assert.equal(env.calls.length, 2); assert.equal(env.calls[1].idempotencyKey, key);
 });
 
 test('corrupt mounted intent remains untouched until explicit abandonment', async t => {
-  const storage = memoryStorage(); storage.setItem('argon-intent:manual-task', '{broken');
+  const storage = memoryStorage(); storage.setItem('mythos-intent:manual-task', '{broken');
   const env = environment(t, storage); const root = await env.mount(); const form = fillTask(root);
   await form.fire('submit'); await form.fire('submit');
-  assert.equal(env.calls.length, 0); assert.equal(storage.getItem('argon-intent:manual-task'), '{broken');
+  assert.equal(env.calls.length, 0); assert.equal(storage.getItem('mythos-intent:manual-task'), '{broken');
   await button(root, '放弃当前意向').fire('click'); await form.fire('submit');
-  assert.equal(env.calls.length, 1); assert.equal(storage.getItem('argon-intent:manual-task'), null);
+  assert.equal(env.calls.length, 1); assert.equal(storage.getItem('mythos-intent:manual-task'), null);
 });
 
 

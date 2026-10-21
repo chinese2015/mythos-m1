@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
-import { sourceFacts, evidenceLine } from '../plugins/argon-console/public/intake-view.js';
+import { sourceFacts, evidenceLine } from '../plugins/mythos-console/public/intake-view.js';
 
 // Test-local mounted tree; runs the actual app route/detail renderer, while
 // unrelated delivery/monitor/intake panels and the HTTP boundary are isolated.
@@ -31,14 +31,14 @@ const wid = 'work-' + 'a'.repeat(32), sid = 'session-code-displayed';
 async function mountedDetail(type, overrides = {}) {
   const nodes = Object.fromEntries(['view', 'notice', 'breadcrumbs', 'nav-count', 'refresh-button'].map(id => [id, new Element('div')]));
   const document = { getElementById: id => nodes[id], querySelectorAll: () => [], createElement: tag => new Element(tag), activeElement: null };
-  const nativeUrl = '/?argonSession=session-native-existing&argonEmbedded=1';
+  const nativeUrl = '/?mythosSession=session-native-existing&mythosEmbedded=1';
   const detail = { workItem: { workItemId: wid, ownerId: 'alice', version: 17, source: { type, id: type === 'MANUAL' ? 'TASK-abcdef123456' : 'FND-00009' }, sourceRecord: { title: 'Task', repositoryUrl: 'http://127.0.0.1:3000/demo/customer-api.git' }, workflow: { phase: 'AWAITING_REVIEW' } },
     source: { id: 'Task', title: 'Task' }, workflow: { phase: 'AWAITING_REVIEW' }, session: { sessionId: sid, role: 'CODE', url: nativeUrl }, operations: [], evidence: [] };
   if (overrides.work) Object.assign(detail.workItem, overrides.work);
   if (overrides.phase) detail.workflow.phase = overrides.phase;
   if (overrides.operations) detail.operations = overrides.operations;
   const calls = []; const confirmations = [];
-  const code = (await readFile(new URL('../plugins/argon-console/public/app.js', import.meta.url), 'utf8')).replace(/^import .*;\n/gm, '');
+  const code = (await readFile(new URL('../plugins/mythos-console/public/app.js', import.meta.url), 'utf8')).replace(/^import .*;\n/gm, '');
   runInNewContext(code, { document, window: { scrollY: 0, scrollTo() {}, addEventListener() {} }, location: { hash: '#/work/' + wid },
     renderDelivery: () => new Element('aside'), renderMonitor: () => new Element('aside'), renderIntake: () => ({ mount() {}, load() {} }), sourceFacts, evidenceLine,
     fetch: async (path, options) => { calls.push([path, options]); return { ok: true, status: 200, json: async () => detail }; },
@@ -49,7 +49,7 @@ async function mountedDetail(type, overrides = {}) {
 }
 
 test('mounted legacy and manual details offer a separate work-and-session-bound read-only workbench link', async t => {
-  for (const type of ['ARGON', 'MANUAL']) await t.test(type, async () => {
+  for (const type of ['MYTHOS', 'MANUAL']) await t.test(type, async () => {
     const { root, nativeUrl, calls } = await mountedDetail(type);
     const anchors = root.querySelectorAll('a');
     const native = anchors.find(node => node.textContent === '在 DSH 中打开 ↗');
@@ -60,10 +60,10 @@ test('mounted legacy and manual details offer a separate work-and-session-bound 
     assert.equal(coding.parentNode, native.parentNode, 'both links belong to the displayed Session caption');
     const url = new URL(coding.getAttribute('href'), 'http://localhost:3093');
     assert.equal(url.origin, 'http://localhost:3093'); assert.equal(url.pathname, '/');
-    assert.equal(url.searchParams.get('argonVibeTask'), wid);
-    assert.equal(url.searchParams.get('argonSession'), sid, 'bind the displayed session, rather than copying a different native URL');
-    assert.equal(url.searchParams.get('argonEmbedded'), '1');
-    assert.deepEqual([...url.searchParams.keys()].sort(), ['argonEmbedded', 'argonSession', 'argonVibeTask']);
+    assert.equal(url.searchParams.get('mythosVibeTask'), wid);
+    assert.equal(url.searchParams.get('mythosSession'), sid, 'bind the displayed session, rather than copying a different native URL');
+    assert.equal(url.searchParams.get('mythosEmbedded'), '1');
+    assert.deepEqual([...url.searchParams.keys()].sort(), ['mythosEmbedded', 'mythosSession', 'mythosVibeTask']);
     assert.equal(coding.getAttribute('target'), '_blank'); assert.match(coding.getAttribute('rel'), /noopener/);
     assert.ok(calls.every(([, options]) => options.method === 'GET'), 'rendering this entry cannot create/start/prompt anything');
   });
@@ -75,7 +75,7 @@ test('the mounted workbench URL retains native catalog navigation without creati
   assert.ok(coding, 'read-only caption entry must exist');
   const url = new URL(coding.getAttribute('href'), 'http://localhost:3093');
   let plugin; const callbacks = new Set(), cleanups = [], opened = [], errors = [], catalog = { byId: {} };
-  runInNewContext(await readFile(new URL('../plugins/argon-console/client.js', import.meta.url), 'utf8'), {
+  runInNewContext(await readFile(new URL('../plugins/mythos-console/client.js', import.meta.url), 'utf8'), {
     window: { __ModuleLoader__: { load: ({ factory }) => { plugin = factory(); } } }, location: { search: url.search }, URLSearchParams,
     console: { error: (...args) => errors.push(args) },
   });
@@ -97,7 +97,7 @@ test('a top-level known failure offers explicit recovery and explains that queue
   await resume.events.get('click')();
   const mutations = calls.filter(([, options]) => options.method === 'POST');
   assert.equal(confirmations.length, 1); assert.equal(mutations.length, 1);
-  assert.equal(mutations[0][0], '/argon/api/work-items/' + wid + '/resume');
+  assert.equal(mutations[0][0], '/mythos/api/work-items/' + wid + '/resume');
   assert.deepEqual(JSON.parse(mutations[0][1].body), { expectedVersion: 17 });
 });
 

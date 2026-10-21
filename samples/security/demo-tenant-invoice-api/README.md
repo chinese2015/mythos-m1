@@ -2,7 +2,7 @@
 
 This local-only Java 17 project uses synthetic tenants, users, invoice IDs, and totals. It demonstrates a Broken Object Level Authorization (BOLA) defect in `GET /api/invoices/{invoiceId}`. The intentionally vulnerable baseline authenticates the request but does not enforce invoice ownership.
 
-Argon's workspace preparation creates the ignored `.cache/settings.xml` settings file in the task sandbox. The frozen baseline command is:
+Mythos's workspace preparation creates the ignored `.cache/settings.xml` settings file in the task sandbox. The frozen baseline command is:
 
 ```sh
 mvn -B -o -s .cache/settings.xml test
@@ -12,7 +12,7 @@ The base commit is expected to report exactly two tests with one failure: `cross
 
 For a raw local checkout, run `mvn -B -o test`; the parent repository's `tests/test_bola_demo_fixture.py` runs the frozen command in a temporary copy with local Maven settings and checks the exact baseline report.
 
-The Argon demo operator can seed the private Gitea project and bind the pre-existing FND-00016 from the M1 host:
+The Mythos demo operator can seed the private Gitea project and bind the pre-existing FND-00016 from the M1 host:
 
 ```sh
 python3 tools/provision_bola_demo.py

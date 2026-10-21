@@ -34,7 +34,7 @@ class PublicationTests(unittest.TestCase):
         expected = hashlib.sha256(f"{self.work['workItemId']}:{commit}:{verify}".encode()).hexdigest()
         self.assertEqual(delivery_id(self.work['workItemId'], commit, verify), expected)
         self.assertEqual(publication_branch(self.source['id'], self.work['workItemId'], commit),
-                         f"argon/{self.source['id'].lower()}-{self.work['workItemId'].split('-')[-1][:8]}-{commit[:12]}")
+                         f"mythos/{self.source['id'].lower()}-{self.work['workItemId'].split('-')[-1][:8]}-{commit[:12]}")
 
     def test_rejects_delivery_id_that_does_not_match_durable_intent(self):
         candidate, verify = 'b' * 40, 'exec-1234567890abcdef'
@@ -89,7 +89,7 @@ class PublicationTests(unittest.TestCase):
             git('init',str(source));git('-C',str(source),'config','user.name','Test');git('-C',str(source),'config','user.email','test@example.invalid')
             (source/'source.txt').write_text('base');git('-C',str(source),'add','.');git('-C',str(source),'commit','-m','base');base=git('-C',str(source),'rev-parse','HEAD')
             (source/'source.txt').write_text('candidate');git('-C',str(source),'commit','-am','candidate');candidate=git('-C',str(source),'rev-parse','HEAD');tree=git('-C',str(source),'rev-parse','HEAD^{tree}')
-            git('init','--bare',str(remote));repository=self.source['repositoryUrl'];branch='argon/create-only-race'
+            git('init','--bare',str(remote));repository=self.source['repositoryUrl'];branch='mythos/create-only-race'
             work={'workItemId':self.work['workItemId'],'version':1,'sandboxId':'source'};intent={'id':'a'*64}
             class RacePublisher(GitPublisher):
                 def _validate_intent(inner,*_):return intent,candidate,'exec-'+'b'*32,branch,repository
@@ -110,9 +110,9 @@ class PublicationTests(unittest.TestCase):
         real_popen = subprocess.Popen; captured = []
         def transport(command, **kwargs):
             captured.append((command, kwargs))
-            return real_popen([sys.executable, '-c', 'print(' + repr('b' * 40 + '\trefs/heads/argon/legacy') + ')'], **kwargs)
+            return real_popen([sys.executable, '-c', 'print(' + repr('b' * 40 + '\trefs/heads/mythos/legacy') + ')'], **kwargs)
         with patch('brain.publication.subprocess.Popen', side_effect=transport):
-            result = publisher._remote_commit(self.source['repositoryUrl'], 'argon/legacy', self.work)
+            result = publisher._remote_commit(self.source['repositoryUrl'], 'mythos/legacy', self.work)
         self.assertEqual(result, 'b' * 40)
         command, options = captured[0]
         self.assertIn('credential.helper=' + CREDENTIAL_HELPER, command)
@@ -212,8 +212,8 @@ class ManualPublicationTests(unittest.TestCase):
         self.store = Store(self.temp.name)
         self.candidate = 'b' * 40
         self.tree = 'c' * 40
-        self.secret = Path(self.temp.name) / 'argon-agent.json'
-        self.secret.write_text(json.dumps({'username': 'argon-agent', 'password': 'p' * 24}))
+        self.secret = Path(self.temp.name) / 'mythos-agent.json'
+        self.secret.write_text(json.dumps({'username': 'mythos-agent', 'password': 'p' * 24}))
         self.secret.chmod(0o600)
 
     def make_work(self, evidence=None, input_extra=None, change_policy=None):
@@ -298,7 +298,7 @@ class ManualPublicationTests(unittest.TestCase):
 p = json.loads(sys.argv[1])
 r = subprocess.run(p['prefix'] + ['credential', 'fill'], input=p['request'], capture_output=True, text=True)
 credentials = dict(line.split('=', 1) for line in r.stdout.splitlines() if '=' in line)
-if r.returncode or credentials.get('username') != 'argon-agent' or credentials.get('password') != 'p' * 24:
+if r.returncode or credentials.get('username') != 'mythos-agent' or credentials.get('password') != 'p' * 24:
     raise SystemExit(23)
 print(p['output'], end='')
 """
@@ -320,9 +320,9 @@ print(p['output'], end='')
     def test_manual_remote_query_uses_exact_target_helper_from_persisted_work(self):
         spec, work = self.make_work()
         publisher = GitPublisher(self.store, self.executor_stub(spec)); captured = []
-        spoofed = dict(work, source={'type': 'ARGON'}, taskSpec={**spec, 'repository': {**spec['repository'], 'cloneUrl': 'http://attacker/'}})
+        spoofed = dict(work, source={'type': 'MYTHOS'}, taskSpec={**spec, 'repository': {**spec['repository'], 'cloneUrl': 'http://attacker/'}})
         with patch('brain.publication.subprocess.Popen', side_effect=self.credential_transport(captured)):
-            result = publisher._remote_commit(spec['repository']['cloneUrl'], 'argon/scoped-query', spoofed)
+            result = publisher._remote_commit(spec['repository']['cloneUrl'], 'mythos/scoped-query', spoofed)
         self.assertEqual(result, self.candidate)
         command, options = captured[0]
         self.assertIn('credential.helper=' + helper_command(self.secret, spec['repository']['cloneUrl']), command)
@@ -346,7 +346,7 @@ print(p['output'], end='')
         executor.host = ConcurrentHost(); publisher = GitPublisher(self.store, executor); captured = []
         with patch('brain.publication.subprocess.Popen', side_effect=self.credential_transport(captured)):
             with ThreadPoolExecutor(max_workers=2) as pool:
-                calls = [pool.submit(publisher._remote_commit, task['taskSpec']['repository']['cloneUrl'], 'argon/parallel', task) for task in [work, second]]
+                calls = [pool.submit(publisher._remote_commit, task['taskSpec']['repository']['cloneUrl'], 'mythos/parallel', task) for task in [work, second]]
                 self.assertEqual([call.result(timeout=10) for call in calls], [self.candidate, self.candidate])
         self.assertEqual(len(captured), 2)
         for command, _ in captured:
@@ -359,9 +359,9 @@ print(p['output'], end='')
         publisher = GitPublisher(self.store, executor)
         with patch('brain.publication.subprocess.Popen', side_effect=AssertionError('Git must not start')):
             with self.assertRaises(NotFound):
-                publisher._remote_commit(spec['repository']['cloneUrl'], 'argon/no-owner', dict(work, ownerId='bob'))
+                publisher._remote_commit(spec['repository']['cloneUrl'], 'mythos/no-owner', dict(work, ownerId='bob'))
             with self.assertRaises(InvalidInput) as raised:
-                publisher._remote_commit('http://127.0.0.1:3000/demo/demo-nova-catalog-api.git', 'argon/wrong-repo', work)
+                publisher._remote_commit('http://127.0.0.1:3000/demo/demo-nova-catalog-api.git', 'mythos/wrong-repo', work)
             self.assertIn('frozen task repository', str(raised.exception))
 
     def test_manual_publication_query_and_create_only_push_remain_frozen_after_revision_and_disable(self):

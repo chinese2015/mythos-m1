@@ -16,7 +16,7 @@ REPORT_RELATIVE = Path('target/surefire-reports/TEST-com.example.invoice.Invoice
 class BolaDemoFixtureContractTests(unittest.TestCase):
     def test_baseline_fails_only_cross_tenant(self):
         self.assertTrue(PROJECT.is_dir(), 'the vulnerable project template is missing')
-        with tempfile.TemporaryDirectory(prefix='argon-bola-fixture-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='mythos-bola-fixture-') as temporary:
             project = Path(temporary) / 'project'
             shutil.copytree(PROJECT, project, ignore=shutil.ignore_patterns('.cache', 'target'))
             cache = project / '.cache'

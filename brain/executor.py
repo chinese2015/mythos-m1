@@ -12,8 +12,8 @@ from .errors import InvalidInput, NotFound, PreparationFailure
 from .git_host import GitHostClient
 from .task_spec import frozen_task_spec, repository_config_from_spec
 
-REPOSITORIES = {'http://127.0.0.1:3000/demo/' + name + '.git' for name in [
-    'demo-orion-notes-api', 'demo-nova-catalog-api', 'demo-pixel-reports-batch', 'demo-tenant-invoice-api']}
+REPOSITORIES = {'http://127.0.0.1:13000/demo/' + name + '.git' for name in [
+    'demo-orion-notes-api', 'demo-nova-catalog-api', 'demo-pixel-reports-batch']}
 SETTINGS = '<settings><mirrors><mirror><id>aliyun</id><mirrorOf>*</mirrorOf><url>https://maven.aliyun.com/repository/public</url></mirror></mirrors></settings>\n'
 
 _CLONE_URL = re.compile(r'http://127\.0\.0\.1:3000/([A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99})\.git')
@@ -75,7 +75,7 @@ class DockerExecutor:
             raise RuntimeError('Registered container is unavailable')
         actual = json.loads(result.stdout)[0]
         labels = actual['Config'].get('Labels', {})
-        if labels.get('argon.owner') != item['owner_id'] or labels.get('argon.sandbox') != item['sandbox_id']:
+        if labels.get('mythos.owner') != item['owner_id'] or labels.get('mythos.sandbox') != item['sandbox_id']:
             raise RuntimeError('Container ownership labels do not match registry')
         if not actual['State']['Running']:
             raise RuntimeError('Registered container is stopped')

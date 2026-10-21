@@ -7,7 +7,7 @@ PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitEmptyPasswords no
 UsePAM no
-AuthorizedKeysFile /run/argon-authorized_keys
+AuthorizedKeysFile /run/mythos-authorized_keys
 AllowUsers runner
 AllowTcpForwarding no
 AllowStreamLocalForwarding yes

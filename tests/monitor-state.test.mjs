@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mergeEvents, displayState, formatJUnit, formatEvent, staleNote } from '../plugins/argon-console/public/monitor-state.js';
+import { mergeEvents, displayState, formatJUnit, formatEvent, staleNote } from '../plugins/mythos-console/public/monitor-state.js';
 
 test('mergeEvents dedupes overlapping sequences and sorts ascending', () => {
   const existing = [{ sequence: 1, type: 'execution.queued' }, { sequence: 3, type: 'execution.started' }];
@@ -74,7 +74,7 @@ test('staleNote reports seconds-old snapshots or nothing', () => {
 });
 
 test('shouldAutoExpand honors a manual collapse for active operations', async () => {
-  const { shouldAutoExpand } = await import('../plugins/argon-console/public/monitor-state.js');
+  const { shouldAutoExpand } = await import('../plugins/mythos-console/public/monitor-state.js');
   assert.equal(shouldAutoExpand(true, false), true);
   assert.equal(shouldAutoExpand(true, true), false);
   assert.equal(shouldAutoExpand(false, false), false);

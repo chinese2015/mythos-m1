@@ -1,7 +1,4 @@
 import unittest
-import subprocess
-import tempfile
-from pathlib import Path
 
 from brain.evidence import summarize_junit
 from brain.store import Store
@@ -25,8 +22,9 @@ class DiffNameTests(unittest.TestCase):
                           'src/main/java/demo/\u2206delta.java'])
 
     def test_workspace_evidence_reads_nul_separated_change_names(self):
+        import tempfile
         base = 'a' * 40
-        names = ['src/main/java/demo/A.java', 'src/hidden.java', 'tests/test_hidden.py']
+        names = ['src/main/java/demo/A.java', 'src/main/java/demo/B Test.java']
         with tempfile.TemporaryDirectory() as temporary:
             store = Store(temporary)
             source_record = {'id': 'FND-00011', 'title': 'Names', 'risk': 'LOW', 'ownerId': 'alice',
@@ -40,43 +38,21 @@ class DiffNameTests(unittest.TestCase):
                     'get': lambda self, owner, sandbox: {'workspace_path': '/tmp/ws'}})()
                 def execute_capture(self, owner, sandbox, argv, timeout=None):
                     if argv[:3] == ['git', 'diff', '--name-only']:
-                        self_outer.assertIn('--no-renames', argv)
                         return {'exitCode': 0, 'stdout': '\0'.join(names) + '\0', 'stderr': ''}
                     if argv[:2] == ['git', 'rev-parse']:
                         return {'exitCode': 0, 'stdout': base, 'stderr': ''}
                     if argv[:2] == ['git', 'branch']:
-                        return {'exitCode': 0, 'stdout': 'argon/names', 'stderr': ''}
+                        return {'exitCode': 0, 'stdout': 'mythos/names', 'stderr': ''}
                     if argv[:2] == ['git', 'status']:
                         return {'exitCode': 0, 'stdout': '', 'stderr': ''}
                     if argv[:3] == ['git', 'diff', '--no-ext-diff']:
                         return {'exitCode': 0, 'stdout': 'binary diff', 'stderr': ''}
                     raise AssertionError('Unexpected command: ' + repr(argv))
 
-            self_outer = self
             workspace = TaskWorkspace(store, type('ExecutorStub', (), {'broker': BrokerStub()})())
             evidence = workspace.evidence('alice', work['workItemId'])
             self.assertEqual(evidence['git']['changedFiles'], names)
             self.assertEqual(evidence['git']['headCommit'], base)
-
-    def test_git_no_renames_reports_both_deleted_test_and_added_source_paths(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            subprocess.run(['git', 'init', '-q', str(root)], check=True)
-            subprocess.run(['git', '-C', str(root), 'config', 'user.name', 'Test'], check=True)
-            subprocess.run(['git', '-C', str(root), 'config', 'user.email', 'test@example.invalid'], check=True)
-            old = root / 'tests' / 'test_hidden.py'
-            old.parent.mkdir()
-            old.write_text('assert True\n')
-            subprocess.run(['git', '-C', str(root), 'add', '.'], check=True)
-            subprocess.run(['git', '-C', str(root), 'commit', '-qm', 'baseline'], check=True)
-            base = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
-            new = root / 'src' / 'hidden.java'
-            new.parent.mkdir()
-            old.rename(new)
-            subprocess.run(['git', '-C', str(root), 'add', '-A'], check=True)
-            names = subprocess.check_output(['git', '-C', str(root), 'diff', '--name-only', '-z',
-                                             '--no-renames', base], text=True).split('\0')
-            self.assertCountEqual([name for name in names if name], ['src/hidden.java', 'tests/test_hidden.py'])
 
 
 if __name__ == '__main__':

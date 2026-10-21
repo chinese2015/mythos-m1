@@ -10,7 +10,7 @@ from sandbox import SandboxBroker
 
 root = Path(__file__).resolve().parent
 records = json.loads((root / 'state/sandboxes.json').read_text())
-broker = SandboxBroker(Path.home() / 'argon-sandboxes')
+broker = SandboxBroker(Path.home() / 'mythos-sandboxes')
 report = {'containers': [], 'checks': {}}
 
 for owner, item in records.items():
@@ -22,7 +22,7 @@ for owner, item in records.items():
     binds = [mount for mount in inspection['Mounts'] if mount['Type'] == 'bind']
     assert len(binds) == 2
     assert not any(m['Destination'] in ['/var/run/docker.sock', '/home/hx', '/root'] for m in inspection['Mounts'])
-    for forbidden in ['/home/hx/.dsh/.credentials.yaml', '/home/hx/gitea/secrets/argon-agent.json',
+    for forbidden in ['/home/hx/.dsh/.credentials.yaml', '/home/hx/gitea/secrets/mythos-agent.json',
                       '/var/run/docker.sock', other['workspace_path']]:
         broker.execute(owner, item['sandbox_id'], ['test', '!', '-e', forbidden])
     assert broker.execute(owner, item['sandbox_id'], ['ls', '/sys/class/net']).strip() == 'lo'

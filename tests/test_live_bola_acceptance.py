@@ -32,7 +32,7 @@ def fixture():
     baseline_id = 'exec-' + 'b' * 32
     verify_id = 'exec-' + 'c' * 32
     delivery_id = hashlib.sha256(f'{WORK_ID}:{CANDIDATE}:{verify_id}'.encode()).hexdigest()
-    branch = 'argon/fnd-00016-' + 'a' * 8 + '-' + CANDIDATE[:12]
+    branch = 'mythos/fnd-00016-' + 'a' * 8 + '-' + CANDIDATE[:12]
     delivery = {'id': delivery_id, 'repository': 'demo/demo-tenant-invoice-api', 'repositoryUrl': REPOSITORY_URL,
                 'candidateCommit': CANDIDATE, 'verificationOperationId': verify_id, 'headBranch': branch,
                 'baseBranch': 'main', 'pullNumber': 1, 'step': 'PR_OPEN', 'lastError': None, 'nextAttemptAt': None}
@@ -74,9 +74,9 @@ def fixture():
             'state': 'open', 'merged': False,
             'head': {'sha': CANDIDATE, 'ref': branch, 'repo': {'full_name': 'demo/demo-tenant-invoice-api'}},
             'base': {'ref': 'main', 'repo': {'full_name': 'demo/demo-tenant-invoice-api'}},
-            'body': f'Fix BOLA.\n<!-- argon-delivery:{delivery_id} -->'}
+            'body': f'Fix BOLA.\n<!-- mythos-delivery:{delivery_id} -->'}
     browser = {'workItemId': WORK_ID, 'version': 50, 'phase': 'PR_OPEN', 'sessionId': SESSION,
-               'entryLinkObserved': True, 'entryUrl': f'http://127.0.0.1:3080/?argonVibeTask={WORK_ID}&argonSession={SESSION}&argonEmbedded=1',
+               'entryLinkObserved': True, 'entryUrl': f'http://127.0.0.1:3080/?mythosVibeTask={WORK_ID}&mythosSession={SESSION}&mythosEmbedded=1',
                'filePaneReadOnly': True, 'files': [SOURCE_PATH], 'sourcePath': SOURCE_PATH,
                'diffBaseCommit': BASE, 'diffHeadCommit': CANDIDATE, 'diffChangedFiles': [SOURCE_PATH],
                'runMonitorVisible': True}

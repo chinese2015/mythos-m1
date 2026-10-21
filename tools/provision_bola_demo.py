@@ -173,10 +173,10 @@ def ensure_repository_allowlisted(allowlist_path, repository_name, backup_dir):
 
 class GiteaProvisioningClient:
     def __init__(self, credential_file=None, helper_path=None, allowlist_path=None, backup_dir=None):
-        self.credential_file = Path(credential_file).expanduser() if credential_file else Path.home() / 'gitea/secrets/argon-agent.json'
-        self.helper_path = Path(helper_path).expanduser() if helper_path else Path.home() / 'gitea/git-credential-argon.py'
+        self.credential_file = Path(credential_file).expanduser() if credential_file else Path.home() / 'gitea/secrets/mythos-agent.json'
+        self.helper_path = Path(helper_path).expanduser() if helper_path else Path.home() / 'gitea/git-credential-mythos.py'
         self.allowlist_path = Path(allowlist_path).expanduser() if allowlist_path else Path.home() / 'gitea/repositories.json'
-        self.backup_dir = Path(backup_dir).expanduser() if backup_dir else Path.home() / 'argon-m1-generic/artifacts'
+        self.backup_dir = Path(backup_dir).expanduser() if backup_dir else Path.home() / 'mythos-m1-generic/artifacts'
         credentials = _read_private_credentials(self.credential_file)
         authorization = base64.b64encode((credentials['username'] + ':' + credentials['password']).encode('utf-8')).decode('ascii')
         self._authorization = 'Basic ' + authorization
@@ -247,20 +247,20 @@ class GiteaProvisioningClient:
         if not (source / 'pom.xml').is_file() or not (source / SOURCE_PATH).is_file():
             raise ProvisionError('The vulnerable demo source is incomplete')
 
-        with tempfile.TemporaryDirectory(prefix='argon-bola-repo-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='mythos-bola-repo-') as temporary:
             worktree = Path(temporary) / 'repo'
             shutil.copytree(source, worktree, ignore=shutil.ignore_patterns('.git', '.cache', 'target'))
             self._run_git(worktree, ['init', '--initial-branch=main'])
-            self._run_git(worktree, ['config', 'user.name', 'Argon Demo Fixture'])
-            self._run_git(worktree, ['config', 'user.email', 'argon-demo@localhost'])
+            self._run_git(worktree, ['config', 'user.name', 'Mythos Demo Fixture'])
+            self._run_git(worktree, ['config', 'user.email', 'mythos-demo@localhost'])
             self._run_git(worktree, ['add', '--all'])
             environment = os.environ.copy()
             environment.update({
-                'GIT_AUTHOR_NAME': 'Argon Demo Fixture',
-                'GIT_AUTHOR_EMAIL': 'argon-demo@localhost',
+                'GIT_AUTHOR_NAME': 'Mythos Demo Fixture',
+                'GIT_AUTHOR_EMAIL': 'mythos-demo@localhost',
                 'GIT_AUTHOR_DATE': '2026-10-18T00:00:00+00:00',
-                'GIT_COMMITTER_NAME': 'Argon Demo Fixture',
-                'GIT_COMMITTER_EMAIL': 'argon-demo@localhost',
+                'GIT_COMMITTER_NAME': 'Mythos Demo Fixture',
+                'GIT_COMMITTER_EMAIL': 'mythos-demo@localhost',
                 'GIT_COMMITTER_DATE': '2026-10-18T00:00:00+00:00',
             })
             self._run_git(worktree, ['commit', '-m', 'feat: add tenant invoice BOLA demo baseline'], environment=environment)

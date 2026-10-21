@@ -137,7 +137,7 @@ class ForgeReader:
             rows.extend(value)
             if not value: break
         else: raise ProbeError('Independent PR pagination is incomplete')
-        marker = '<!-- argon-delivery:' + str(delivery.get('id')) + ' -->'
+        marker = '<!-- mythos-delivery:' + str(delivery.get('id')) + ' -->'
         matched = [row for row in rows if marker in str(row.get('body') or '') or row.get('head', {}).get('ref') == delivery.get('headBranch')]
         result = []
         for row in matched:
@@ -197,7 +197,7 @@ def assess_work(work, operation, git, pulls, owner, registry=None, expected_dige
         and d.get('verificationOperationId') == wf.get('verificationOperationId') and d.get('repository') == spec['repository']['fullName']
         and d.get('repositoryUrl') == spec['repository']['cloneUrl'] and d.get('baseBranch') == spec['repository']['baseBranch'] and d.get('step') == 'PR_OPEN')
     add('deliveryReconciled', None if not d else d.get('lastError') is None and d.get('nextAttemptAt') is None)
-    marker = '<!-- argon-delivery:' + str(identity) + ' -->'
+    marker = '<!-- mythos-delivery:' + str(identity) + ' -->'
     add('oneIndependentPull', None if pulls is None or not d else len(pulls) == 1)
     pull = pulls[0] if pulls and len(pulls) == 1 else None
     add('openExactPullWithOneMarker', None if pull is None else pull.get('state') == 'open' and pull.get('merged') is False
@@ -381,9 +381,9 @@ def assess_browser_entry(receipt, works, expected_origin='http://127.0.0.1:3093'
         origin = loopback_origin(urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, '', '', '')))
         query = urllib.parse.parse_qs(parsed.query, strict_parsing=True)
         url_bound = origin == loopback_origin(expected_origin) and parsed.path == '/' and not parsed.fragment and set(query) == {
-            'argonVibeTask', 'argonSession', 'argonEmbedded'} and all(len(value) == 1 for value in query.values())
-        restart = work.get('restartIdentity') or {}; session_id = query.get('argonSession', [''])[0]
-        url_bound = url_bound and query.get('argonVibeTask') == [work['workItemId']] and query.get('argonEmbedded') == ['1']
+            'mythosVibeTask', 'mythosSession', 'mythosEmbedded'} and all(len(value) == 1 for value in query.values())
+        restart = work.get('restartIdentity') or {}; session_id = query.get('mythosSession', [''])[0]
+        url_bound = url_bound and query.get('mythosVibeTask') == [work['workItemId']] and query.get('mythosEmbedded') == ['1']
         url_bound = url_bound and session_id in (restart.get('sessionIds') or [])
     except (ValueError, TypeError):
         url_bound = False; session_id = None
@@ -438,7 +438,7 @@ def capture(owner, work_id, brain, console, forge, registry, expected=None):
         'kind': baseline.get('kind'), 'sourceCommit': baseline.get('sourceCommit'), 'timeoutSeconds': baseline.get('timeoutSeconds'),
         'reason': baseline.get('reason'), 'command': baseline.get('command'),
         'junit': None if (baseline.get('evidence') or {}).get('junit') is None else {key: value for key, value in baseline['evidence']['junit'].items() if key not in {'reports', 'failedTests'}}}
-    detail = console.get('/argon/api/work-items/' + work_id)
+    detail = console.get('/mythos/api/work-items/' + work_id)
     console_work = detail.get('workItem') or {}
     result['checks'].append({'name': 'authenticatedConsoleBinding', 'status': 'PASS' if console_work.get('workItemId') == work_id
         and (console_work.get('taskSpec') or {}).get('specDigest') == spec['specDigest'] else 'FAIL'})
@@ -515,11 +515,11 @@ def main(argv=None):
     parser.add_argument('--owner', default='alice'); parser.add_argument('--work-id', action='append', default=[])
     parser.add_argument('--state-receipt', type=Path, action='append', default=[], help='Private existing receipt containing a workItemId')
     parser.add_argument('--expected-digest', action='append', default=[], metavar='WORK_ID=SHA256')
-    parser.add_argument('--runtime-root', type=Path, default=Path.home() / 'argon-m1-generic')
-    parser.add_argument('--data-root', type=Path, default=Path.home() / '.argon-brain-generic')
-    parser.add_argument('--legacy-data-root', type=Path, default=Path.home() / '.argon-brain')
-    parser.add_argument('--sandbox-root', type=Path, default=Path.home() / 'argon-sandboxes-generic')
-    parser.add_argument('--console-log', type=Path); parser.add_argument('--credential-file', type=Path, default=Path.home() / 'gitea/secrets/argon-agent.json')
+    parser.add_argument('--runtime-root', type=Path, default=Path.home() / 'mythos-m1-generic')
+    parser.add_argument('--data-root', type=Path, default=Path.home() / '.mythos-brain-generic')
+    parser.add_argument('--legacy-data-root', type=Path, default=Path.home() / '.mythos-brain')
+    parser.add_argument('--sandbox-root', type=Path, default=Path.home() / 'mythos-sandboxes-generic')
+    parser.add_argument('--console-log', type=Path); parser.add_argument('--credential-file', type=Path, default=Path.home() / 'gitea/secrets/mythos-agent.json')
     parser.add_argument('--api-origin', default='http://127.0.0.1:3083'); parser.add_argument('--console-origin', default='http://127.0.0.1:3093')
     parser.add_argument('--output', type=Path); parser.add_argument('--allow-in-progress', action='store_true')
     args = parser.parse_args(argv); os.umask(0o077)

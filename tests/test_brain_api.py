@@ -52,13 +52,13 @@ class ApiTests(unittest.TestCase):
 
     def create(self):
         code, work = self.request('POST', '/api/brain/work-items',
-                                  {'source': {'type': 'ARGON', 'id': 'FND-00009', 'revision': 2}, 'sandboxId': self.sandbox_id}, key='create')
+                                  {'source': {'type': 'MYTHOS', 'id': 'FND-00009', 'revision': 2}, 'sandboxId': self.sandbox_id}, key='create')
         self.assertEqual(code, 201)
         return work
 
     def test_authentication_and_body_owner_cannot_override_identity(self):
         self.assertEqual(self.request('GET', '/api/brain/work-items', owner=None)[0], 401)
-        body = {'source': {'type': 'ARGON', 'id': 'FND', 'revision': 1}, 'sandboxId': self.sandbox_id, 'ownerId': 'bob'}
+        body = {'source': {'type': 'MYTHOS', 'id': 'FND', 'revision': 1}, 'sandboxId': self.sandbox_id, 'ownerId': 'bob'}
         self.assertEqual(self.request('POST', '/api/brain/work-items', body, key='bad')[0], 400)
         body.pop('ownerId')
         self.assertEqual(self.request('POST', '/api/brain/work-items', body, owner='bob', key='bad-owner')[0], 404)

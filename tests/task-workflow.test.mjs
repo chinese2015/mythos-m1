@@ -1,31 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeFinding } from '../plugins/argon-workflow/source.mjs';
-import { sessionProgress, assertApproval, baselineReproduced } from '../plugins/argon-workflow/rules.mjs';
-import { taskPreset, readonlyGuard } from '../plugins/argon-workflow/session-policy.mjs';
+import { normalizeFinding } from '../plugins/mythos-workflow/source.mjs';
+import { sessionProgress, assertApproval, baselineReproduced } from '../plugins/mythos-workflow/rules.mjs';
+import { taskPreset, readonlyGuard } from '../plugins/mythos-workflow/session-policy.mjs';
 import { Context, Service } from '@deepseek-ai/cordis';
-import * as TaskPolicy from '../plugins/argon-workflow/session-policy.mjs';
+import * as TaskPolicy from '../plugins/mythos-workflow/session-policy.mjs';
 import Tools from '@deepseek-ai/dsh-tools';
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
 
 const source = { id: 'FND-00009', name: 'SQL injection', risk: 'HIGH', ownerId: 'owner-nova-01', revision: 2,
   repositoryUrl: 'http://127.0.0.1:3000/demo/demo-nova-catalog-api.git', baseCommit: '7fd32b0535fac3f6ce105a8494e2dcbba7ce355b',
   sourcePath: 'src/main/java/com/example/catalog/CatalogSearchService.java', status: 'Not Started' };
-const bolaSource = { id: 'FND-00016', name: "Invoice endpoint exposes another tenant's invoice by ID", risk: 'CRITICAL', ownerId: 'owner-aster-01', revision: 1,
-  repositoryUrl: 'http://127.0.0.1:3000/demo/demo-tenant-invoice-api.git', baseCommit: '43e06161b97113cecc9282e67c7a634dc825e310',
-  sourcePath: 'src/main/java/com/example/invoice/InvoiceController.java', status: 'Not Started', closed: 'Open' };
 test('source adapter enables only exact Nova mapping and disables altered baselines', () => {
   const task = normalizeFinding(source);
   assert.equal(task.enabled, true); assert.equal(task.revision, 2);
   assert.equal(normalizeFinding({ ...source, baseCommit: 'a'.repeat(40) }).enabled, false);
   assert.equal(normalizeFinding({ ...source, repositoryUrl: 'file:///etc' }).enabled, false);
   assert.equal(normalizeFinding({ ...source, id: 'FND-00999' }), null);
-});
-test('source adapter enables FND-00016 only for its exact invoice repository, baseline, and source path', () => {
-  assert.equal(normalizeFinding(bolaSource).enabled, true);
-  assert.equal(normalizeFinding({ ...bolaSource, baseCommit: 'a'.repeat(40) }).enabled, false);
-  assert.equal(normalizeFinding({ ...bolaSource, sourcePath: 'src/other.java' }).enabled, false);
-  assert.equal(normalizeFinding({ ...bolaSource, repositoryUrl: 'http://127.0.0.1:3000/demo/demo-tenant-invoice-api-evil.git' }).enabled, false);
 });
 
 const frames = [
@@ -55,9 +46,6 @@ test('baseline reproduction requires actual expected failing JUnit evidence', ()
   assert.equal(baselineReproduced(operation), true);
   assert.equal(baselineReproduced({ state: 'FAILED', exitCode: 1, evidence: { junit: { tests: 0 } } }), false);
   assert.equal(baselineReproduced({ ...operation, evidence: { junit: { ...operation.evidence.junit, failedTests: ['findsMatchingItems'] } } }), false);
-  const bola = { state: 'FAILED', exitCode: 1, evidence: { junit: { tests: 2, failures: 1, errors: 0, skipped: 0, failedTests: ['crossTenantInvoiceReadIsHidden'] } } };
-  assert.equal(baselineReproduced(bola, 'FND-00016'), true);
-  assert.equal(baselineReproduced({ ...bola, evidence: { junit: { ...bola.evidence.junit, failedTests: ['sameTenantAdminAndAnonymousAccessRemainCorrect'] } } }, 'FND-00016'), false);
 });
 test('native inbox admission is durable and canceled prompts are never treated as new work', () => {
   const inbox = [{ seq: 1, type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [{ id: 'message', role: 'user', source: { rpcId: 'code-request', kind: 'user' } }] } }];
@@ -68,10 +56,10 @@ test('native inbox admission is durable and canceled prompts are never treated a
 });
 test('task presets use the task workspace and separate PLAN from CODE capabilities', () => {
   const work = { workItemId: 'work-' + 'a'.repeat(32), ownerId: 'alice', sandboxId: 'sb-new-task' };
-  const config = { root: '/home/hx/argon-m1', helperHash: 'b'.repeat(64), workspacePath: '/home/hx/argon-sandboxes/sb-new-task/workspace' };
+  const config = { root: '/home/hx/mythos-m1', helperHash: 'b'.repeat(64), workspacePath: '/home/hx/mythos-sandboxes/sb-new-task/workspace' };
   const plan = taskPreset(work, 'PLAN', config), code = taskPreset(work, 'CODE', config);
   const planRows = plan.plugins[1].config, codeRows = code.plugins[1].config;
-  assert.equal(planRows.find(x => x.id === 'ssh').config.host, 'argon-sb-new-task');
+  assert.equal(planRows.find(x => x.id === 'ssh').config.host, 'mythos-sb-new-task');
   assert.equal(planRows.some(x => x.id === 'commands' || x.id === 'brain'), false);
   assert.equal(codeRows.some(x => x.id === 'brain'), true);
   assert.equal(readonlyGuard({ name: 'write' }), 'Task planning is read-only until human plan approval');
@@ -91,7 +79,7 @@ test('native monotonic guard prevents a write tool body even when the model requ
 });
 test('CODE filesystem policy becomes read-only during PR publication and review', async () => {
   const ctx = new Context(), work = { workflow: { phase: 'CODING' }, paused: false }, workId = 'work-' + 'a'.repeat(32);
-  class Workflow extends Service { constructor() { super(ctx, 'argonWorkflow'); this.controller = { closed: false, workState: new Map([[workId, work]]), inputRejection: () => undefined }; } }
+  class Workflow extends Service { constructor() { super(ctx, 'mythosWorkflow'); this.controller = { closed: false, workState: new Map([[workId, work]]), inputRejection: () => undefined }; } }
   try {
     await ctx.plugin(SystemPrompt); await ctx.plugin(Tools); new Workflow(); await ctx.plugin(TaskPolicy, { role: 'CODE', workId, workspacePath: '/task' });
     assert.equal(ctx.sandboxPolicy.resolve().mode, 'workspace-write');

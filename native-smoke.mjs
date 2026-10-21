@@ -17,7 +17,7 @@ try {
     contexts.push(ctx);
     await ctx.plugin(Projections.default ?? Projections);
     await ctx.plugin(Ssh, {
-      host: 'argon-' + item.sandbox_id,
+      host: 'mythos-' + item.sandbox_id,
       node: '/usr/bin/node',
       helper: '/opt/dsh-helper/node_modules/@deepseek-ai/dsh-ssh/lib/helper.js',
       helperHash: item.helper_hash,

@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { consoleHandler } from '../plugins/argon-console/index.mjs';
-import { TaskWorkflow } from '../plugins/argon-workflow/controller.mjs';
-import { TaskIntake } from '../plugins/argon-workflow/intake.mjs';
-import { findingBinding } from '../plugins/argon-subscribe/triage.mjs';
-import { buildManualInput, buildRepositoryConfig, createIntentKey, evidenceLine, sourceFacts, IntentLedger } from '../plugins/argon-console/public/intake-view.js';
+import { consoleHandler } from '../plugins/mythos-console/index.mjs';
+import { TaskWorkflow } from '../plugins/mythos-workflow/controller.mjs';
+import { TaskIntake } from '../plugins/mythos-workflow/intake.mjs';
+import { findingBinding } from '../plugins/mythos-subscribe/triage.mjs';
+import { buildManualInput, buildRepositoryConfig, createIntentKey, evidenceLine, sourceFacts, IntentLedger } from '../plugins/mythos-console/public/intake-view.js';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/generic-task-spec.json', import.meta.url), 'utf8'));
 const REPO_ID = 'repo-' + '1'.repeat(32);
@@ -41,22 +41,22 @@ async function withServer(fixture, fn) {
   try { await fn(url); } finally { await new Promise(resolve => fixture.server.close(resolve)); }
 }
 const auth = { cookie: 'session=valid' };
-const action = body => ({ method: 'POST', headers: { ...auth, 'Content-Type': 'application/json', 'X-Argon-Action': '1', 'Idempotency-Key': 'op-1' }, body: JSON.stringify(body) });
+const action = body => ({ method: 'POST', headers: { ...auth, 'Content-Type': 'application/json', 'X-Mythos-Action': '1', 'Idempotency-Key': 'op-1' }, body: JSON.stringify(body) });
 
 test('intake proxies fence authentication, origin, JSON action header and idempotency key before admitting', async () => {
   const f = intakeServer();
   await withServer(f, async url => {
-    assert.equal((await fetch(url + '/argon/api/repositories')).status, 401);
-    assert.equal((await fetch(url + '/argon/api/repositories', { headers: { ...auth, origin: 'http://evil.invalid' } })).status, 403);
-    const noJson = await fetch(url + '/argon/api/repositories', { method: 'POST', headers: auth, body: '{}' });
+    assert.equal((await fetch(url + '/mythos/api/repositories')).status, 401);
+    assert.equal((await fetch(url + '/mythos/api/repositories', { headers: { ...auth, origin: 'http://evil.invalid' } })).status, 403);
+    const noJson = await fetch(url + '/mythos/api/repositories', { method: 'POST', headers: auth, body: '{}' });
     assert.equal(noJson.status, 415);
-    const wrongType = await fetch(url + '/argon/api/repositories', { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: '{}' });
+    const wrongType = await fetch(url + '/mythos/api/repositories', { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: '{}' });
     assert.equal(wrongType.status, 415);
-    const noKey = await fetch(url + '/argon/api/repositories', { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json', 'X-Argon-Action': '1' }, body: '{}' });
+    const noKey = await fetch(url + '/mythos/api/repositories', { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json', 'X-Mythos-Action': '1' }, body: '{}' });
     assert.equal(noKey.status, 400);
-    const badKey = await fetch(url + '/argon/api/repositories', { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json', 'X-Argon-Action': '1', 'Idempotency-Key': 'bad key!' }, body: '{}' });
+    const badKey = await fetch(url + '/mythos/api/repositories', { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json', 'X-Mythos-Action': '1', 'Idempotency-Key': 'bad key!' }, body: '{}' });
     assert.equal(badKey.status, 400);
-    const manualNoKey = await fetch(url + '/argon/api/tasks/manual', { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json', 'X-Argon-Action': '1' }, body: '{}' });
+    const manualNoKey = await fetch(url + '/mythos/api/tasks/manual', { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json', 'X-Mythos-Action': '1' }, body: '{}' });
     assert.equal(manualNoKey.status, 400);
     assert.equal(f.calls.length, 0);
   });
@@ -65,18 +65,18 @@ test('intake proxies fence authentication, origin, JSON action header and idempo
 test('intake proxies pass repository list, register, revision, check and manual create through with status codes', async () => {
   const f = intakeServer(); const config = fixture.repositoryConfig;
   await withServer(f, async url => {
-    const list = await fetch(url + '/argon/api/repositories', { headers: auth });
+    const list = await fetch(url + '/mythos/api/repositories', { headers: auth });
     assert.equal(list.status, 200);
     assert.deepEqual(await list.json(), { repositories: [] });
-    const register = await fetch(url + '/argon/api/repositories', action(config));
+    const register = await fetch(url + '/mythos/api/repositories', action(config));
     assert.equal(register.status, 201);
     assert.equal((await register.json()).repositoryId, REPO_ID);
-    const revise = await fetch(url + `/argon/api/repositories/${REPO_ID}/revisions`, action({ expectedRevision: 1, enabled: false }));
+    const revise = await fetch(url + `/mythos/api/repositories/${REPO_ID}/revisions`, action({ expectedRevision: 1, enabled: false }));
     assert.equal(revise.status, 200);
-    const check = await fetch(url + `/argon/api/repositories/${REPO_ID}/check`, action({}));
+    const check = await fetch(url + `/mythos/api/repositories/${REPO_ID}/check`, action({}));
     assert.equal(check.status, 200);
     assert.deepEqual(await check.json(), { fullName: 'demo/customer-api', defaultBranch: 'main', pushPermission: true });
-    const create = await fetch(url + '/argon/api/tasks/manual', action(fixture.manualInput));
+    const create = await fetch(url + '/mythos/api/tasks/manual', action(fixture.manualInput));
     assert.equal(create.status, 202);
     assert.deepEqual(f.calls, [
       ['GET', '/api/brain/repositories', {}],
@@ -91,7 +91,7 @@ test('intake proxies pass repository list, register, revision, check and manual 
 test('intake proxy surfaces invalid repository ids as 400 without reaching the brain', async () => {
   const f = intakeServer();
   await withServer(f, async url => {
-    const response = await fetch(url + '/argon/api/repositories/not-a-repo/revisions', action({ expectedRevision: 1, enabled: false }));
+    const response = await fetch(url + '/mythos/api/repositories/not-a-repo/revisions', action({ expectedRevision: 1, enabled: false }));
     assert.equal(response.status, 400);
     assert.equal(f.calls.length, 0);
   });
@@ -246,21 +246,21 @@ test('both form builders reject every unsafe Git branch prefix and suffix', () =
 test('intent storage read errors never overwrite an unresolved key after a lost acknowledgement', () => {
   const storage = memoryStorage();
   const original = new IntentLedger('manual-task', storage).intent('same-business-input');
-  const persisted = storage.getItem('argon-intent:manual-task');
+  const persisted = storage.getItem('mythos-intent:manual-task');
   const broken = { ...storage, getItem() { throw new Error('read failed'); } };
   const reopened = new IntentLedger('manual-task', broken);
   assert.throws(() => reopened.intent('same-business-input'), error => error.code === 'INTENT_STORAGE');
-  assert.equal(storage.getItem('argon-intent:manual-task'), persisted);
+  assert.equal(storage.getItem('mythos-intent:manual-task'), persisted);
   assert.equal(new IntentLedger('manual-task', storage).intent('same-business-input').key, original.key);
 });
 
 test('corrupt or invalid pending intent records fail closed without replacement', () => {
   for (const raw of ['', '{bad', 'null', '[]', '{}', '{"key":"bad key","fingerprint":"fp"}',
     '{"key":"safe-key","fingerprint":17}', '{"key":"safe-key","fingerprint":"fp","extra":true}']) {
-    const storage = memoryStorage(); storage.setItem('argon-intent:manual-task', raw);
+    const storage = memoryStorage(); storage.setItem('mythos-intent:manual-task', raw);
     const ledger = new IntentLedger('manual-task', storage);
     assert.throws(() => ledger.intent('fp'), error => error.code === 'INTENT_CORRUPT', raw);
-    assert.equal(storage.getItem('argon-intent:manual-task'), raw);
+    assert.equal(storage.getItem('mythos-intent:manual-task'), raw);
     ledger.reset();
     assert.match(ledger.intent('fp').key, /^[A-Za-z0-9_-]{1,150}$/);
   }
@@ -276,7 +276,7 @@ test('an intent must be durably written and readable before it can authorize a m
   const lostRead = { ...storage, getItem(key) { if (wrote) throw new Error('read after write failed'); return storage.getItem(key); },
     setItem(key, value) { storage.setItem(key, value); wrote = true; } };
   assert.throws(() => new IntentLedger('manual-task', lostRead).intent('fp'), error => error.code === 'INTENT_STORAGE');
-  const saved = JSON.parse(storage.getItem('argon-intent:manual-task'));
+  const saved = JSON.parse(storage.getItem('mythos-intent:manual-task'));
   assert.equal(new IntentLedger('manual-task', storage).intent('fp').key, saved.key);
 });
 

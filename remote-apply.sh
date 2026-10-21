@@ -7,12 +7,12 @@ HOST="hx@2408:8240:1210:cce0:34ed:a4ff:fee1:3fd2"
 cd "$(dirname "$0")"
 
 echo "== syncing broker + plugin files"
-ssh -o BatchMode=yes "$HOST" 'mkdir -p ~/argon-m1/plugins/argon-sandbox'
-scp -o BatchMode=yes sandbox.py configure_presets.py "hx@[2408:8240:1210:cce0:34ed:a4ff:fee1:3fd2]:~/argon-m1/"
-scp -o BatchMode=yes plugins/argon-sandbox/index.mjs "hx@[2408:8240:1210:cce0:34ed:a4ff:fee1:3fd2]:~/argon-m1/plugins/argon-sandbox/"
+ssh -o BatchMode=yes "$HOST" 'mkdir -p ~/mythos-m1/plugins/mythos-sandbox'
+scp -o BatchMode=yes sandbox.py configure_presets.py "hx@[2408:8240:1210:cce0:34ed:a4ff:fee1:3fd2]:~/mythos-m1/"
+scp -o BatchMode=yes plugins/mythos-sandbox/index.mjs "hx@[2408:8240:1210:cce0:34ed:a4ff:fee1:3fd2]:~/mythos-m1/plugins/mythos-sandbox/"
 
 echo "== reinstalling presets and restarting DSH"
-ssh -o BatchMode=yes "$HOST" 'export PATH="$HOME/tools/node/bin:$PATH"; cd ~/argon-m1 && python3 configure_presets.py && python3 restart-dsh.py && sleep 4 && python3 -c "
+ssh -o BatchMode=yes "$HOST" 'export PATH="$HOME/tools/node/bin:$PATH"; cd ~/mythos-m1 && python3 configure_presets.py && python3 restart-dsh.py && sleep 4 && python3 -c "
 import json
 d = json.load(open(\"state/runtime-diagnostic.json\"))
 print([(p[\"id\"], p.get(\"broken\", \"ok\")) for p in d[\"presets\"]])"'

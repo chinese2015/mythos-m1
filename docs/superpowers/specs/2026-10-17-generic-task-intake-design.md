@@ -62,7 +62,7 @@ TaskSpec 由后端从有效仓库配置和经过验证的任务输入合成。�
 
 ### 基线
 
-通用任务默认 `record`：执行实际基线，记录通过/失败和证据，然后只读分析；不要求每个新需求必须先有一个已知名字的失败测试。可配置 `must-pass` 或 `must-fail`。JUnit 基线必须有有效报告和至少一项有效未跳过测试；最终 B 仍由冻结的 `minTests` 强制最低测试数，因此允许基线测试数低于新增回归后的最终验收数。超时、UNKNOWN、缺失强制报告或无有效测试均不能作为正常基线推进。
+通用任务默认 `record`：执行实际基线，记录通过/失败和证据，然后只读分析；不要求每个新需求必须先有一个已知名字的失败测试。可配置 `must-pass` 或 `must-fail`。超时、UNKNOWN、缺失强制报告或无有效测试均不能作为正常基线推进。
 
 JUnit 项目的失败基线需要真实有效报告，环境错误不能伪装成 Bug 复现。命令模式如实显示“命令 exit N / 未提供 JUnit”，不编造用例数。旧 Finding 仍保持其已验证的固定失败契约，不因泛化放宽旧验收。
 
@@ -92,13 +92,13 @@ PR 标题、正文、分支和校验使用通用任务标识与实际证据，�
 - POST `/api/brain/tasks/manual`：创建冻结任务，需 repositoryRevision 与 Idempotency-Key；
 - 现有 snapshot、prepare、sessions、workflow、operations、publish-branch 接口复用。
 
-DSH console 同源代理提供对应 `/argon/api/repositories...` 和 `/argon/api/tasks/manual`，不把 M2 token/Git 密码交给浏览器。任务中心同时展示来源 Finding 和手工任务；新任务创建只持久化/排队，不因刷新再次 Start。详情显示来源类型、基线、允许改动范围、冻结验证策略、PLAN/CODE、Diff、真实运行日志与 PR。
+DSH console 同源代理提供对应 `/mythos/api/repositories...` 和 `/mythos/api/tasks/manual`，不把 M2 token/Git 密码交给浏览器。任务中心同时展示来源 Finding 和手工任务；新任务创建只持久化/排队，不因刷新再次 Start。详情显示来源类型、基线、允许改动范围、冻结验证策略、PLAN/CODE、Diff、真实运行日志与 PR。
 
 新仓库配置表单说明验证命令运行在容器；报告模式、测试变更范围和配置版本可在创建前审阅。只读 PLAN → 显式批准 → CODE 的现有顺序不变。
 
 ## 兼容与迁移
 
-1. 旧 ARGON/Finding Work Item 无需改写；由 legacy policy adapter 读出与当前相同的限制。
+1. 旧 MYTHOS/Finding Work Item 无需改写；由 legacy policy adapter 读出与当前相同的限制。
 2. 新 MANUAL Work Item 用冻结 TaskSpec；BrainBridge 的 Session 绑定校验、TaskWorkflow 与 SDLC 明确识别两类受管任务。
 3. 旧 DIRECT 会话与已有 sandbox preset 保持兼容。
 4. 旧 PR 不重建、不重新推送、不自动合并。旧 owner 审批不被新配置覆盖。

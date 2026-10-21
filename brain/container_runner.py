@@ -320,7 +320,7 @@ def request_cancel(root, op_id):
 def main():
     action, payload = sys.argv[1:3]
     spec = json.loads(base64.b64decode(payload))
-    root = spec.get('root', '/run/argon-operations')
+    root = spec.get('root', '/run/mythos-operations')
     if action == 'run':
         supervise(root, spec)
     elif action == 'poll':

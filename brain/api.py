@@ -72,7 +72,7 @@ def make_server(store, executor, tokens, address=('127.0.0.1', 3081), publisher=
             url = urlsplit(self.path)
             path = url.path.rstrip('/')
             if self.command == 'GET' and path == '/health':
-                return 200, {'service': 'argon-brain', 'status': 'ok', 'schemaVersion': 1}
+                return 200, {'service': 'mythos-brain', 'status': 'ok', 'schemaVersion': 1}
             owner = self.owner()
             key = self.headers.get('Idempotency-Key')
             segments = path.split('/')[1:]
@@ -180,6 +180,8 @@ def make_server(store, executor, tokens, address=('127.0.0.1', 3081), publisher=
                 status, response = error.status, {'error': {'code': error.code, 'message': str(error)}}
             except (ValueError, TypeError, UnicodeError):
                 status, response = 400, {'error': {'code': 'INVALID_INPUT', 'message': 'Malformed request'}}
+            except RuntimeError as error:
+                status, response = 409, {'error': {'code': 'CONFLICT', 'message': str(error)}}
             except Exception:
                 status, response = 500, {'error': {'code': 'INTERNAL', 'message': 'Internal backend error'}}
             try:

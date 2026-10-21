@@ -136,7 +136,7 @@ def _delivery_identity_matches(work, pulls):
     if not isinstance(verify_id, str) or OPERATION.fullmatch(verify_id) is None:
         return False
     delivery_id = hashlib.sha256((work_id + ':' + candidate + ':' + verify_id).encode()).hexdigest()
-    head_branch = 'argon/' + FINDING_ID.lower() + '-' + work_id[5:13] + '-' + candidate[:12]
+    head_branch = 'mythos/' + FINDING_ID.lower() + '-' + work_id[5:13] + '-' + candidate[:12]
     if (delivery.get('id') != delivery_id or delivery.get('repository') != FULL_NAME
             or delivery.get('repositoryUrl') != REPOSITORY_URL or delivery.get('candidateCommit') != candidate
             or delivery.get('verificationOperationId') != verify_id or delivery.get('headBranch') != head_branch
@@ -145,7 +145,7 @@ def _delivery_identity_matches(work, pulls):
             or delivery.get('lastError') is not None or delivery.get('nextAttemptAt') is not None
             or source.get('id') != FINDING_ID or not isinstance(pulls, list) or len(pulls) != 1):
         return False
-    pull = pulls[0]; marker = '<!-- argon-delivery:' + delivery_id + ' -->'
+    pull = pulls[0]; marker = '<!-- mythos-delivery:' + delivery_id + ' -->'
     return isinstance(pull, dict) and pull.get('number') == delivery['pullNumber'] \
         and pull.get('html_url') == 'http://127.0.0.1:3000/' + FULL_NAME + '/pulls/' + str(delivery['pullNumber']) \
         and pull.get('state') == 'open' and pull.get('merged') is False \
@@ -182,11 +182,11 @@ def assess_bola_browser_entry(receipt, work, expected_origin='http://127.0.0.1:3
         expected = loopback_origin(expected_origin)
         query = urllib.parse.parse_qs(parsed.query, strict_parsing=True)
         work_id = work.get('workItemId'); session_ids = work.get('sessionIds') or []
-        session_id = query.get('argonSession', [''])[0]
+        session_id = query.get('mythosSession', [''])[0]
         url_ok = origin == expected and parsed.path == '/' and not parsed.fragment \
-            and set(query) == {'argonVibeTask', 'argonSession', 'argonEmbedded'} \
+            and set(query) == {'mythosVibeTask', 'mythosSession', 'mythosEmbedded'} \
             and all(len(values) == 1 for values in query.values()) \
-            and query.get('argonVibeTask') == [work_id] and query.get('argonEmbedded') == ['1'] \
+            and query.get('mythosVibeTask') == [work_id] and query.get('mythosEmbedded') == ['1'] \
             and session_id in session_ids and receipt.get('sessionId') == session_id
     except (ValueError, TypeError):
         url_ok = False; session_id = None
@@ -240,7 +240,7 @@ def capture_bola_acceptance(owner, work_id, api, console, forge, expected):
         delivery = wf.get('delivery') or {}
         pulls = forge.pulls(FULL_NAME, delivery) if isinstance(delivery, dict) else None
         checks.append(_check('exactOpenPull', _delivery_identity_matches(work, pulls)))
-        detail = console.get('/argon/api/work-items/' + work_id)
+        detail = console.get('/mythos/api/work-items/' + work_id)
         console_work = detail.get('workItem') if isinstance(detail, dict) else None
         checks.append(_check('authenticatedConsoleBinding', isinstance(console_work, dict)
                              and console_work.get('workItemId') == work_id and console_work.get('ownerId') == owner
@@ -311,7 +311,7 @@ class BolaForgeReader:
             rows.extend(value)
             if not value: break
         else: raise ProbeError('Independent BOLA PR pagination is incomplete')
-        marker = '<!-- argon-delivery:' + str(delivery.get('id')) + ' -->'
+        marker = '<!-- mythos-delivery:' + str(delivery.get('id')) + ' -->'
         matched = [row for row in rows if marker in str(row.get('body') or '') or (row.get('head') or {}).get('ref') == delivery.get('headBranch')]
         result = []
         for row in matched:
@@ -338,9 +338,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--owner', default='alice')
     parser.add_argument('--work-id', required=True)
-    parser.add_argument('--runtime-root', type=Path, default=Path.home() / 'argon-m1')
-    parser.add_argument('--data-root', type=Path, default=Path.home() / '.argon-brain')
-    parser.add_argument('--credential-file', type=Path, default=Path.home() / 'gitea/secrets/argon-agent.json')
+    parser.add_argument('--runtime-root', type=Path, default=Path.home() / 'mythos-m1')
+    parser.add_argument('--data-root', type=Path, default=Path.home() / '.mythos-brain')
+    parser.add_argument('--credential-file', type=Path, default=Path.home() / 'gitea/secrets/mythos-agent.json')
     parser.add_argument('--api-origin', default='http://127.0.0.1:3081')
     parser.add_argument('--console-origin', default='http://127.0.0.1:3080')
     parser.add_argument('--mock-origin', default='http://127.0.0.1:8080')

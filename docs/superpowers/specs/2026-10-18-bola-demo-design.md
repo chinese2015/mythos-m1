@@ -4,7 +4,7 @@
 
 ## 目标
 
-扩展现有本地漏洞演练集，增加一个可由 Argon 发现、Owner 审批、执行基线、只读分析、编码、独立验证并发布 PR 的多租户对象级授权缺陷。项目和数据均为合成演示数据，使用本地 Gitea、Mock Findings 和 Java 17/Maven 离线执行模板。
+扩展现有本地漏洞演练集，增加一个可由 Mythos 发现、Owner 审批、执行基线、只读分析、编码、独立验证并发布 PR 的多租户对象级授权缺陷。项目和数据均为合成演示数据，使用本地 Gitea、Mock Findings 和 Java 17/Maven 离线执行模板。
 
 成功标准：
 
@@ -21,11 +21,11 @@
 
 | 现有边界 | 当前限制 | 本样例需要的增量 |
 |---|---|---|
-| `plugins/argon-workflow/source.mjs` | 只映射 FND-00003、00009、00015 | 为 FND-00016 添加仓库、真实 base SHA、源码路径映射 |
-| `plugins/argon-workflow/rules.mjs` | 仅有三个 Finding 的固定失败测试名 | 为 FND-00016 登记跨租户失败测试名，并继续要求精确基线证据 |
-| `brain/executor.py`、`plugins/argon-sdlc/policy.mjs` | ARGON 仓库白名单固定为三个旧 repo | 将新 repo 加入执行和交付白名单；保留原 owner/URL/commit 绑定 |
+| `plugins/mythos-workflow/source.mjs` | 只映射 FND-00003、00009、00015 | 为 FND-00016 添加仓库、真实 base SHA、源码路径映射 |
+| `plugins/mythos-workflow/rules.mjs` | 仅有三个 Finding 的固定失败测试名 | 为 FND-00016 登记跨租户失败测试名，并继续要求精确基线证据 |
+| `brain/executor.py`、`plugins/mythos-sdlc/policy.mjs` | MYTHOS 仓库白名单固定为三个旧 repo | 将新 repo 加入执行和交付白名单；保留原 owner/URL/commit 绑定 |
 | 远端 Git 凭据助手 `/home/hx/gitea/repositories.json` | helper 只为三个旧 repo 提供 Git 凭据 | 为新私有 repo 添加唯一精确 allowlist 项；保留其他项/文件权限，先存私有备份再原子写入 |
-| `plugins/argon-sdlc/policy.mjs`、`plugins/argon-workflow/task-spec.mjs` | legacy ARGON 验证要求恰好 2 项 JUnit，候选只准改一个映射源码文件且不准改测试 | Fixture 保留 2 个 JUnit 测试方法；基线已有失败回归，候选只修源码，不放宽既有门禁 |
+| `plugins/mythos-sdlc/policy.mjs`、`plugins/mythos-workflow/task-spec.mjs` | legacy MYTHOS 验证要求恰好 2 项 JUnit，候选只准改一个映射源码文件且不准改测试 | Fixture 保留 2 个 JUnit 测试方法；基线已有失败回归，候选只修源码，不放宽既有门禁 |
 | `integrations/mock-source/AiCompletionController.java` | 完成回写只接受三个 repo | 将新 repo 加入精确本地 Gitea 白名单并补拒绝/接受测试 |
 | 远端 Mock `SeedData.java` | FND-00016 已存在但仍指向 placeholder repo、假 SHA、`sourcePath=null`；`run()` 在数据库非空时直接返回 | 在不重置数据库、不覆盖已领取 Finding 的前提下，安全绑定新 repo 和路径 |
 | 现场验收脚本 | `tests/live_generic_intake.py` 固定检查 Task 5 的两条 MANUAL 任务及三条 legacy Finding | 新增专用 BOLA 回执，避免改写已完成 Task 5 的固定库存契约 |
@@ -34,7 +34,7 @@
 
 ## 方案选择
 
-1. **推荐：复用 FND-00016，将独立 BOLA 项目接入 ARGON/M3。** 覆盖新漏洞代码、自动映射、Owner 门禁和完整交付，最大化复用现有工作流。需要同步维护少数 legacy 白名单和 Finding 绑定。
+1. **推荐：复用 FND-00016，将独立 BOLA 项目接入 MYTHOS/M3。** 覆盖新漏洞代码、自动映射、Owner 门禁和完整交付，最大化复用现有工作流。需要同步维护少数 legacy 白名单和 Finding 绑定。
 2. 仅通过通用 MANUAL TaskSpec 注册新 repo。实现改动较少，但跳过自动 Finding 研判、Owner 审批和来源绑定，不能验证 M3 的新漏洞接入路径。
 3. 新建 Finding 和新 owner。需要额外处理 Mock seed、编号和通知身份，当前已存在语义匹配且未领取的 FND-00016，收益有限。
 
@@ -52,7 +52,7 @@
 
 ### 基线与候选范围
 
-Fixture 有两个 JUnit 测试方法，以兼容现有 legacy ARGON `tests === 2` 固定合同：
+Fixture 有两个 JUnit 测试方法，以兼容现有 legacy MYTHOS `tests === 2` 固定合同：
 
 1. `crossTenantInvoiceReadIsHidden`：跨租户读取应为 404。脆弱基线中该方法确定失败，且只能有这一项失败。
 2. `sameTenantAdminAndAnonymousAccessRemainCorrect`：同租户读取、管理员跨租户读取、未认证请求和不存在对象的结果均正确。
@@ -63,8 +63,8 @@ Fixture 有两个 JUnit 测试方法，以兼容现有 legacy ARGON `tests === 2
 
 1. 在本地 Gitea 的 `demo` 组织创建私有仓库，先备份并将精确仓库名加入主机 `repositories.json` helper allowlist，再由现有 credential helper 推送脆弱基线 commit；记录真实 commit SHA、默认分支、源码路径和两项测试。重复运行不新增仓库、commit、allowlist 重复项或冗余备份；已有非预期仓库内容时停止。
 2. `integrations/mock-source/` 增加 loopback-only、CAS 保护的 `POST /api/findings/{id}/bind-demo-repository`。请求 `{expectedRevision, repositoryId, repositoryUrl, baseCommit, sourcePath, lineRange, findingName}` 只接受 FND-00016、`owner-aster-01`、预期 revision、原始 placeholder 身份，以及项目实际生成的 `REPO-demo-tenant-invoice-api`、本地 Gitea URL、40 位 base SHA、固定源码路径和目标标题。原记录已领取、状态变化或字段漂移时返回 409；非 loopback 调用拒绝。精确相同的已完成绑定幂等成功且不增加 revision。绑定器不接受任意仓库 URL，也不改 Owner、category、risk、score 或工作流状态。
-3. `plugins/argon-workflow/source.mjs` 映射 FND-00016 到新 repo、base SHA 和唯一源码路径；`rules.mjs` 为其声明唯一预期失败名。订阅器依现有映射规则完成 triage，任务中心按既有流程等待 Owner 审批。
-4. ARGON 执行/交付白名单及 Mock 完成回写白名单加入新 repo。增加对应 mapping、baseline、repo allowlist、CAS 绑定端点与完成回写测试；不改 `tests/live_generic_intake.py` 的旧固定库存。
+3. `plugins/mythos-workflow/source.mjs` 映射 FND-00016 到新 repo、base SHA 和唯一源码路径；`rules.mjs` 为其声明唯一预期失败名。订阅器依现有映射规则完成 triage，任务中心按既有流程等待 Owner 审批。
+4. MYTHOS 执行/交付白名单及 Mock 完成回写白名单加入新 repo。增加对应 mapping、baseline、repo allowlist、CAS 绑定端点与完成回写测试；不改 `tests/live_generic_intake.py` 的旧固定库存。
 5. Owner 批准后复用现有 PLAN、CODE、VERIFY、PR 链路。候选仅修映射源码文件；PR 保持 open/unmerged，代码服务不自动合并或关闭 Finding。
 6. 新增 `tests/live_bola_acceptance.py`，只读核对 FND-00016 身份和映射、baseline 失败证据、候选单文件干净状态、fresh B 通过证据、PR 精确 head、重启前后 Work Item/Session/operation 身份，以及浏览器任务详情和 read-only Diff。人工观察写入私有 `state/bola-browser.json`（mode 0600）；完整通过后输出私有验收回执，不包含 token 或原始日志。
 

@@ -13,7 +13,7 @@ M0 的真实演示仓库映射和统计接口已具备；M1 已有真实模型�
 | 项目 | 本次结果 |
 |---|---|
 | 远程连接 | SSH 正常，主机 hx-server |
-| DSH | 0.2.0-rc.2；未授权访问 HTTP 401；argon-alice/bob preset 无 broken 标记 |
+| DSH | 0.2.0-rc.2；未授权访问 HTTP 401；mythos-alice/bob preset 无 broken 标记 |
 | Gitea | healthz HTTP 200；三个私有演示仓库可认证读取 |
 | Mock | HTTP 200；234 条 Finding：199 Not Started、26 In Progress、9 Resolved |
 | Mock 统计 | stats 与列表一致；225 Open，64 Critical、133 High、37 Medium |
@@ -21,7 +21,7 @@ M0 的真实演示仓库映射和统计接口已具备；M1 已有真实模型�
 | 当前沙箱 | alice/bob 各一个 running，与 Docker 实例一致 |
 | 部署目录原有测试 | Node 3/3，Python 7/7 |
 | 完整本地测试在远程部署代码上运行 | 临时测试目录加载本地测试、引用远程部署模块：Node 7/7，Python 8/8 |
-| macOS 原地测试 | Node 5/7，Python 8/8；两个失败由测试硬编码 `/home/hx/argon-sandboxes`、实现默认使用当前 HOME 导致 |
+| macOS 原地测试 | Node 5/7，Python 8/8；两个失败由测试硬编码 `/home/hx/mythos-sandboxes`、实现默认使用当前 HOME 导致 |
 | 模型修复提交 | ce4181db901633376275bbd51e719cb7ff46c060；相对基线仅修改 CatalogSearchService.java，测试文件未改 |
 | 新容器单元测试 | 仅传递候选 Git bundle，确认无 target，离线 mvn test：exit 0，JUnit 2 tests / 0 failures / 0 errors / 0 skipped |
 | 新容器完整验证 | 离线 mvn clean verify：exit 1，尚未运行 JUnit，缺 maven-clean-plugin:3.2.0 |
@@ -46,7 +46,7 @@ M0 的真实演示仓库映射和统计接口已具备；M1 已有真实模型�
 
 ## 证据位置
 
-远程 `/home/hx/argon-m1/state/`：
+远程 `/home/hx/mythos-m1/state/`：
 
 - verification.json：历史独立验证，2 tests、0 failures/errors。
 - session-alice.json：真实模型修复及 sandbox_create/exec/stop/status 工具事件。

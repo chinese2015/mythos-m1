@@ -13,13 +13,10 @@ class ExecutorPolicyTests(unittest.TestCase):
     def test_only_exact_demo_repository_urls_are_accepted(self):
         url = 'http://127.0.0.1:3000/demo/demo-nova-catalog-api.git'
         self.assertEqual(validate_repository(url), url)
-        bola_url = 'http://127.0.0.1:3000/demo/demo-tenant-invoice-api.git'
-        self.assertEqual(validate_repository(bola_url), bola_url)
         for forbidden in ['file:///etc', '/home/hx/private',
                           'http://user:secret@127.0.0.1:3000/demo/demo-nova-catalog-api.git',
                           url + '?x=1', url.replace('/demo/', '/private/'),
-                          url.replace('127.0.0.1', 'example.com'),
-                          'http://127.0.0.1:3000/demo/demo-tenant-invoice-api-evil.git']:
+                          url.replace('127.0.0.1', 'example.com')]:
             with self.assertRaises(InvalidInput):
                 validate_repository(forbidden)
 
@@ -45,7 +42,7 @@ class ExecutorPolicyTests(unittest.TestCase):
             bound = DockerExecutor(broker, store)
             self.assertIs(bound.store, store)
             self.assertIsInstance(bound.host, GitHostClient)
-            host = GitHostClient(Path(second) / 'argon-agent.json')
+            host = GitHostClient(Path(second) / 'mythos-agent.json')
             custom = DockerExecutor(broker, store, host)
             self.assertIs(custom.host, host)
 

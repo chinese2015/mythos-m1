@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { safePath } from '../plugins/argon-vibe/shared/bridge.mjs';
+import { safePath } from '../plugins/mythos-vibe/shared/bridge.mjs';
 
 test('safePath accepts plain workspace-relative paths', () => {
   assert.equal(safePath('src/Catalog.java'), 'src/Catalog.java');

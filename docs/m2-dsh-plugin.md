@@ -2,7 +2,7 @@
 
 ## 入口
 
-当前 DSH Web Host 已配置全局 `argon-brain-service`，并在 **Argon Sandbox alice / bob** 两个 preset 中加载 `argon-brain-tools`。M2 API/worker 必须独立运行，默认地址为远程 `http://127.0.0.1:3081`。
+当前 DSH Web Host 已配置全局 `mythos-brain-service`，并在 **Mythos Sandbox alice / bob** 两个 preset 中加载 `mythos-brain-tools`。M2 API/worker 必须独立运行，默认地址为远程 `http://127.0.0.1:3081`。
 
 在 DSH Web 中选择对应的沙箱 workspace 和 preset，新建会话，可以直接说：
 
@@ -34,7 +34,7 @@
 
 | DSH 插件拥有 | 独立存续 |
 |---|---|
-| argonBrain 服务注册、七个工具注册 | DSH 核心的 Session、对话记录和 workspace |
+| mythosBrain 服务注册、七个工具注册 | DSH 核心的 Session、对话记录和 workspace |
 | HTTP 客户端、未完成的 HTTP 请求 | M2 API、worker、SQLite、证据 |
 | 事件轮询、Cordis 订阅和内存缓存 | Docker 沙箱、监督进程和已接收命令 |
 
@@ -44,14 +44,14 @@ Stop Agent 中断工具/HTTP 调用时，POST 可能已经被后端接收。先�
 
 ## 服务端扩展接口
 
-Cordis 插件声明 `inject: ['argonBrain']` 后可调用：
+Cordis 插件声明 `inject: ['mythosBrain']` 后可调用：
 
 ```javascript
 // 只准备会话与绑定，不自动调用模型。
-const binding = await ctx.argonBrain.prepareSession('alice', 'operator-request-42');
+const binding = await ctx.mythosBrain.prepareSession('alice', 'operator-request-42');
 
 // 显式将任务交给 DSH Agent；requestId 用于 DSH 自身的消息去重。
-await ctx.argonBrain.promptSession('alice', binding.sessionId,
+await ctx.mythosBrain.promptSession('alice', binding.sessionId,
   '只读分析仓库并提出计划', 'operator-prompt-42', signal);
 ```
 
@@ -59,9 +59,9 @@ await ctx.argonBrain.promptSession('alice', binding.sessionId,
 
 供后续 Run Monitor 使用的 Cordis 事件：
 
-- `argon-brain/snapshot`：ownerId、sessionId、workItemId、权威快照。
-- `argon-brain/event`：上述关联与 M2 原始有序事件。
-- `argon-brain/error`：关联、错误 code/status；不含凭据或后端任意错误正文。
+- `mythos-brain/snapshot`：ownerId、sessionId、workItemId、权威快照。
+- `mythos-brain/event`：上述关联与 M2 原始有序事件。
+- `mythos-brain/error`：关联、错误 code/status；不含凭据或后端任意错误正文。
 
 这些事件不会伪装成 DSH 原生 Session journal 事件，也不会自动给模型发消息。执行事实与证据保留在 M2，DSH 对话与工具调用仍由原生 journal 管理。
 
@@ -69,7 +69,7 @@ await ctx.argonBrain.promptSession('alice', binding.sessionId,
 
 ## 配置和验证
 
-`configure_presets.py` 生成全局服务和两个 owner preset，只替换本项目拥有的配置 ID，改写前备份原 Web profile。配置只写 tokenFile 路径，私有令牌仍在远程 `/home/hx/.argon-brain/tokens.json`，不能复制到 prompt 或 Git。
+`configure_presets.py` 生成全局服务和两个 owner preset，只替换本项目拥有的配置 ID，改写前备份原 Web profile。配置只写 tokenFile 路径，私有令牌仍在远程 `/home/hx/.mythos-brain/tokens.json`，不能复制到 prompt 或 Git。
 
 ```bash
 npm test
@@ -79,7 +79,7 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 在远程 operator host 验证真实 Docker/Cordis 卸载和恢复：
 
 ```bash
-cd /home/hx/argon-m1
+cd /home/hx/mythos-m1
 export PATH="$HOME/tools/node/bin:$PATH"
 node tests/live_brain_plugin.mjs
 ```

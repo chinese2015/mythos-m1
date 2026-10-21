@@ -147,7 +147,7 @@ class GitHostTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.credentials = Path(self.temp.name) / 'credentials.json'
-        self.credentials.write_text(json.dumps({'username': 'argon-agent', 'password': 'private-password-fixture'})); self.credentials.chmod(0o600)
+        self.credentials.write_text(json.dumps({'username': 'mythos-agent', 'password': 'private-password-fixture'})); self.credentials.chmod(0o600)
     def test_private_lazy_credentials_and_no_untrusted_context(self):
         client = GitHostClient(self.credentials)
         self.assertEqual(client.git_context(config()), {'url': 'http://127.0.0.1:3000/demo/customer-api.git', 'credentialFile': str(self.credentials)})

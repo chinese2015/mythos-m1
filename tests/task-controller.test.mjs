@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TaskWorkflow } from '../plugins/argon-workflow/controller.mjs';
-import { consoleHandler } from '../plugins/argon-console/index.mjs';
+import { TaskWorkflow } from '../plugins/mythos-workflow/controller.mjs';
+import { consoleHandler } from '../plugins/mythos-console/index.mjs';
 import { createServer } from 'node:http';
-import { bindTaskAgent } from '../plugins/argon-workflow/session-policy.mjs';
-import { findingBinding } from '../plugins/argon-subscribe/triage.mjs';
+import { bindTaskAgent } from '../plugins/mythos-workflow/session-policy.mjs';
+import { findingBinding } from '../plugins/mythos-subscribe/triage.mjs';
 const id = 'work-' + 'a'.repeat(32);
 function harness() {
-  const work = { workItemId: id, ownerId: 'alice', source: { type: 'ARGON', id: 'FND-00009' }, sourceRecord: { baseCommit: 'b'.repeat(40), sourcePath: 'src/Fix.java' }, sessionIds: [], sandboxId: 'sb-task', version: 1, blocked: false, workflow: { phase: 'CLAIMED' } };
+  const work = { workItemId: id, ownerId: 'alice', source: { type: 'MYTHOS', id: 'FND-00009' }, sourceRecord: { baseCommit: 'b'.repeat(40), sourcePath: 'src/Fix.java' }, sessionIds: [], sandboxId: 'sb-task', version: 1, blocked: false, workflow: { phase: 'CLAIMED' } };
   const ops = new Map(), keys = new Map(); let lostAck = false;
   const client = { dispose: async () => {}, request: async (method, path, options = {}) => {
     if (method === 'GET' && path.endsWith('/workspace')) return { workspacePath: '/home/demo/workspace', git: { headCommit: work.sourceRecord.baseCommit, status: '', changedFiles: [], testsChanged: [] } };
@@ -108,11 +108,11 @@ test('console authenticates and fences origins before reading data or admitting 
     workflow: { tasks: async () => { admitted++; return { tasks: [] }; }, start: async () => { admitted++; return { workItemId: id }; } } }));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); const url = 'http://127.0.0.1:' + server.address().port;
   try {
-    assert.equal((await fetch(url + '/argon/api/tasks')).status, 401);
-    assert.equal((await fetch(url + '/argon/api/tasks', { headers: { cookie: 'session=valid', origin: 'http://evil.invalid' } })).status, 403);
-    assert.equal((await fetch(url + '/argon/api/tasks/FND-00009/start', { method: 'POST', headers: { cookie: 'session=valid', 'Content-Type': 'application/json' }, body: '{}' })).status, 415);
+    assert.equal((await fetch(url + '/mythos/api/tasks')).status, 401);
+    assert.equal((await fetch(url + '/mythos/api/tasks', { headers: { cookie: 'session=valid', origin: 'http://evil.invalid' } })).status, 403);
+    assert.equal((await fetch(url + '/mythos/api/tasks/FND-00009/start', { method: 'POST', headers: { cookie: 'session=valid', 'Content-Type': 'application/json' }, body: '{}' })).status, 415);
     assert.equal(admitted, 0);
-    assert.equal((await fetch(url + '/argon/api/tasks/FND-00009/start', { method: 'POST', headers: { cookie: 'session=valid', 'Content-Type': 'application/json', 'X-Argon-Action': '1', 'Idempotency-Key': 'action-42' }, body: '{"expectedRevision":2}' })).status, 202);
+    assert.equal((await fetch(url + '/mythos/api/tasks/FND-00009/start', { method: 'POST', headers: { cookie: 'session=valid', 'Content-Type': 'application/json', 'X-Mythos-Action': '1', 'Idempotency-Key': 'action-42' }, body: '{"expectedRevision":2}' })).status, 202);
     assert.equal(admitted, 1);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
@@ -122,10 +122,10 @@ test('console proxies work-item events with cursor validation and auth fencing',
     workflow: { events: async (workId, after) => { seen = { workId, after }; return { events: [{ sequence: 7, type: 'execution.started' }], nextCursor: 7 }; } } }));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); const url = 'http://127.0.0.1:' + server.address().port;
   try {
-    assert.equal((await fetch(url + '/argon/api/work-items/work-x/events')).status, 401);
-    assert.equal((await fetch(url + '/argon/api/work-items/work-x/events?after=-1', { headers: { cookie: 'session=valid' } })).status, 400);
-    assert.equal((await fetch(url + '/argon/api/work-items/work-x/events?after=1.5', { headers: { cookie: 'session=valid' } })).status, 400);
-    const ok = await fetch(url + '/argon/api/work-items/work-x/events?after=5', { headers: { cookie: 'session=valid' } });
+    assert.equal((await fetch(url + '/mythos/api/work-items/work-x/events')).status, 401);
+    assert.equal((await fetch(url + '/mythos/api/work-items/work-x/events?after=-1', { headers: { cookie: 'session=valid' } })).status, 400);
+    assert.equal((await fetch(url + '/mythos/api/work-items/work-x/events?after=1.5', { headers: { cookie: 'session=valid' } })).status, 400);
+    const ok = await fetch(url + '/mythos/api/work-items/work-x/events?after=5', { headers: { cookie: 'session=valid' } });
     assert.equal(ok.status, 200);
     assert.deepEqual(await ok.json(), { events: [{ sequence: 7, type: 'execution.started' }], nextCursor: 7 });
     assert.deepEqual(seen, { workId: 'work-x', after: 5 });
@@ -154,10 +154,10 @@ test('console intake decisions use the same authentication and mutation fences',
   const decisions = [];
   const server = createServer(consoleHandler({ connection: { requestRejection: ({ headers }) => headers.cookie === 'session=valid' ? undefined : 401 },
     subscribe: { decide: async (...args) => { decisions.push(args); return { state: 'APPROVED' }; } } }));
-  await new Promise(resolve => server.listen(0,'127.0.0.1',resolve)); const url = 'http://127.0.0.1:' + server.address().port + '/argon/api/tasks/FND-00015/decide';
+  await new Promise(resolve => server.listen(0,'127.0.0.1',resolve)); const url = 'http://127.0.0.1:' + server.address().port + '/mythos/api/tasks/FND-00015/decide';
   try {
     assert.equal((await fetch(url, { method: 'POST' })).status, 401);
-    const headers = { cookie: 'session=valid', 'Content-Type':'application/json', 'X-Argon-Action':'1', 'Idempotency-Key':'decision-42' };
+    const headers = { cookie: 'session=valid', 'Content-Type':'application/json', 'X-Mythos-Action':'1', 'Idempotency-Key':'decision-42' };
     assert.equal((await fetch(url, { method: 'POST', headers, body: '{"decision":"APPROVE","expectedRevision":2}' })).status, 200);
     assert.deepEqual(decisions, [['FND-00015', { decision: 'APPROVE', expectedRevision: 2 }, 'decision-42']]);
   } finally { await new Promise(resolve => server.close(resolve)); }

@@ -6,15 +6,15 @@ import Tools from '@deepseek-ai/dsh-tools';
 import { readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import * as ServicePlugin from '../plugins/argon-brain/service.mjs';
-import * as ToolPlugin from '../plugins/argon-brain/index.mjs';
-import { M2Client } from '../plugins/argon-brain/client.mjs';
+import * as ServicePlugin from '../plugins/mythos-brain/service.mjs';
+import * as ToolPlugin from '../plugins/mythos-brain/index.mjs';
+import { M2Client } from '../plugins/mythos-brain/client.mjs';
 
 const records = JSON.parse(await readFile(new URL('../state/sandboxes.json', import.meta.url), 'utf8'));
 const sessions = JSON.parse(await readFile(new URL('../state/poc-sessions.json', import.meta.url), 'utf8'));
-const config = { baseUrl: 'http://127.0.0.1:3081', tokenFile: homedir() + '/.argon-brain/tokens.json', pollIntervalMs: 200,
+const config = { baseUrl: 'http://127.0.0.1:3081', tokenFile: homedir() + '/.mythos-brain/tokens.json', pollIntervalMs: 200,
   owners: Object.fromEntries(Object.entries(records).map(([owner, record]) => [owner,
-    { sandboxId: record.sandbox_id, workspacePath: record.workspace_path, preset: 'argon-' + owner }])) };
+    { sandboxId: record.sandbox_id, workspacePath: record.workspace_path, preset: 'mythos-' + owner }])) };
 const client = new M2Client({ ...config, owner: 'alice' });
 const ctx = new Context();
 const nonce = randomUUID();
@@ -34,7 +34,7 @@ try {
   const op = JSON.parse(await ctx.tools.get('execution_run').execute({ command }, exec));
   await wait(async () => (await client.request('GET', '/api/brain/operations/' + op.operationId + '/logs')).logs.length);
   await service.dispose();
-  assert.equal(ctx.get('argonBrain'), undefined);
+  assert.equal(ctx.get('mythosBrain'), undefined);
   assert.equal(ctx.tools.get('execution_run'), undefined);
   const during = await client.request('GET', '/api/brain/operations/' + op.operationId);
   assert.equal(during.state, 'RUNNING');

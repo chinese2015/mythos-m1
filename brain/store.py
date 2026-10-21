@@ -129,7 +129,7 @@ class Store(RepositoryStore):
         self._save_work(db, work)
         event = {'eventId': identifier('evt'), 'schemaVersion': 1, 'workItemId': work_id,
                  'sequence': work['sequence'], 'type': event_type, 'occurredAt': now(),
-                 'source': 'argon-workflow' if operation_id is None else 'argon-execution',
+                 'source': 'mythos-workflow' if operation_id is None else 'mythos-execution',
                  'correlation': {'operationId': operation_id} if operation_id else {}, 'payload': payload}
         db.execute('INSERT INTO events VALUES (?, ?, ?)', (work_id, work['sequence'], encoded(event)))
 
@@ -157,7 +157,7 @@ class Store(RepositoryStore):
     def create_work_item(self, owner, body, key):
         source = body.get('source')
         if (not isinstance(source, dict) or set(source) != {'type', 'id', 'revision'}
-                or source['type'] not in {'ARGON', 'JIRA', 'DIRECT'}
+                or source['type'] not in {'MYTHOS', 'JIRA', 'DIRECT'}
                 or not isinstance(source['id'], str) or not 1 <= len(source['id']) <= 200
                 or type(source['revision']) not in {str, int} or not str(source['revision'])):
             raise InvalidInput('source requires type, id and revision')
@@ -214,7 +214,7 @@ class Store(RepositoryStore):
             if str(expected_revision) != str(source_record['revision']):
                 raise Conflict('Source revision changed')
             work_id = identifier('work')
-            source = {'type': 'ARGON', 'id': source_id, 'revision': source_record['revision']}
+            source = {'type': 'MYTHOS', 'id': source_id, 'revision': source_record['revision']}
             work = {'workItemId': work_id, 'ownerId': owner, 'source': source,
                     'sourceRecord': dict(source_record), 'sandboxId': None, 'sessionId': None,
                     'sessionIds': [], 'stage': 'CLAIMED', 'status': 'CLAIMED', 'paused': False,

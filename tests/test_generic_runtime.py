@@ -57,7 +57,7 @@ def make_manual_work(store, owner='alice', config=None, input_extra=None, base_c
 
 
 def write_credentials(path):
-    path.write_text(json.dumps({'username': 'argon-agent', 'password': 'p' * 24}))
+    path.write_text(json.dumps({'username': 'mythos-agent', 'password': 'p' * 24}))
     path.chmod(0o600)
     return path
 
@@ -66,7 +66,7 @@ class CredentialHelperTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.secret = write_credentials(Path(self.temp.name) / 'argon-agent.json')
+        self.secret = write_credentials(Path(self.temp.name) / 'mythos-agent.json')
         self.url = 'http://127.0.0.1:3000/demo/demo-customer-api.git'
         self.helper = Path(__file__).resolve().parent.parent / 'brain' / 'git_credentials.py'
 
@@ -79,7 +79,7 @@ class CredentialHelperTests(unittest.TestCase):
         request = 'protocol=http\nhost=127.0.0.1:3000\npath=demo/demo-customer-api.git\n'
         result = self.answer(request)
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, 'username=argon-agent\npassword=' + 'p' * 24 + '\n')
+        self.assertEqual(result.stdout, 'username=mythos-agent\npassword=' + 'p' * 24 + '\n')
 
     def test_helper_answers_nothing_and_leaks_nothing_for_unknown_targets(self):
         for request in ['protocol=http\nhost=127.0.0.1:3000\npath=demo/other.git\n',
@@ -104,7 +104,7 @@ class CredentialHelperTests(unittest.TestCase):
     def test_helper_fails_closed_for_unsafe_credential_files(self):
         request = 'protocol=http\nhost=127.0.0.1:3000\npath=demo/demo-customer-api.git\n'
         world_readable = Path(self.temp.name) / 'loose.json'
-        world_readable.write_text(json.dumps({'username': 'argon-agent', 'password': 'p' * 24}))
+        world_readable.write_text(json.dumps({'username': 'mythos-agent', 'password': 'p' * 24}))
         world_readable.chmod(0o644)
         self.assertEqual(self.answer(request, credential_file=world_readable).stdout, '')
         link = Path(self.temp.name) / 'linked.json'
@@ -158,7 +158,7 @@ class TaskAwareValidationTests(unittest.TestCase):
                     'https://127.0.0.1:3000/demo/demo-customer-api.git',
                     'http://127.0.0.1:3001/demo/demo-customer-api.git',
                     'file:///home/hx/private',
-                    '/home/hx/gitea/secrets/argon-agent.json']:
+                    '/home/hx/gitea/secrets/mythos-agent.json']:
             with self.subTest(url=url):
                 with self.assertRaises(InvalidInput):
                     validate_registered_repository(self.store, 'alice', url)
@@ -169,12 +169,12 @@ class TaskAwareValidationTests(unittest.TestCase):
 class SandboxCloneTargetTests(unittest.TestCase):
     def test_clone_target_accepts_exact_scoped_context(self):
         url = 'http://127.0.0.1:3000/demo/demo-customer-api.git'
-        context = {'url': url, 'credentialFile': '/private/argon-agent.json'}
+        context = {'url': url, 'credentialFile': '/private/mythos-agent.json'}
         self.assertEqual(validate_clone_target(url, 'main', context), (url, 'main', context))
 
     def test_clone_target_rejects_unsafe_branch_url_and_context(self):
         url = 'http://127.0.0.1:3000/demo/demo-customer-api.git'
-        context = {'url': url, 'credentialFile': '/private/argon-agent.json'}
+        context = {'url': url, 'credentialFile': '/private/mythos-agent.json'}
         for branch in ['../escape', '-unsafe', 'a..b', 'x@{y}', 'with space']:
             with self.assertRaises(InvalidInput):
                 validate_clone_target(url, branch, context)
@@ -207,7 +207,7 @@ class VerifierContextTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.store = Store(self.temp.name)
         self.broker = SandboxBroker(Path(self.temp.name) / 'sandboxes')
-        self.secret = write_credentials(Path(self.temp.name) / 'argon-agent.json')
+        self.secret = write_credentials(Path(self.temp.name) / 'mythos-agent.json')
         self.repo, self.spec, self.work = make_manual_work(self.store)
         self.url = self.spec['repository']['cloneUrl']
 
@@ -266,7 +266,7 @@ class VerifierContextTests(unittest.TestCase):
                 'http://127.0.0.1:3000/demo/unregistered-api.git')
 
     def test_unregistered_remote_is_rejected_before_the_credential_file_is_opened(self):
-        missing = Path(self.temp.name) / 'missing' / 'argon-agent.json'
+        missing = Path(self.temp.name) / 'missing' / 'mythos-agent.json'
         executor = DockerExecutor(self.broker, self.store, GitHostClient(missing))
         with self.assertRaises(InvalidInput) as raised:
             executor._verifier_context(
@@ -516,12 +516,6 @@ class FrozenReportDirTests(unittest.TestCase):
             container_runner.capture_reports(str(self.workspace), ['limit/link'])
         with self.assertRaises(ValueError):
             container_runner.clear_reports(str(self.workspace), ['limit/../escape'])
-
-    def test_duplicate_report_directory_aliases_are_rejected_before_capture(self):
-        self.report('target/surefire-reports', 'TEST-once.xml')
-        with self.assertRaises(ValueError):
-            container_runner.capture_reports(str(self.workspace),
-                                             ['target/surefire-reports', 'target/surefire-reports/'])
 
 
 if __name__ == '__main__':

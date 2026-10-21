@@ -2,14 +2,14 @@ import { realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve, relative, isAbsolute } from 'node:path';
 
-const defaultRoot = resolve(homedir(), 'argon-sandboxes');
+const defaultRoot = resolve(homedir(), 'mythos-sandboxes');
 const under = (root, path) => {
   const rel = relative(root, path);
   return rel === '' || (!rel.startsWith('..' + '/') && rel !== '..' && !isAbsolute(rel));
 };
 
 export const isSandboxPreset = (preset) =>
-  typeof preset === 'string' && /^(preset-)?argon(-|$)/.test(preset);
+  typeof preset === 'string' && /^(preset-)?mythos(-|$)/.test(preset);
 
 export function shouldCapture(session, root = defaultRoot) {
   // Sandbox-preset sessions never touch host change capture, even if a

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderMonitor } from '../plugins/argon-console/public/monitor-view.js';
+import { renderMonitor } from '../plugins/mythos-console/public/monitor-view.js';
 
 // ---- 轻量 fake DOM（无 jsdom 依赖） --------------------------------------
 class FakeNode {
