@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { safePath } from '../plugins/argon-vibe/shared/bridge.mjs';
+import { safePath } from '../plugins/mythos-vibe/shared/bridge.mjs';
 
 test('safePath accepts plain workspace-relative paths', () => {
   assert.equal(safePath('src/Catalog.java'), 'src/Catalog.java');
@@ -10,7 +10,7 @@ test('safePath accepts plain workspace-relative paths', () => {
 
 test('safePath rejects non-string, empty and over-long paths', () => {
   for (const bad of [null, undefined, 42, {}, '', 'x'.repeat(1501)]) {
-    assert.throws(() => safePath(bad), /只允许工作区内的相对路径/, String(bad).slice(0, 20));
+    assert.throws(() => safePath(bad), /Only workspace-relative paths are allowed/, String(bad).slice(0, 20));
   }
   assert.equal(safePath('x'.repeat(1500)), 'x'.repeat(1500));
 });

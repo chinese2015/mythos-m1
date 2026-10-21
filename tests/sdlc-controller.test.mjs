@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SdlcController } from '../plugins/argon-sdlc/controller.mjs';
-import { TaskWorkflow } from '../plugins/argon-workflow/controller.mjs';
+import { SdlcController } from '../plugins/mythos-sdlc/controller.mjs';
+import { TaskWorkflow } from '../plugins/mythos-workflow/controller.mjs';
 const id = 'work-' + 'a'.repeat(32), candidate = 'b'.repeat(40), operationId = 'exec-' + 'c'.repeat(32), tree = 'e'.repeat(40);
 function fixture() {
-  const work = { workItemId: id, ownerId: 'alice', sandboxId: 'sb-source', version: 1, paused: false, source: { type: 'ARGON', id: 'FND-00009' },
+  const work = { workItemId: id, ownerId: 'alice', sandboxId: 'sb-source', version: 1, paused: false, source: { type: 'MYTHOS', id: 'FND-00009' },
     sourceRecord: { id: 'FND-00009', title: 'Fix SQL injection', ownerId: 'source-owner', repositoryUrl: 'http://127.0.0.1:3000/demo/demo-nova-catalog-api.git', sourcePath: 'src/Fix.java', baseCommit: 'd'.repeat(40) },
     workflow: { phase: 'AWAITING_REVIEW', approval: { actor: 'alice' }, candidateCommit: candidate, verificationOperationId: operationId, codeSessionId: 'session-code', codeRequestId: 'request-code', codeEndSequence: 4 } };
   const op = { operationId, kind: 'VERIFY', state: 'SUCCEEDED', sourceCommit: candidate, runtime: { sandboxId: 'sb-fresh', freshTargetAbsent: true },
@@ -22,10 +22,10 @@ function fixture() {
   } };
   const workflow = new TaskWorkflow({ owner: 'alice' }, { client, source: {}, sessions: { inspect: async () => ({ events }), list: async () => ({ items: [{ sessionId: 'session-code', running: false }] }) }, presets: {}, workspaces: {} });
   workflow.workspace = async () => ({ git: structuredClone(git) });
-  const forge = { botLogin: 'argon-agent', baseUrl: 'http://127.0.0.1:3000', dispose: async () => {},
+  const forge = { botLogin: 'mythos-agent', baseUrl: 'http://127.0.0.1:3000', dispose: async () => {},
     async ensurePull(_repo, d) { state.creates++; return { number: 3, html_url: 'http://127.0.0.1:3000/demo/demo-nova-catalog-api/pulls/3', state: 'open' }; },
     async facts(_repo, d) { state.prReads++; return { pull: { number: 3, html_url: 'http://127.0.0.1:3000/demo/demo-nova-catalog-api/pulls/3', state: state.merged || state.closed ? 'closed' : 'open', merged: state.merged, merge_commit_sha: state.merged ? 'f'.repeat(40) : null,
-      merged_by: state.merged ? { login: 'human' } : null, user: { login: 'argon-agent' }, head: { sha: candidate, ref: d.headBranch, repo: { full_name: d.repository } }, base: { ref: 'main', repo: { full_name: d.repository } } }, candidateTree: tree, mergedTree: state.merged ? tree : null, reviews: [], statuses: [] }; } };
+      merged_by: state.merged ? { login: 'human' } : null, user: { login: 'mythos-agent' }, head: { sha: candidate, ref: d.headBranch, repo: { full_name: d.repository } }, base: { ref: 'main', repo: { full_name: d.repository } } }, candidateTree: tree, mergedTree: state.merged ? tree : null, reviews: [], statuses: [] }; } };
   const source = { async complete() { if (!state.sourceComplete) { state.sourceComplete = true; state.sourceWrites++; } if (state.loseSourceAck) { state.loseSourceAck = false; throw new Error('lost source acknowledgement'); } return { id: 'FND-00009', status: 'Resolved', verificationResult: 'PASSED', codeFixCommit: candidate, workItemId: id }; } };
   const make = () => new SdlcController({ minApprovals: 0, requiredStatusContexts: [] }, { workflow, forge, source });
   return { work, op, git, events, state, make, controller: make() };

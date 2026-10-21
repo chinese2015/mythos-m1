@@ -1,9 +1,0 @@
-{
-  "name": "@local/argon-vibe",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "exports": { ".": "./service.mjs", "./client": "./client.js" },
-  "dsh": { "client": { "platform": "web", "immediately": true,
-    "inject": ["@deepseek-ai/dsh-client-ui-workspace", "@deepseek-ai/dsh-client-ui-conversation", "@deepseek-ai/dsh-client-ui-sidebar-right"] } }
-}

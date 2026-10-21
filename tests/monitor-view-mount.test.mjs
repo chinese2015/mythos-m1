@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderMonitor } from '../plugins/argon-console/public/monitor-view.js';
+import { renderMonitor } from '../plugins/mythos-console/public/monitor-view.js';
 
 // ---- 轻量 fake DOM（无 jsdom 依赖） --------------------------------------
 class FakeNode {
@@ -80,7 +80,7 @@ function makeCtx(workItemId, requests, eventsPage, logsPage) {
     },
     notice: () => {},
     phaseText: phase => phase,
-    opLabel: () => '验证',
+    opLabel: () => 'verify',
   };
 }
 
@@ -121,10 +121,10 @@ test('a scoped mount writes poll results only inside its own container, never a 
     assert.ok(requestsB.some(path => path.startsWith('/work-items/work-bbbb/events?')), 'B polls its own work item');
     const streamA = panelA.querySelector('.event-stream');
     const streamB = panelB.querySelector('.event-stream');
-    assert.match(streamA.textContent, /已领取/);
-    assert.doesNotMatch(streamA.textContent, /已暂停/, 'A must not show B’s events');
-    assert.match(streamB.textContent, /已暂停/);
-    assert.doesNotMatch(streamB.textContent, /已领取/, 'B must not show A’s events');
+    assert.match(streamA.textContent, /claimed/);
+    assert.doesNotMatch(streamA.textContent, /paused/, 'A must not show B’s events');
+    assert.match(streamB.textContent, /paused/);
+    assert.doesNotMatch(streamB.textContent, /claimed/, 'B must not show A’s events');
     assert.equal(decoyStream.textContent, 'decoy-sentinel', 'a global panel outside the container is never touched');
   } finally {
     globalThis.document = previousDocument;
@@ -147,7 +147,7 @@ test('a detached container receives no late writes and does not throw', async ()
     container.remove(); // simulate the task view being torn down before the poll lands
     await flush();
     await flush();
-    assert.match(stream.textContent, /正在读取事件|暂无事件/, 'the late poll wrote nothing into the detached container');
+    assert.match(stream.textContent, /Reading events|No events yet/, 'the late poll wrote nothing into the detached container');
   } finally {
     globalThis.document = previousDocument;
     globalThis.CSS = previousCSS;
@@ -166,7 +166,7 @@ test('without a container the legacy global selector path is unchanged', async (
     doc.root.append(panel); // console caller appends the returned panel into the document
     await flush();
     await flush();
-    assert.match(panel.querySelector('.event-stream').textContent, /已恢复/);
+    assert.match(panel.querySelector('.event-stream').textContent, /resumed/);
     assert.ok(requests.some(path => path.startsWith('/work-items/work-legacy/events?')));
   } finally {
     globalThis.document = previousDocument;

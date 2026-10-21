@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import time
@@ -11,7 +12,26 @@ import time
 from registry import Registry
 from ssh_config import register_include
 
-IMAGE = 'argon-dsh-sandbox:0.2.0-rc.2'
+IMAGE = 'mythos-dsh-sandbox:0.2.0-rc.2'
+
+CLONE_URL = re.compile(r'http://127\.0\.0\.1:13000/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\.git')
+
+
+def validate_clone_target(url, branch, git_context):
+    """Reject unsafe branches, URLs, or credential contexts before Git/Docker I/O."""
+    from brain.task_spec import branch_name
+    from brain.errors import InvalidInput
+    branch_name(branch)
+    if git_context is None:
+        if not isinstance(url, str) or not CLONE_URL.fullmatch(url):
+            raise InvalidInput('Unsafe Git clone URL')
+        return url, branch, None
+    if (not isinstance(git_context, dict) or set(git_context) != {'url', 'credentialFile'}
+            or not isinstance(git_context['url'], str) or not isinstance(git_context['credentialFile'], str)):
+        raise InvalidInput('Git context must provide exactly url and credentialFile')
+    if url != git_context['url'] or not CLONE_URL.fullmatch(url):
+        raise InvalidInput('Git clone URL does not match the approved context')
+    return url, branch, git_context
 
 
 def run(argv, **kwargs):
@@ -25,7 +45,9 @@ class SandboxBroker:
     def __init__(self, root, per_owner_limit=2, global_limit=4):
         self.registry = Registry(root, per_owner_limit=per_owner_limit, global_limit=global_limit)
 
-    def create(self, owner, workspace, source=None):
+    def create(self, owner, workspace, source=None, *, branch='main', git_context=None):
+        if source:
+            source, branch, git_context = validate_clone_target(source, branch, git_context)
         record = self.registry.allocate(owner, workspace)
         folder = Path(record['workspace_path']).parent
         secret = folder / 'private'
@@ -34,7 +56,16 @@ class SandboxBroker:
         try:
             run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(key)])
             if source:
-                run(['git', 'clone', '--single-branch', '--branch', 'main', source, record['workspace_path']])
+                if git_context is None:
+                    run(['git', 'clone', '--single-branch', '--branch', branch, source, record['workspace_path']])
+                else:
+                    from brain.git_credentials import helper_command
+                    environment = dict(os.environ, GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull,
+                                       GIT_TERMINAL_PROMPT='0', GIT_ASKPASS='/bin/false')
+                    run(['git', '-c', 'credential.helper=' + helper_command(git_context['credentialFile'], source),
+                         '-c', 'credential.useHttpPath=true',
+                         'clone', '--single-branch', '--branch', branch, source, record['workspace_path']],
+                        env=environment)
                 run(['git', '-C', record['workspace_path'], 'config', 'core.sharedRepository', 'group'])
             for directory, _, files in os.walk(record['workspace_path']):
                 os.chmod(directory, 0o2770)
@@ -43,7 +74,7 @@ class SandboxBroker:
                     if not path.is_symlink():
                         path.chmod(path.stat().st_mode | 0o060)
             run(['docker', 'run', '-d', '--name', record['container_name'],
-                 '--label', 'argon.owner=' + owner, '--label', 'argon.sandbox=' + record['sandbox_id'],
+                 '--label', 'mythos.owner=' + owner, '--label', 'mythos.sandbox=' + record['sandbox_id'],
                  '--network', 'none', '--memory', '2g', '--cpus', '1', '--pids-limit', '256',
                  '--read-only', '--security-opt', 'no-new-privileges:true',
                  '--cap-drop', 'ALL', '--cap-add', 'SETUID', '--cap-add', 'SETGID',
@@ -51,7 +82,7 @@ class SandboxBroker:
                  '--tmpfs', '/run:rw,nosuid,nodev,size=16m',
                  '--tmpfs', '/tmp:rw,nosuid,nodev,mode=1777,size=256m',
                  '--mount', f'type=bind,src={record["workspace_path"]},dst={record["workspace_path"]}',
-                 '--mount', f'type=bind,src={key}.pub,dst=/etc/argon/authorized_keys,readonly', IMAGE])
+                 '--mount', f'type=bind,src={key}.pub,dst=/etc/mythos/authorized_keys,readonly', IMAGE])
             host_key = ''
             for _ in range(50):
                 result = subprocess.run(['docker', 'exec', record['container_name'], 'cat', '/run/ssh_host_ed25519_key.pub'], capture_output=True, text=True)
@@ -62,7 +93,7 @@ class SandboxBroker:
             if not host_key:
                 raise RuntimeError('Sandbox SSH daemon did not start')
             known = secret / 'known_hosts'
-            alias = 'argon-' + record['sandbox_id']
+            alias = 'mythos-' + record['sandbox_id']
             known.write_text(f'{alias} {host_key}\n')
             known.chmod(0o600)
             config = folder / 'ssh_config'
@@ -72,7 +103,7 @@ class SandboxBroker:
                               # OpenSSH's admin forwarding gate also covers Unix sockets.
                               # This is a stdio transport into a network-none container.
                               f'  ProxyCommand /usr/bin/docker exec -i --user 0 {record["container_name"]} /usr/sbin/sshd -i -o AllowTcpForwarding=yes '
-                              '-o SetEnv=GIT_CONFIG_GLOBAL=/tmp/argon-gitconfig -f /etc/ssh/sshd_config\n'
+                              '-o SetEnv=GIT_CONFIG_GLOBAL=/tmp/mythos-gitconfig -f /etc/ssh/sshd_config\n'
                               f'  SetEnv MAVEN_OPTS=-Dmaven.repo.local={record["workspace_path"]}/.cache/m2/repository\n')
             config.chmod(0o600)
             ssh = Path.home() / '.ssh/config'
@@ -82,7 +113,7 @@ class SandboxBroker:
             self.execute(owner, record['sandbox_id'], ['true'])
             # The image's HOME is inherited from Gitea and its root is read-only.
             # Native SSH tools get this per-container config through sshd SetEnv.
-            self.execute(owner, record['sandbox_id'], ['git', 'config', '--file', '/tmp/argon-gitconfig',
+            self.execute(owner, record['sandbox_id'], ['git', 'config', '--file', '/tmp/mythos-gitconfig',
                                                        '--add', 'safe.directory', record['workspace_path']])
             self.execute(owner, record['sandbox_id'], ['sh', '-c', 'mkdir -p .cache/m2 && cp -a /opt/m2-seed/repository .cache/m2/'])
             excludes = Path(record['workspace_path']) / '.git/info/exclude'
@@ -128,7 +159,7 @@ class SandboxBroker:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--root', type=Path, default=Path.home() / 'argon-sandboxes')
+    parser.add_argument('--root', type=Path, default=Path.home() / 'mythos-sandboxes')
     sub = parser.add_subparsers(dest='action', required=True)
     create = sub.add_parser('create')
     create.add_argument('--owner', required=True)

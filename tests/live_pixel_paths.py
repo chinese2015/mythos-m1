@@ -16,10 +16,10 @@ def main():
     parser.add_argument('--work-id', default='work-466690061b6c4ed492e2f41ab94f8dda')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    work = Store(Path.home() / '.argon-brain').snapshot('alice', args.work_id)['workItem']
+    work = Store(Path.home() / '.mythos-brain').snapshot('alice', args.work_id)['workItem']
     assert work['source']['id'] == 'FND-00015'
     sandbox_id = work['sandboxId']
-    broker = SandboxBroker(Path.home() / 'argon-sandboxes', 4, 5)
+    broker = SandboxBroker(Path.home() / 'mythos-sandboxes', 4, 5)
     record = broker.registry.get('alice', sandbox_id)
     execute = lambda argv: broker.execute_capture('alice', sandbox_id, argv, timeout=60)
     head = execute(['git', 'rev-parse', 'HEAD'])['stdout'].strip()
@@ -29,7 +29,7 @@ def main():
     source = root / 'tests/fixtures/PixelPathProbe.java'
     subprocess.run(['docker', 'exec', '-i', '--user', '1001:1000', record['container_name'],
                     'sh', '-c', 'cat > /tmp/PixelPathProbe.java'], input=source.read_bytes(), check=True, capture_output=True)
-    classes = '/tmp/argon-pixel-path-' + uuid.uuid4().hex
+    classes = '/tmp/mythos-pixel-path-' + uuid.uuid4().hex
     compile_result = execute(['javac', '-d', classes, work['sourceRecord']['sourcePath'], '/tmp/PixelPathProbe.java'])
     assert compile_result['exitCode'] == 0, compile_result
     result = execute(['java', '-cp', classes, 'PixelPathProbe'])

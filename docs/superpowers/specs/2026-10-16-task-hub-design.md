@@ -4,7 +4,7 @@ The user approved: a real task list -> click Start -> prepare a fresh repository
 
 ## Product surface
 
-A Cordis `argonWorkflow` service owns source intake and business orchestration. A Cordis `argon-console` package serves authenticated `/argon/` on the existing DSH webServer. It reuses DSH connection authorizeIndex/requestRejection, same-origin browser cookie and Origin fence; browser never receives M2 credentials. All browser mutations require JSON and `X-Argon-Action: 1`, plus an Idempotency-Key; versioned decisions carry expectedVersion. The single operator is explicitly configured as alice, with demo actor labeling, not enterprise identity claims.
+A Cordis `mythosWorkflow` service owns source intake and business orchestration. A Cordis `mythos-console` package serves authenticated `/mythos/` on the existing DSH webServer. It reuses DSH connection authorizeIndex/requestRejection, same-origin browser cookie and Origin fence; browser never receives M2 credentials. All browser mutations require JSON and `X-Mythos-Action: 1`, plus an Idempotency-Key; versioned decisions carry expectedVersion. The single operator is explicitly configured as alice, with demo actor labeling, not enterprise identity claims.
 
 Two views: hash `#/tasks` and `#/work/<workItemId>`. Read real Mock findings through a server-side source adapter; show the three mapped demo findings, with Nova FND-00009 enabled for this first workflow and the other two clearly preview-only. Refresh/poll returns durable state; reload never starts another task.
 
@@ -12,7 +12,7 @@ Two views: hash `#/tasks` and `#/work/<workItemId>`. Read real Mock findings thr
 
 Extend existing Store without deleting legacy Work Items. Schema remains versioned and additive; tables claim/session mappings are created idempotently.
 
-- `Store.claim_task(owner, source_record, expected_revision, key)` -> Work Item. source_record is normalized `{id,title,risk,ownerId,repositoryUrl,baseCommit,sourcePath,revision,description?}` (all trusted source adapter fields). Global claim uniqueness for ARGON source id, across owners/revisions while active; repeat by same owner returns existing Work Item. Another owner conflicts. No sandbox or Session is required yet. Work Item contains source `{type:'ARGON',id,revision}`, `sourceRecord`, sandboxId=null, sessionId=null, sessionIds=[], workflow `{phase:'CLAIMED'}`, stage/status CLAIMED, version/sequence. New claim checks expectedRevision against sourceRecord.revision; existing active claim is returned before revision checks.
+- `Store.claim_task(owner, source_record, expected_revision, key)` -> Work Item. source_record is normalized `{id,title,risk,ownerId,repositoryUrl,baseCommit,sourcePath,revision,description?}` (all trusted source adapter fields). Global claim uniqueness for MYTHOS source id, across owners/revisions while active; repeat by same owner returns existing Work Item. Another owner conflicts. No sandbox or Session is required yet. Work Item contains source `{type:'MYTHOS',id,revision}`, `sourceRecord`, sandboxId=null, sessionId=null, sessionIds=[], workflow `{phase:'CLAIMED'}`, stage/status CLAIMED, version/sequence. New claim checks expectedRevision against sourceRecord.revision; existing active claim is returned before revision checks.
 - `POST /api/brain/tasks/claim` body `{sourceRecord,expectedRevision}` invokes the above; authenticated owner and Idempotency-Key. Only exact Nova demo URL/base commit can be enabled by workflow; backend also validates demo URL allowlist before any clone.
 - `POST /api/brain/work-items/{id}/prepare` body `{expectedVersion}` -> current Work Item, including workspace metadata. Durable `workspaceProvision` intent is written before broker.create, unique label `task-<workId suffix>`. Replay does not allocate twice; interrupted preparation reconciles the registry by label, never silently starts another container. Attach workspace only after exact baseline checkout, a task branch, safe demo git identity and settings are ready. Source snapshot is immutable. Expose provision error/UNKNOWN in Work Item. Preparation can outlive HTTP disconnection.
 - `POST /api/brain/work-items/{id}/sessions` body `{sessionId,role,expectedVersion}`, role PLAN or CODE. Unique (owner,sessionId) can belong to only one Work Item. Store.bind_session(owner,id,session_id,role,version,key); update sessionIds and primary sessionId (CODE preferred). Snapshot adds `sessions:[{sessionId,role}]`. Legacy Work Items with original sessionId remain compatible.
@@ -35,7 +35,7 @@ Approval requires authenticated browser operator, current expectedVersion and ex
 
 Pause prevents subsequent workflow transitions and M2 dispatch, does not secretly stop Agent/execution. Resume is explicit; UNKNOWN sandbox quarantine stays. Execution cancel is separate. Additional user message is explicit, uses a stable requestId and current appropriate Session; while awaiting plan it stays read-only, and post-review changes invalidate old review readiness.
 
-## Browser API (same-origin `/argon/api`)
+## Browser API (same-origin `/mythos/api`)
 
 - GET `/tasks` -> `{tasks:[{id,title,risk,ownerId,repositoryUrl,baseCommit,sourcePath,revision,status,enabled,workItemId?,workStage?}],operator:{id:'alice',label:'演示操作员 alice'}}`.
 - POST `/tasks/{findingId}/start` `{expectedRevision}` -> HTTP202 `{workItemId,...}`; repeat click returns same id.
@@ -47,7 +47,7 @@ Pause prevents subsequent workflow transitions and M2 dispatch, does not secretl
 - GET `/operations/{id}/logs?after=N` -> M2 log page; owner check and Work Item source binding are mandatory.
 - POST `/operations/{id}/cancel` `{expectedVersion}`.
 
-Frontend task detail shows real stages, source/commit, baseline reproduction, read-only plan, explicit approval, native DSH Session link/embed, real tool activity, operation logs/exit/JUnit and diff. A native client bridge uses uiWorkspace.openSession(sessionId) for `/?argonSession=<id>`; do not guess unsupported native URL formats. Register plugin client via dsh.client package metadata. Add a Task Hub navigation entry to native DSH. All untrusted text uses textContent/escaping.
+Frontend task detail shows real stages, source/commit, baseline reproduction, read-only plan, explicit approval, native DSH Session link/embed, real tool activity, operation logs/exit/JUnit and diff. A native client bridge uses uiWorkspace.openSession(sessionId) for `/?mythosSession=<id>`; do not guess unsupported native URL formats. Register plugin client via dsh.client package metadata. Add a Task Hub navigation entry to native DSH. All untrusted text uses textContent/escaping.
 
 ## Verification
 

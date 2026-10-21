@@ -26,7 +26,7 @@ The repository and PR URLs must use the exact local Gitea origin `http://127.0.0
 Run from the repository root against the Mock backend checkout:
 
 ```sh
-bash m1/integrations/mock-source/apply.sh /path/to/argon-security-platform/backend
+bash m1/integrations/mock-source/apply.sh /path/to/mythos-security-platform/backend
 ```
 
-The script is idempotent, refuses to overwrite different overlay-owned controller/test files, and adds the integration test to the app. Then build and test with Maven from that backend directory. The included integration tests force a separate in-memory H2 database (`jdbc:h2:mem:argon-mock-cas`) and `create-drop`; they do not use the Mock's file-backed production H2 database.
+The script is idempotent, refuses to overwrite different overlay-owned controller/test files, and adds the integration test to the app. Then build and test with Maven from that backend directory. The included integration tests force a separate in-memory H2 database (`jdbc:h2:mem:mythos-mock-cas`) and `create-drop`; they do not use the Mock's file-backed production H2 database.

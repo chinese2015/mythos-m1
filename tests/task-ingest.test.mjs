@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { once } from 'node:events';
-import { M2Client } from '../plugins/argon-brain/client.mjs';
-import { TaskWorkflow } from '../plugins/argon-workflow/controller.mjs';
-import { findingBinding } from '../plugins/argon-subscribe/triage.mjs';
+import { M2Client } from '../plugins/mythos-brain/client.mjs';
+import { TaskWorkflow } from '../plugins/mythos-workflow/controller.mjs';
+import { findingBinding } from '../plugins/mythos-subscribe/triage.mjs';
 const finding = () => ({ id: 'FND-00015', name: 'Path traversal', risk: 'HIGH', ownerId: 'owner-pixel-01', revision: 1, status: 'Not Started', closed: 'Open', workItemId: null, description: 'zip slip on import', repositoryUrl: 'http://127.0.0.1:3000/demo/demo-pixel-reports-batch.git', baseCommit: '0a67ffc801aad448a0992ba84aabc5d47d63c478', sourcePath: 'src/main/java/com/example/reports/ReportImporter.java' });
 async function fixture(t, row = finding()) {
   const child = spawn('python3', ['tests/fixtures/brain_plugin_api.py'], { cwd: new URL('..', import.meta.url), env: { ...process.env, PYTHONPATH: '.' }, stdio: ['pipe','pipe','inherit'] });

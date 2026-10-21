@@ -17,8 +17,8 @@ from .worker import Worker
 
 def main():
     os.umask(0o077)
-    parser = argparse.ArgumentParser(description='Argon durable workflow backend')
-    parser.add_argument('--data-dir', type=Path, default=Path.home() / '.argon-brain')
+    parser = argparse.ArgumentParser(description='Mythos durable workflow backend')
+    parser.add_argument('--data-dir', type=Path, default=Path.home() / '.mythos-brain')
     sub = parser.add_subparsers(dest='action', required=True)
     init = sub.add_parser('init-config', help='Create private owner tokens; never prints them')
     init.add_argument('--owners', nargs='+', default=['alice', 'bob'])
@@ -26,11 +26,11 @@ def main():
     api.add_argument('--host', default='127.0.0.1')
     api.add_argument('--port', type=int, default=3081)
     api.add_argument('--token-file', type=Path)
-    api.add_argument('--sandbox-root', type=Path, default=Path.home() / 'argon-sandboxes')
+    api.add_argument('--sandbox-root', type=Path, default=Path.home() / 'mythos-sandboxes')
     api.add_argument('--per-owner-limit', type=int, default=2)
     api.add_argument('--global-limit', type=int, default=4)
     worker = sub.add_parser('worker')
-    worker.add_argument('--sandbox-root', type=Path, default=Path.home() / 'argon-sandboxes')
+    worker.add_argument('--sandbox-root', type=Path, default=Path.home() / 'mythos-sandboxes')
     worker.add_argument('--concurrency', type=int, choices=range(1, 5), default=4)
     worker.add_argument('--per-owner-limit', type=int, default=2)
     worker.add_argument('--global-limit', type=int, default=4)
@@ -50,7 +50,7 @@ def main():
     store = Store(args.data_dir)
     if getattr(args, 'per_owner_limit', 2) < 1 or getattr(args, 'global_limit', 4) < 1:
         parser.error('sandbox limits must be positive')
-    executor = DockerExecutor(SandboxBroker(args.sandbox_root, args.per_owner_limit, args.global_limit))
+    executor = DockerExecutor(SandboxBroker(args.sandbox_root, args.per_owner_limit, args.global_limit), store)
     if args.action == 'api':
         if not ipaddress.ip_address(args.host).is_loopback:
             parser.error('API must bind a loopback address; use an SSH tunnel or authenticated proxy')
@@ -64,7 +64,7 @@ def main():
             threading.Thread(target=server.shutdown, daemon=True).start()
         signal.signal(signal.SIGTERM, shutdown)
         signal.signal(signal.SIGINT, shutdown)
-        print('Argon API listening on ' + args.host + ':' + str(server.server_port), flush=True)
+        print('Mythos API listening on ' + args.host + ':' + str(server.server_port), flush=True)
         try:
             server.serve_forever()
         finally:
@@ -73,7 +73,7 @@ def main():
         stop = threading.Event()
         signal.signal(signal.SIGTERM, lambda *_: stop.set())
         signal.signal(signal.SIGINT, lambda *_: stop.set())
-        print('Argon worker observing ' + str(store.database), flush=True)
+        print('Mythos worker observing ' + str(store.database), flush=True)
         Worker(store, executor, args.concurrency).run(stop)
 
 

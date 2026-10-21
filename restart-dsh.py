@@ -28,7 +28,7 @@ env['JAVA_HOME'] = str(h / 'tools/jdk')
 logfile = h / 'dsh-run/dsh.log'
 with logfile.open('wb') as log:
     logfile.chmod(0o600)
-    child = subprocess.Popen([str(h / 'dsh-run/node_modules/.bin/dsh'), 'web', '--no-open', '--host', '127.0.0.1', '--port', '13080'],
+    child = subprocess.Popen([str(h / 'dsh-run/node_modules/.bin/dsh'), 'web', '--no-open', '--host', '127.0.0.1', '--port', '13080', '--trusted-host', 'ubuntu.huaxia2002.cn:13080'],
                              cwd=h / 'dsh-run', env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                              start_new_session=True)
 for _ in range(60):

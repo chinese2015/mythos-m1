@@ -14,9 +14,9 @@ async function fixture({ reentrant = false, nativeRestore = false, failOnce = fa
     for (const callback of callbacks) callback();
     current = 'session-plan';
   });
-  runInNewContext(await readFile(new URL('../plugins/argon-console/client.js', import.meta.url), 'utf8'), {
+  runInNewContext(await readFile(new URL('../plugins/mythos-console/client.js', import.meta.url), 'utf8'), {
     window: { __ModuleLoader__: { load: ({ factory }) => { plugin = factory(); } } }, URLSearchParams,
-    location: { search: '?argonSession=session-code&argonEmbedded=1' }, console: { error: (...args) => errors.push(args) },
+    location: { search: '?mythosSession=session-code&mythosEmbedded=1' }, console: { error: (...args) => errors.push(args) },
   });
   const ctx = { effect(fn) { cleanups.push(fn()); },
     sessions: { list: { getSnapshot: () => state, subscribe(fn) { callbacks.add(fn); return () => callbacks.delete(fn); } } },

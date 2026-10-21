@@ -12,7 +12,7 @@ const item = JSON.parse(await readFile(new URL('./state/verifier.json', import.m
 const ctx = new Context();
 try {
   await ctx.plugin(Projections.default ?? Projections);
-  await ctx.plugin(Ssh, { host: 'argon-' + item.sandbox_id, node: '/usr/bin/node',
+  await ctx.plugin(Ssh, { host: 'mythos-' + item.sandbox_id, node: '/usr/bin/node',
     helper: '/opt/dsh-helper/node_modules/@deepseek-ai/dsh-ssh/lib/helper.js', helperHash: item.helper_hash, workspace: item.workspace_path });
   await ctx.plugin(Policy, { mode: 'workspace-write', workspaceRoot: item.workspace_path });
   await ctx.plugin(Fs);

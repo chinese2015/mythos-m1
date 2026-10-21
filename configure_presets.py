@@ -11,7 +11,7 @@ def make_preset(owner, record):
     provider = lambda name: str(Path.home() / 'dsh-run/node_modules/@deepseek-ai' / name / 'lib/index.js')
     plugins = [
         {'id': 'ssh', 'name': provider('dsh-ssh'), 'config': {
-            'host': 'argon-' + record['sandbox_id'], 'node': '/usr/bin/node',
+            'host': 'mythos-' + record['sandbox_id'], 'node': '/usr/bin/node',
             'helper': '/opt/dsh-helper/node_modules/@deepseek-ai/dsh-ssh/lib/helper.js',
             'helperHash': record['helper_hash'], 'workspace': record['workspace_path']}},
         {'id': 'fs', 'name': provider('dsh-fs-ssh')},
@@ -24,17 +24,17 @@ def make_preset(owner, record):
          'config': {'sampleOverCapGlobResults': False}},
         {'id': 'commands', 'name': '@deepseek-ai/dsh-tool-bash'},
         {'id': 'jobs', 'name': '@deepseek-ai/dsh-tool-jobs'},
-        {'id': 'sandboxctl', 'name': str(ROOT / 'plugins/argon-sandbox/index.mjs'),
+        {'id': 'sandboxctl', 'name': str(ROOT / 'plugins/mythos-sandbox/index.mjs'),
          'config': {'owner': owner}},
-        {'id': 'brain', 'name': str(ROOT / 'plugins/argon-brain/index.mjs'),
+        {'id': 'brain', 'name': str(ROOT / 'plugins/mythos-brain/index.mjs'),
          'config': {'owner': owner}},
     ]
-    return {'id': 'preset-argon-' + owner, 'name': '@deepseek-ai/dsh-agent-preset', 'config': {
-        'id': 'argon-' + owner, 'name': 'Argon Sandbox ' + owner,
+    return {'id': 'preset-mythos-' + owner, 'name': '@deepseek-ai/dsh-agent-preset', 'config': {
+        'id': 'mythos-' + owner, 'name': 'Mythos Sandbox ' + owner,
         'description': 'Operator PoC: native tools in an owner-bound Docker sandbox',
         'plugins': [
             {'id': 'persona', 'name': '@deepseek-ai/dsh-persona', 'config': {
-                'prefix': 'You are a coding agent. Use the provided native file and Bash tools to do real work.',
+                'prefix': 'You are a coding agent. Use the provided native file and Bash tools to do real work. Respond in English regardless of the language used in task descriptions or user messages. Keep all user-facing responses in English; preserve code, identifiers, commands, and quoted source text verbatim.',
                 'suffix': 'Your Docker sandbox working directory is {{cwd}}. Do not change tests, read reference fixes, or access credentials. Use execution_run for monitored build/test commands; it returns an operationId, not a completed result. Use execution_status and execution_follow for facts. Stop Agent does not cancel an accepted execution; execution_cancel does. Native file tools remain available.'}},
             {'id': 'execution', 'name': 'cordis:group', 'group': True,
              'isolate': {key: True for key in ['fs', 'subprocess', 'ssh', 'sandbox', 'shell']},
@@ -43,29 +43,29 @@ def make_preset(owner, record):
 
 
 def make_brain_service(records):
-    return {'id': 'argon-brain-service', 'name': str(ROOT / 'plugins/argon-brain/service.mjs'),
+    return {'id': 'mythos-brain-service', 'name': str(ROOT / 'plugins/mythos-brain/service.mjs'),
             'config': {'baseUrl': 'http://127.0.0.1:3081',
-                       'tokenFile': str(Path.home() / '.argon-brain/tokens.json'),
+                       'tokenFile': str(Path.home() / '.mythos-brain/tokens.json'),
                        'pollIntervalMs': 1000,
                        'owners': {owner: {'sandboxId': record['sandbox_id'],
                                           'workspacePath': record['workspace_path'],
-                                          'preset': 'argon-' + owner} for owner, record in records.items()}}}
+                                          'preset': 'mythos-' + owner} for owner, record in records.items()}}}
 
 
 def make_task_services(records):
     return [
-        {'id': 'argon-subscribe', 'name': str(ROOT / 'plugins/argon-subscribe/index.mjs'), 'config': {
-            'baseUrl': 'http://127.0.0.1:3081', 'tokenFile': str(Path.home() / '.argon-brain/tokens.json'),
+        {'id': 'mythos-subscribe', 'name': str(ROOT / 'plugins/mythos-subscribe/index.mjs'), 'config': {
+            'baseUrl': 'http://127.0.0.1:3081', 'tokenFile': str(Path.home() / '.mythos-brain/tokens.json'),
             'owner': 'alice', 'sourceUrl': 'http://127.0.0.1:8080', 'pollIntervalMs': 30000}},
-        {'id': 'argon-workflow', 'name': str(ROOT / 'plugins/argon-workflow/service.mjs'), 'config': {
-            'baseUrl': 'http://127.0.0.1:3081', 'tokenFile': str(Path.home() / '.argon-brain/tokens.json'),
+        {'id': 'mythos-workflow', 'name': str(ROOT / 'plugins/mythos-workflow/service.mjs'), 'config': {
+            'baseUrl': 'http://127.0.0.1:3081', 'tokenFile': str(Path.home() / '.mythos-brain/tokens.json'),
             'owner': 'alice', 'sourceUrl': 'http://127.0.0.1:8080', 'root': str(ROOT),
             'helperHash': records['alice']['helper_hash'], 'pollIntervalMs': 1800}},
-        {'id': 'argon-sdlc', 'name': str(ROOT / 'plugins/argon-sdlc/service.mjs'), 'config': {
-            'baseUrl': 'http://127.0.0.1:3000', 'credentialFile': str(Path.home() / 'gitea/secrets/argon-agent.json'),
-            'botLogin': 'argon-agent', 'minApprovals': 0, 'requiredStatusContexts': []}},
-        {'id': 'argon-console', 'name': str(ROOT / 'plugins/argon-console/index.mjs')},
-        {'id': 'argon-vibe', 'name': str(ROOT / 'plugins/argon-vibe/service.mjs'), 'config': {
+        {'id': 'mythos-sdlc', 'name': str(ROOT / 'plugins/mythos-sdlc/service.mjs'), 'config': {
+            'baseUrl': 'http://127.0.0.1:3000', 'credentialFile': str(Path.home() / 'gitea/secrets/mythos-agent.json'),
+            'botLogin': 'mythos-agent', 'minApprovals': 0, 'requiredStatusContexts': []}},
+        {'id': 'mythos-console', 'name': str(ROOT / 'plugins/mythos-console/index.mjs')},
+        {'id': 'mythos-vibe', 'name': str(ROOT / 'plugins/mythos-vibe/service.mjs'), 'config': {
             'ssh': {'node': '/usr/bin/node', 'helperHash': records['alice']['helper_hash']}}},
     ]
 
@@ -73,7 +73,7 @@ def make_task_services(records):
 def main():
     import yaml
     records = json.loads((ROOT / 'state/sandboxes.json').read_text())
-    sandbox_root = Path.home() / 'argon-sandboxes'
+    sandbox_root = Path.home() / 'mythos-sandboxes'
     if any(not Path(item['workspace_path']).is_relative_to(sandbox_root) for item in records.values()):
         raise ValueError('Web presets require the protected Sandbox root')
     profile = Path.home() / '.dsh/profiles/web/cordis.patch.yml'
@@ -82,7 +82,7 @@ def main():
     backup.chmod(0o600)
     entries = yaml.safe_load(profile.read_text()) or []
     # These IDs belong only to this PoC; preserve all user settings and defaults.
-    ids = {'preset-argon-' + owner for owner in records} | {'argon-safe-host-changes', 'argon-brain-service', 'argon-workflow', 'argon-sdlc', 'argon-console', 'argon-subscribe', 'argon-vibe'}
+    ids = {'preset-mythos-' + owner for owner in records} | {'mythos-safe-host-changes', 'mythos-brain-service', 'mythos-workflow', 'mythos-sdlc', 'mythos-console', 'mythos-subscribe', 'mythos-vibe'}
     cleaned = []
     for entry in entries:
         if entry.get('id') in ids:
@@ -93,11 +93,11 @@ def main():
                 continue
         cleaned.append(entry)
     cleaned.append({'insert': [make_brain_service(records)] + make_task_services(records) + [make_preset(owner, record) for owner, record in records.items()] + [
-        {'id': 'argon-safe-host-changes', 'name': str(ROOT / 'host-changes.mjs')}]})
+        {'id': 'mythos-safe-host-changes', 'name': str(ROOT / 'host-changes.mjs')}]})
     cleaned = [entry for entry in cleaned if entry.get('id') != 'workspace-changes']
     cleaned.append({'id': 'workspace-changes', 'disabled': True})
     profile.write_text(yaml.safe_dump(cleaned, sort_keys=False, allow_unicode=True))
-    print('Added operator PoC presets: ' + ', '.join('argon-' + owner for owner in records))
+    print('Added operator PoC presets: ' + ', '.join('mythos-' + owner for owner in records))
     print('Previous profile backup: ' + str(backup))
 
 

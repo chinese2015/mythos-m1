@@ -26,7 +26,7 @@ def main():
     run_id = uuid.uuid4().hex[:12]
     data = root / 'state' / ('m2-smoke-' + run_id)
     data.mkdir(parents=True, mode=0o700)
-    broker = SandboxBroker(Path.home() / 'argon-sandboxes')
+    broker = SandboxBroker(Path.home() / 'mythos-sandboxes')
     source = broker.registry.get('alice', args.source_sandbox)
     commit = broker.execute_capture('alice', args.source_sandbox, ['git', 'rev-parse', 'HEAD'])['stdout'].strip()
     base = [sys.executable, '-m', 'brain', '--data-dir', str(data)]

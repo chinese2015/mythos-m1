@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 RUNTIME_DIR=$SCRIPT_DIR
-WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/argon-maven-seed.XXXXXX")
+WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/mythos-maven-seed.XXXXXX")
 SEED_DIR=$RUNTIME_DIR/m2-seed
 STAGED_SEED=$RUNTIME_DIR/.m2-seed.staged.$$
 
@@ -12,10 +12,10 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-mkdir -p "$WORK_DIR/project/src/test/java/org/example/argon"
+mkdir -p "$WORK_DIR/project/src/test/java/org/example/mythos"
 cp "$RUNTIME_DIR/cache-seed-pom.xml" "$WORK_DIR/project/pom.xml"
-cat > "$WORK_DIR/project/src/test/java/org/example/argon/SeedSmokeTest.java" <<'EOF'
-package org.example.argon;
+cat > "$WORK_DIR/project/src/test/java/org/example/mythos/SeedSmokeTest.java" <<'EOF'
+package org.example.mythos;
 
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;

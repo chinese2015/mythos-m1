@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TaskWorkflow } from '../plugins/argon-workflow/controller.mjs';
-import { consoleHandler } from '../plugins/argon-console/index.mjs';
+import { TaskWorkflow } from '../plugins/mythos-workflow/controller.mjs';
+import { consoleHandler } from '../plugins/mythos-console/index.mjs';
 import { createServer } from 'node:http';
-import { bindTaskAgent } from '../plugins/argon-workflow/session-policy.mjs';
-import { findingBinding } from '../plugins/argon-subscribe/triage.mjs';
+import { bindTaskAgent } from '../plugins/mythos-workflow/session-policy.mjs';
+import { findingBinding } from '../plugins/mythos-subscribe/triage.mjs';
 const id = 'work-' + 'a'.repeat(32);
 function harness() {
-  const work = { workItemId: id, ownerId: 'alice', source: { type: 'ARGON', id: 'FND-00009' }, sourceRecord: { baseCommit: 'b'.repeat(40), sourcePath: 'src/Fix.java' }, sessionIds: [], sandboxId: 'sb-task', version: 1, blocked: false, workflow: { phase: 'CLAIMED' } };
+  const work = { workItemId: id, ownerId: 'alice', source: { type: 'MYTHOS', id: 'FND-00009' }, sourceRecord: { baseCommit: 'b'.repeat(40), sourcePath: 'src/Fix.java' }, sessionIds: [], sandboxId: 'sb-task', version: 1, blocked: false, workflow: { phase: 'CLAIMED' } };
   const ops = new Map(), keys = new Map(); let lostAck = false;
   const client = { dispose: async () => {}, request: async (method, path, options = {}) => {
     if (method === 'GET' && path.endsWith('/workspace')) return { workspacePath: '/home/demo/workspace', git: { headCommit: work.sourceRecord.baseCommit, status: '', changedFiles: [], testsChanged: [] } };
@@ -31,6 +31,125 @@ function harness() {
   const controller = new TaskWorkflow({ owner: 'alice' }, { client, sessions, source: {}, workspaces: {}, presets: {} });
   return { controller, client, work, ops, events, keys, loseAck: () => { lostAck = true; } };
 }
+function editablePlan() {
+  const h = harness();
+  h.work.sessionIds = ['session-plan'];
+  h.work.workflow = { phase: 'AWAITING_PLAN_APPROVAL', plan: 'Original model plan', planHash: 'original-hash',
+    planRevision: 1, planEndSequence: 4, planRequestId: 'plan', planSessionId: 'session-plan' };
+  return h;
+}
+test('plan edit persists Markdown without starting code, rejects the old approval, and executes the edited plan after approval', async () => {
+  const h = editablePlan(), plan = '## Revised plan\n\n- Use the environment\n\n```java\nString value;\n```';
+  await h.controller.modifyPlan(id, { expectedVersion: 1, planHash: 'original-hash', plan }, 'edit-1');
+  assert.equal(h.work.workflow.plan, plan);
+  assert.equal(h.work.workflow.phase, 'AWAITING_PLAN_APPROVAL');
+  assert.equal(h.work.workflow.codeSessionId, undefined);
+  assert.equal(h.work.workflow.approval, undefined);
+  assert.equal(h.work.workflow.planRevision, 2);
+  assert.notEqual(h.work.workflow.planHash, 'original-hash');
+  await assert.rejects(() => h.controller.approve(id, { expectedVersion: 1, planHash: 'original-hash' }, 'stale-approval'), e => e.status === 409);
+  await h.controller.approve(id, { expectedVersion: h.work.version, planHash: h.work.workflow.planHash }, 'latest-approval');
+  assert.match(h.controller.prompt(h.work, 'CODE'), /## Revised plan/);
+  assert.equal(h.work.workflow.phase, 'CODING');
+});
+test('plan edit replays are idempotent and old concurrent saves cannot overwrite the latest plan', async () => {
+  const h = editablePlan(), body = { expectedVersion: 1, planHash: 'original-hash', plan: 'Human revision' };
+  await h.controller.modifyPlan(id, body, 'edit-1');
+  const version = h.work.version;
+  await h.controller.modifyPlan(id, body, 'edit-1');
+  assert.equal(h.work.version, version);
+  await assert.rejects(() => h.controller.modifyPlan(id, { ...body, plan: 'Stale revision' }, 'edit-2'), e => e.status === 409);
+  assert.equal(h.work.workflow.plan, 'Human revision');
+});
+test('plan edit rejects empty, oversized, paused, approved, and newly active planning rounds', async () => {
+  for (const plan of ['', '  \n', 'x'.repeat(64001)]) {
+    const h = editablePlan();
+    await assert.rejects(() => h.controller.modifyPlan(id, { expectedVersion: 1, planHash: 'original-hash', plan }, 'edit'), e => e.status === 400);
+  }
+  for (const state of ['paused', 'approved', 'new-input', 'queued-input']) {
+    const h = editablePlan();
+    if (state === 'paused') h.work.paused = true;
+    if (state === 'approved') { h.work.workflow.approval = { actor: 'alice' }; h.work.workflow.phase = 'CODING'; }
+    if (state === 'new-input') h.events.push({ seq: 5, type: 'user/message', data: { source: { rpcId: 'new' } } });
+    if (state === 'queued-input') h.events.push({ seq: 5, type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 0, inserted: [{ source: { rpcId: 'queued' } }] } });
+    await assert.rejects(() => h.controller.modifyPlan(id, { expectedVersion: 1, planHash: 'original-hash', plan: 'Edited' }, 'edit'), e => e.status === 409);
+    assert.equal(h.work.workflow.plan, 'Original model plan');
+  }
+});
+test('model revision receives the manually saved plan and produces a new unapproved revision', async () => {
+  const h = editablePlan();
+  await h.controller.modifyPlan(id, { expectedVersion: 1, planHash: 'original-hash', plan: 'Human revision: use an environment variable' }, 'edit');
+  await h.controller.message(id, { text: 'Add validation steps', expectedVersion: h.work.version, planHash: h.work.workflow.planHash }, 'discuss');
+  assert.equal(h.work.workflow.phase, 'PLANNING');
+  assert.equal(h.work.workflow.planHash, null);
+  const prompt = h.controller.prompt(h.work, 'PLAN');
+  assert.match(prompt, /Human revision: use an environment variable/);
+  assert.match(prompt, /Add validation steps/);
+  assert.match(prompt, /Markdown/);
+  h.events.push({ seq: 5, type: 'turn/start', data: { turn: 2 } },
+    { seq: 6, type: 'user/message', data: { source: { rpcId: h.work.workflow.planRequestId } } },
+    { seq: 7, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '## New model plan\n\n1. Validate configuration' }] } } },
+    { seq: 8, type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } });
+  h.controller.ensureSession = async work => work;
+  await h.controller.observe(structuredClone(h.work), 'PLAN');
+  await h.controller.observe(structuredClone(h.work), 'PLAN');
+  assert.equal(h.work.workflow.plan, '## New model plan\n\n1. Validate configuration');
+  assert.equal(h.work.workflow.planRevision, 3);
+  assert.equal(h.work.workflow.planEdit, null);
+  assert.equal(h.work.workflow.phase, 'AWAITING_PLAN_APPROVAL');
+  assert.equal(h.work.workflow.approval, undefined);
+});
+test('plan discussion rejects a stale editor version before queuing model input', async () => {
+  const h = editablePlan();
+  await assert.rejects(() => h.controller.message(id, { text: 'Revise', expectedVersion: 0, planHash: 'original-hash' }, 'stale'), e => e.status === 409);
+  assert.equal(h.work.workflow.pendingMessage, undefined);
+});
+test('a versioned model revision request can replay after admission without a second planning round', async () => {
+  const h = editablePlan(), body = { text: 'Add validation', expectedVersion: 1, planHash: 'original-hash' };
+  const first = await h.controller.message(id, body, 'discuss');
+  const version = h.work.version;
+  assert.deepEqual(await h.controller.message(id, body, 'discuss'), first);
+  assert.equal(h.work.version, version);
+  h.work.workflow.pendingMessage = null;
+  // Brain persists dictionaries as canonical JSON with sorted property names.
+  h.work.workflow.messageAction = Object.fromEntries(Object.entries(h.work.workflow.messageAction).sort());
+  assert.deepEqual(await h.controller.message(id, body, 'discuss'), first);
+  assert.equal(h.work.version, version);
+  await assert.rejects(() => h.controller.message(id, { ...body, text: 'Different note' }, 'discuss'), e => e.status === 409);
+});
+test('a model revision upgrades an existing legacy plan to revision two', async () => {
+  const h = editablePlan(); delete h.work.workflow.planRevision;
+  h.work.workflow.phase = 'PLANNING';
+  h.controller.ensureSession = async work => work;
+  await h.controller.observe(structuredClone(h.work), 'PLAN');
+  assert.equal(h.work.workflow.planRevision, 2);
+});
+test('console saves a long Chinese Markdown plan through the authenticated mutation endpoint', async () => {
+  const h = editablePlan(), plan = '## 实施计划\n\n' + '修改配置并验证。'.repeat(1500);
+  const server = createServer(consoleHandler({ connection: { requestRejection: ({ headers }) => headers.cookie === 'session=valid' ? undefined : 401 }, workflow: h.controller }));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const url = 'http://127.0.0.1:' + server.address().port + '/mythos/api/work-items/' + id + '/modify-plan';
+  const headers = { cookie: 'session=valid', 'Content-Type': 'application/json', 'X-Mythos-Action': '1', 'Idempotency-Key': 'edit-1' };
+  try {
+    assert.equal((await fetch(url, { method: 'POST' })).status, 401);
+    const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ expectedVersion: 1, planHash: 'original-hash', plan }) });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).workflow.plan, plan);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
+test('console accepts a model revision request within the character limit when Chinese text exceeds 20KB', async () => {
+  const h = editablePlan(), text = '请补充验证步骤。'.repeat(1500);
+  const server = createServer(consoleHandler({ connection: { requestRejection: () => undefined }, workflow: h.controller }));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const response = await fetch('http://127.0.0.1:' + server.address().port + '/mythos/api/work-items/' + id + '/message', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Mythos-Action': '1', 'Idempotency-Key': 'discuss' },
+      body: JSON.stringify({ expectedVersion: 1, planHash: 'original-hash', text }),
+    });
+    assert.equal(response.status, 202);
+    assert.equal(h.work.workflow.pendingMessage.text, text);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
 test('plan approval persists the authenticated actor before a CODE session can exist and rejects stale decisions', async () => {
   const { controller, work, events } = harness();
   work.workflow = { phase: 'AWAITING_PLAN_APPROVAL', planHash: 'hash', planEndSequence: 4, planRequestId: 'plan', planSessionId: 'session-plan' };
@@ -50,7 +169,7 @@ test('lost operation acknowledgement is reconciled by a new controller without d
   await restarted.step(structuredClone(h.work));
   assert.equal(h.keys.size, 1); assert.equal(h.work.workflow.baselineOperationId, 'exec-' + 'd'.repeat(32));
 });
-test('passing model prose cannot make a failed independent verification review-ready', async () => {
+test('passing model prose cannot make a failed Validation review-ready', async () => {
   const h = harness(), opId = 'exec-' + 'd'.repeat(32);
   h.work.workflow = { phase: 'VERIFYING', verificationOperationId: opId, candidateCommit: 'c'.repeat(40) };
   h.ops.set(opId, { state: 'FAILED', evidence: { junit: { tests: 2, failures: 1, errors: 0 } } });
@@ -108,11 +227,11 @@ test('console authenticates and fences origins before reading data or admitting 
     workflow: { tasks: async () => { admitted++; return { tasks: [] }; }, start: async () => { admitted++; return { workItemId: id }; } } }));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); const url = 'http://127.0.0.1:' + server.address().port;
   try {
-    assert.equal((await fetch(url + '/argon/api/tasks')).status, 401);
-    assert.equal((await fetch(url + '/argon/api/tasks', { headers: { cookie: 'session=valid', origin: 'http://evil.invalid' } })).status, 403);
-    assert.equal((await fetch(url + '/argon/api/tasks/FND-00009/start', { method: 'POST', headers: { cookie: 'session=valid', 'Content-Type': 'application/json' }, body: '{}' })).status, 415);
+    assert.equal((await fetch(url + '/mythos/api/tasks')).status, 401);
+    assert.equal((await fetch(url + '/mythos/api/tasks', { headers: { cookie: 'session=valid', origin: 'http://evil.invalid' } })).status, 403);
+    assert.equal((await fetch(url + '/mythos/api/tasks/FND-00009/start', { method: 'POST', headers: { cookie: 'session=valid', 'Content-Type': 'application/json' }, body: '{}' })).status, 415);
     assert.equal(admitted, 0);
-    assert.equal((await fetch(url + '/argon/api/tasks/FND-00009/start', { method: 'POST', headers: { cookie: 'session=valid', 'Content-Type': 'application/json', 'X-Argon-Action': '1', 'Idempotency-Key': 'action-42' }, body: '{"expectedRevision":2}' })).status, 202);
+    assert.equal((await fetch(url + '/mythos/api/tasks/FND-00009/start', { method: 'POST', headers: { cookie: 'session=valid', 'Content-Type': 'application/json', 'X-Mythos-Action': '1', 'Idempotency-Key': 'action-42' }, body: '{"expectedRevision":2}' })).status, 202);
     assert.equal(admitted, 1);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
@@ -122,10 +241,10 @@ test('console proxies work-item events with cursor validation and auth fencing',
     workflow: { events: async (workId, after) => { seen = { workId, after }; return { events: [{ sequence: 7, type: 'execution.started' }], nextCursor: 7 }; } } }));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); const url = 'http://127.0.0.1:' + server.address().port;
   try {
-    assert.equal((await fetch(url + '/argon/api/work-items/work-x/events')).status, 401);
-    assert.equal((await fetch(url + '/argon/api/work-items/work-x/events?after=-1', { headers: { cookie: 'session=valid' } })).status, 400);
-    assert.equal((await fetch(url + '/argon/api/work-items/work-x/events?after=1.5', { headers: { cookie: 'session=valid' } })).status, 400);
-    const ok = await fetch(url + '/argon/api/work-items/work-x/events?after=5', { headers: { cookie: 'session=valid' } });
+    assert.equal((await fetch(url + '/mythos/api/work-items/work-x/events')).status, 401);
+    assert.equal((await fetch(url + '/mythos/api/work-items/work-x/events?after=-1', { headers: { cookie: 'session=valid' } })).status, 400);
+    assert.equal((await fetch(url + '/mythos/api/work-items/work-x/events?after=1.5', { headers: { cookie: 'session=valid' } })).status, 400);
+    const ok = await fetch(url + '/mythos/api/work-items/work-x/events?after=5', { headers: { cookie: 'session=valid' } });
     assert.equal(ok.status, 200);
     assert.deepEqual(await ok.json(), { events: [{ sequence: 7, type: 'execution.started' }], nextCursor: 7 });
     assert.deepEqual(seen, { workId: 'work-x', after: 5 });
@@ -154,10 +273,10 @@ test('console intake decisions use the same authentication and mutation fences',
   const decisions = [];
   const server = createServer(consoleHandler({ connection: { requestRejection: ({ headers }) => headers.cookie === 'session=valid' ? undefined : 401 },
     subscribe: { decide: async (...args) => { decisions.push(args); return { state: 'APPROVED' }; } } }));
-  await new Promise(resolve => server.listen(0,'127.0.0.1',resolve)); const url = 'http://127.0.0.1:' + server.address().port + '/argon/api/tasks/FND-00015/decide';
+  await new Promise(resolve => server.listen(0,'127.0.0.1',resolve)); const url = 'http://127.0.0.1:' + server.address().port + '/mythos/api/tasks/FND-00015/decide';
   try {
     assert.equal((await fetch(url, { method: 'POST' })).status, 401);
-    const headers = { cookie: 'session=valid', 'Content-Type':'application/json', 'X-Argon-Action':'1', 'Idempotency-Key':'decision-42' };
+    const headers = { cookie: 'session=valid', 'Content-Type':'application/json', 'X-Mythos-Action':'1', 'Idempotency-Key':'decision-42' };
     assert.equal((await fetch(url, { method: 'POST', headers, body: '{"decision":"APPROVE","expectedRevision":2}' })).status, 200);
     assert.deepEqual(decisions, [['FND-00015', { decision: 'APPROVE', expectedRevision: 2 }, 'decision-42']]);
   } finally { await new Promise(resolve => server.close(resolve)); }

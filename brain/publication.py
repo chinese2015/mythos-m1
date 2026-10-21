@@ -10,12 +10,16 @@ import time
 
 from .errors import Conflict, InvalidInput
 from .evidence import passing_junit
-from .executor import validate_repository
+from .executor import validate_registered_repository, validate_repository
+from .git_host import GitHostClient
+from .git_credentials import helper_command
 from .store import ACTIVE, TERMINAL
+from .task_spec import (change_allowed, frozen_task_spec, is_manual, repository_config_from_spec,
+                        verification_passes)
 from .workspace import TaskWorkspace
 
 MAX_BUNDLE = 32 * 1024 * 1024
-CREDENTIAL_HELPER = '/home/hx/gitea/git-credential-argon.py'
+CREDENTIAL_HELPER = '/home/hx/gitea/git-credential-mythos.py'
 SHA = re.compile(r'^[0-9a-f]{40}$')
 
 
@@ -25,7 +29,7 @@ def delivery_id(work_item_id, candidate_commit, verification_operation_id):
 
 
 def publication_branch(finding_id, work_item_id, candidate_commit):
-    return f"argon/{finding_id.lower()}-{work_item_id.split('-')[-1][:8]}-{candidate_commit[:12]}"
+    return f"mythos/{finding_id.lower()}-{work_item_id.split('-')[-1][:8]}-{candidate_commit[:12]}"
 
 
 class GitPublisher:
@@ -59,7 +63,7 @@ class GitPublisher:
             return self._report(intent, repository, branch, candidate, remote, True, tree)
 
         bundle = self._export_bundle(owner, work, candidate, intent['id'])
-        with tempfile.TemporaryDirectory(prefix='argon-publish-') as temp:
+        with tempfile.TemporaryDirectory(prefix='mythos-publish-') as temp:
             temp_path = Path(temp)
             bare = temp_path / 'staging.git'
             self._git(temp_path, ['init', '--bare', str(bare)], auth=False)
@@ -75,8 +79,8 @@ class GitPublisher:
             try:
                 # An empty expected ref is a create-only CAS, never permission
                 # to rewrite an existing branch (even by fast-forward).
-                self._git(bare, ['push', '--force-with-lease=refs/heads/' + branch + ':',
-                                 repository, candidate + ':refs/heads/' + branch], auth=True)
+                self._authenticated_git(bare, ['push', '--force-with-lease=refs/heads/' + branch + ':',
+                                               repository, candidate + ':refs/heads/' + branch], repository, work)
             except RuntimeError:
                 # A lost acknowledgement or concurrent create is resolved only by
                 # authoritative ref state; never retry with force.
@@ -95,11 +99,21 @@ class GitPublisher:
         source = work.get('sourceRecord')
         workflow = work.get('workflow') or {}
         intent = workflow.get('delivery')
-        if (work.get('ownerId') != owner or work.get('source', {}).get('type') != 'ARGON'
-                or not isinstance(source, dict) or not source.get('ownerId')
-                or work.get('source', {}).get('id') != source.get('id')):
-            raise Conflict('Publication requires an owner-bound Argon task')
-        repository = validate_repository(source.get('repositoryUrl'))
+        spec = None
+        if is_manual(work):
+            if work.get('ownerId') != owner or not isinstance(source, dict) or not source.get('ownerId'):
+                raise Conflict('Publication requires an owner-bound manual task')
+            spec = frozen_task_spec(self.store, {'ownerId': owner, 'workItemId': work['workItemId']})
+            repository = validate_registered_repository(self.store, owner, spec['repository']['cloneUrl'],
+                                                        work_id=work['workItemId'])
+            if source.get('repositoryUrl') != repository:
+                raise Conflict('Task repository binding does not match the frozen task spec')
+        else:
+            if (work.get('ownerId') != owner or work.get('source', {}).get('type') != 'MYTHOS'
+                    or not isinstance(source, dict) or not source.get('ownerId')
+                    or work.get('source', {}).get('id') != source.get('id')):
+                raise Conflict('Publication requires an owner-bound Mythos task')
+            repository = validate_repository(source.get('repositoryUrl'))
         if not isinstance(intent, dict) or workflow.get('phase') != 'PUBLISHING':
             raise Conflict('No active durable publication intent')
         candidate = intent.get('candidateCommit')
@@ -114,7 +128,13 @@ class GitPublisher:
                 or intent.get('step') != 'PUSH_PENDING'
                 or workflow.get('candidateCommit') != candidate):
             raise Conflict('Publication request does not match the durable delivery intent')
-        if work.get('stage') != 'PUBLISHING' or work.get('paused') or not workflow.get('approval'):
+        if work.get('stage') != 'PUBLISHING' or work.get('paused'):
+            raise Conflict('Task is not approved and ready for publication')
+        approval = workflow.get('approval')
+        if spec is not None:
+            if not isinstance(approval, dict) or approval.get('specDigest') != spec['specDigest']:
+                raise Conflict('Approval does not match the frozen task specification')
+        elif not approval:
             raise Conflict('Task is not approved and ready for publication')
         snapshot = self.store.snapshot(owner, work['workItemId'])
         operations = snapshot['operations']
@@ -122,30 +142,42 @@ class GitPublisher:
                for op in operations):
             raise Conflict('Task has an active, uncertain, or queued operation')
         verify = next((op for op in operations if op['operationId'] == verify_id), None)
-        if (not verify or verify.get('kind') != 'VERIFY' or verify.get('state') != 'SUCCEEDED'
-                or verify.get('sourceCommit') != candidate or verify.get('sandboxId') != work.get('sandboxId')
-                or type(verify.get('exitCode')) is not int or verify.get('exitCode') != 0):
-            raise Conflict('Fresh successful verification for the exact candidate is required')
+        if not verify:
+            raise Conflict('Validation must pass for the exact candidate')
         verified = self.store.operation(owner, verify_id)
-        evidence = verified.get('evidence') or {}
-        runtime = verified.get('runtime') or {}
-        junit = evidence.get('junit') or {}
-        if (evidence.get('sourceCommit') != candidate or evidence.get('sourceDirty') is not False
-                or type(evidence.get('exitCode')) is not int or evidence.get('exitCode') != 0
-                or evidence.get('sandboxId') != runtime.get('sandboxId')
-                or not passing_junit(junit) or junit.get('tests') != 2 or junit.get('failures') != 0
-                or junit.get('errors') != 0 or junit.get('skipped') != 0 or junit.get('invalidReports')
-                or runtime.get('freshTargetAbsent') is not True
-                or runtime.get('sandboxId') in {None, work.get('sandboxId')}):
-            raise Conflict('Verification evidence is incomplete or does not match publication policy')
+        if spec is not None:
+            if (verified.get('sourceCommit') != candidate
+                    or verified.get('sandboxId') != work.get('sandboxId')
+                    or not verification_passes(spec, verified, verified.get('evidence'))):
+                raise Conflict('Validation must pass for the exact candidate')
+        else:
+            evidence = verified.get('evidence') or {}
+            runtime = verified.get('runtime') or {}
+            junit = evidence.get('junit') or {}
+            if (verify.get('kind') != 'VERIFY' or verify.get('state') != 'SUCCEEDED'
+                    or verify.get('sourceCommit') != candidate or verify.get('sandboxId') != work.get('sandboxId')
+                    or type(verify.get('exitCode')) is not int or verify.get('exitCode') != 0
+                    or evidence.get('sourceCommit') != candidate or evidence.get('sourceDirty') is not False
+                    or type(evidence.get('exitCode')) is not int or evidence.get('exitCode') != 0
+                    or evidence.get('sandboxId') != runtime.get('sandboxId')
+                    or not passing_junit(junit) or junit.get('tests') != 2 or junit.get('failures') != 0
+                    or junit.get('errors') != 0 or junit.get('skipped') != 0 or junit.get('invalidReports')
+                    or runtime.get('freshTargetAbsent') is not True
+                    or runtime.get('sandboxId') in {None, work.get('sandboxId')}):
+                raise Conflict('Validation evidence is incomplete or does not match publication policy')
         git = self.workspace.evidence(owner, work['workItemId'])['git']
-        if (git['headCommit'] != candidate or git['status'] or git['diffTruncated']
-                or git['changedFiles'] != [source['sourcePath']] or git['testsChanged']):
+        if git['headCommit'] != candidate or git['status'] or git['diffTruncated']:
+            raise Conflict('Source workspace is not the clean exact verified candidate')
+        if spec is not None:
+            if not change_allowed(spec, git['changedFiles']):
+                raise Conflict('Candidate changes are outside the frozen task scope')
+        elif git['changedFiles'] != [source['sourcePath']] or git['testsChanged']:
             raise Conflict('Source workspace is not the clean exact verified candidate')
         self._container_exec(owner, work['sandboxId'],
                              ['git', 'merge-base', '--is-ancestor', source['baseCommit'], candidate])
         remote = self._container_exec(owner, work['sandboxId'], ['git', 'remote', 'get-url', 'origin'])
-        if validate_repository(remote) != repository:
+        if validate_registered_repository(self.store, owner, remote,
+                                            work_id=work['workItemId'] if spec is not None else None) != repository:
             raise Conflict('Task workspace repository binding changed')
         return intent, candidate, verify_id, branch, repository
 
@@ -209,13 +241,29 @@ class GitPublisher:
             raise Conflict('Registered task container rejected fixed Git operation')
         return result['stdout'].strip()
 
-    def _git(self, cwd, args, auth=False):
+    def _authenticated_git(self, cwd, args, repository, work):
+        # Credentials belong to this call's persisted task, never publisher state
+        # or a caller-supplied TaskSpec. Parallel publications stay independent.
+        owner = work.get('ownerId')
+        work_id = work.get('workItemId') if owner is not None else None
+        validate_registered_repository(self.store, owner, repository, work_id=work_id)
+        spec = frozen_task_spec(self.store, {'ownerId': owner, 'workItemId': work_id}) if work_id is not None else None
+        if spec is None:
+            return self._git(cwd, args, auth=True)
+        host = getattr(self.executor, 'host', None) or GitHostClient()
+        context = host.git_context(repository_config_from_spec(spec))
+        if context['url'] != repository:
+            raise InvalidInput('Git credential context does not match the frozen task repository')
+        return self._git(cwd, args, auth=True, git_context=context)
+
+    def _git(self, cwd, args, auth=False, *, git_context=None):
         env = {'PATH': os.environ.get('PATH', '/usr/bin:/bin'), 'HOME': str(cwd),
                'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
                'GIT_TERMINAL_PROMPT': '0', 'GIT_ASKPASS': '/bin/false'}
-        command = ['git', '-c', 'core.hooksPath=/dev/null']
+        command = ['git', '-c', 'core.hooksPath=/dev/null', '-c', 'http.followRedirects=false']
         if auth:
-            command += ['-c', 'credential.helper=' + CREDENTIAL_HELPER,
+            helper = helper_command(git_context['credentialFile'], git_context['url']) if git_context is not None else CREDENTIAL_HELPER
+            command += ['-c', 'credential.helper=', '-c', 'credential.helper=' + helper,
                         '-c', 'credential.useHttpPath=true']
         command += args
         process = subprocess.Popen(command, cwd=str(cwd), env=env, stdout=subprocess.PIPE,
@@ -257,11 +305,10 @@ class GitPublisher:
         return b''.join(chunks).decode('utf-8', errors='replace')
 
     def _remote_commit(self, repository, branch, work):
-        validate_repository(repository)
         # A private temporary directory provides a sanitized HOME and Git config.
-        with tempfile.TemporaryDirectory(prefix='argon-publish-query-') as temp:
-            output = self._git(Path(temp), ['ls-remote', '--heads', repository,
-                                            'refs/heads/' + branch], auth=True)
+        with tempfile.TemporaryDirectory(prefix='mythos-publish-query-') as temp:
+            output = self._authenticated_git(Path(temp), ['ls-remote', '--heads', repository,
+                                                          'refs/heads/' + branch], repository, work)
         rows = [line.split('\t', 1) for line in output.splitlines() if '\t' in line]
         if not rows:
             return None

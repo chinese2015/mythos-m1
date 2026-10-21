@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Mythos · Task Workspace</title>
+  <link rel="stylesheet" href="/mythos/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/mythos/#/tasks" aria-label="Mythos Task Workspace home"><span class="brand-mark">A</span><span>MYTHOS<span class="brand-sub">TASK WORKSPACE</span></span></a>
+      <div class="side-label">Workspace</div>
+      <a class="side-link active" href="/mythos/#/tasks"><span class="side-icon">▦</span>Task Center<span class="side-count" id="nav-count">—</span></a>
+      <a class="side-link" href="/mythos/#/intake"><span class="side-icon">⌘</span>Repositories &amp; New Task</a>
+      <div class="side-note"><span class="live-dot"></span>Workflow service online</div>
+      <div class="sidebar-bottom"><div class="avatar">A</div><div><b>Demo Operator</b><small>alice · signed in</small></div><span class="chevron">⌄</span></div>
+    </aside>
+    <main class="main-area">
+      <header class="topbar"><div class="breadcrumbs" id="breadcrumbs"><span>Task Center</span></div><div class="top-actions"><span class="secure-label"><span>●</span> Secure workspace</span><button class="icon-button" id="refresh-button" title="Refresh" aria-label="Refresh">↻</button></div></header>
+      <div id="notice" class="notice" role="status" hidden></div>
+      <section id="view" class="view" aria-live="polite"></section>
+      <footer class="footer"><span>MYTHOS TASK WORKSPACE</span><span>Changes always require human review</span></footer>
+    </main>
+  </div>
+  <script type="module" src="/mythos/app.js"></script>
+</body>
+</html>

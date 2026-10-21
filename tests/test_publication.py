@@ -25,7 +25,7 @@ class PublicationTests(unittest.TestCase):
         expected = hashlib.sha256(f"{self.work['workItemId']}:{commit}:{verify}".encode()).hexdigest()
         self.assertEqual(delivery_id(self.work['workItemId'], commit, verify), expected)
         self.assertEqual(publication_branch(self.source['id'], self.work['workItemId'], commit),
-                         f"argon/{self.source['id'].lower()}-{self.work['workItemId'].split('-')[-1][:8]}-{commit[:12]}")
+                         f"mythos/{self.source['id'].lower()}-{self.work['workItemId'].split('-')[-1][:8]}-{commit[:12]}")
 
     def test_rejects_delivery_id_that_does_not_match_durable_intent(self):
         candidate, verify = 'b' * 40, 'exec-1234567890abcdef'
@@ -80,7 +80,7 @@ class PublicationTests(unittest.TestCase):
             git('init',str(source));git('-C',str(source),'config','user.name','Test');git('-C',str(source),'config','user.email','test@example.invalid')
             (source/'source.txt').write_text('base');git('-C',str(source),'add','.');git('-C',str(source),'commit','-m','base');base=git('-C',str(source),'rev-parse','HEAD')
             (source/'source.txt').write_text('candidate');git('-C',str(source),'commit','-am','candidate');candidate=git('-C',str(source),'rev-parse','HEAD');tree=git('-C',str(source),'rev-parse','HEAD^{tree}')
-            git('init','--bare',str(remote));repository=self.source['repositoryUrl'];branch='argon/create-only-race'
+            git('init','--bare',str(remote));repository=self.source['repositoryUrl'];branch='mythos/create-only-race'
             work={'workItemId':self.work['workItemId'],'version':1,'sandboxId':'source'};intent={'id':'a'*64}
             class RacePublisher(GitPublisher):
                 def _validate_intent(inner,*_):return intent,candidate,'exec-'+'b'*32,branch,repository

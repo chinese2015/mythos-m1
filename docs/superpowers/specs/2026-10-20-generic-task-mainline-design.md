@@ -19,7 +19,7 @@
 
 ## 两种任务共用主线，不互相伪装
 
-Brain 中继续保存同一 Work Item 模型，但依据 `source.type` 分流：已有安全 Finding 使用 `ARGON`；人工任务使用 `MANUAL` 并带冻结的 `taskSpec`。任务列表同时呈现已推送 Finding、已有 Work Item 和已创建的手工任务。人工任务有自己的 `TASK-...` 来源标识，不进入 Finding triage、Owner 通知或完成回写。
+Brain 中继续保存同一 Work Item 模型，但依据 `source.type` 分流：已有安全 Finding 使用 `MYTHOS`；人工任务使用 `MANUAL` 并带冻结的 `taskSpec`。任务列表同时呈现已推送 Finding、已有 Work Item 和已创建的手工任务。人工任务有自己的 `TASK-...` 来源标识，不进入 Finding triage、Owner 通知或完成回写。
 
 仓库由 owner 隔离。注册和 revision 使用 Brain API 已有的 bearer owner 身份、幂等键和版本 CAS。SQLite 以 `CREATE TABLE IF NOT EXISTS repositories` 增加登记表，不重建现有表或修改现有 Work Item。每次新任务读取被登记的当前 revision，服务端向 Gitea 确认 push 权限并读取实际分支 HEAD。用户提供的 SHA（若有）必须等于当前 HEAD。
 
@@ -35,9 +35,9 @@ Brain 中继续保存同一 Work Item 模型，但依据 `source.type` 分流：
 
 ## 与现有 Finding 推送流程的边界
 
-现有主线 `POST /argon/api/source-findings`、Mock `/api/findings/{id}/push-task`、来源 triage、自动接管与 Work Item 领取按当前行为保留。本次不得要求这个入口增加 DSH 登录态，不得改自动 approve/claim 的时机或来源推送 UI。新增仓库注册与手工任务 API 使用主 Console 现有认证及 Brain owner 身份，并与 Finding 流程并行。
+现有主线 `POST /mythos/api/source-findings`、Mock `/api/findings/{id}/push-task`、来源 triage、自动接管与 Work Item 领取按当前行为保留。本次不得要求这个入口增加 DSH 登录态，不得改自动 approve/claim 的时机或来源推送 UI。新增仓库注册与手工任务 API 使用主 Console 现有认证及 Brain owner 身份，并与 Finding 流程并行。
 
-新增任务读取和列表合并时须保留现有 ARGON source intake/idempotency 语义。涉及共享 controller 时，对 Finding 既有行为只做必要的兼容改动，不重构或收紧来源入口。该来源入口的访问控制不在本次范围。
+新增任务读取和列表合并时须保留现有 MYTHOS source intake/idempotency 语义。涉及共享 controller 时，对 Finding 既有行为只做必要的兼容改动，不重构或收紧来源入口。该来源入口的访问控制不在本次范围。
 
 ## Console 和只读代码工作台
 
@@ -59,15 +59,15 @@ Diff ETag 需纳入 branch、工作树状态、changed files 与 diff SHA256；�
 
 部署前重新读取远端运行状态和被部署文件摘要，确认端口、进程工作目录、当前 owner/token 文件位置、数据库文件和 DSH profile。操作前备份主线代码、DSH profile、私有配置，以及使用 SQLite 一致性备份方法保存主 Brain 数据与 logs；备份目录与私有文件限制为 owner-only。现有代码副本不是 Git checkout，不能 `git pull`；过时的 `m1/remote-apply.sh` 和 `restart-dsh.py` 不能直接当成完整发布入口。
 
-只替换主 `~/argon-m1` 中经审核的文件和主 DSH profile 中本项目拥有的服务/插件配置。停止主 Worker 后部署 Python Brain；重启主 API 与 Worker；最后重启主 DSH。保留 DSH Home、已有 Session、主 Brain database、沙箱登记簿及配置的 owner token。generic DSH/Brain、Mock、Gitea、socat 和 PR 不重启或改动。
+只替换主 `~/mythos-m1` 中经审核的文件和主 DSH profile 中本项目拥有的服务/插件配置。停止主 Worker 后部署 Python Brain；重启主 API 与 Worker；最后重启主 DSH。保留 DSH Home、已有 Session、主 Brain database、沙箱登记簿及配置的 owner token。generic DSH/Brain、Mock、Gitea、socat 和 PR 不重启或改动。
 
 若 API/Worker/DSH 未在 timeout 内健康，或原有任务读取/批准不满足预期，使用同次备份还原主代码与 profile 并恢复原进程；数据库没有兼容性变更时不替换数据库备份。部署脚本必须逐个明确文件和服务，输出不包含 token、cookie、credential 或 DSH 启动登录链接。
 
-部署后只读检查：主 DSH 登录要求仍在；`/argon/` 静态资源加载；现有任务与工作项读取不受影响；仓库新页面加载，owner 无权时不能读写别人的登记；手工任务表/路由加载且空注册表状态正确；新增 Gitea API/credential helper 使用统一 origin；Finding 推送路由和原自动接管行为保持原样。验收不需要在远端创建模型任务、PR 或新沙箱。
+部署后只读检查：主 DSH 登录要求仍在；`/mythos/` 静态资源加载；现有任务与工作项读取不受影响；仓库新页面加载，owner 无权时不能读写别人的登记；手工任务表/路由加载且空注册表状态正确；新增 Gitea API/credential helper 使用统一 origin；Finding 推送路由和原自动接管行为保持原样。验收不需要在远端创建模型任务、PR 或新沙箱。
 
 ## 可验证验收条件
 
-1. 主任务和通用任务同列表工作，ARGON 与 MANUAL 的详情、消息、Session、沙箱、审批与交付路径正确分流。
+1. 主任务和通用任务同列表工作，MYTHOS 与 MANUAL 的详情、消息、Session、沙箱、审批与交付路径正确分流。
 2. 仓库注册、更新/停用、连接检查及手工任务创建都经过 owner 认证、幂等和 CAS；不信任用户输入的 URL、HEAD、凭据或越权范围。
 3. TaskSpec digest 与规范化内容一致；审批、PLAN 修改/模型修订、CODE、candidate checks、独立 VERIFY、PR identity 全程绑定同一摘要。
 4. command 与 JUnit 模式展示真实证据；baseline/skip/invalid/UNKNOWN 与构建错误遵循配置化门禁；测试改动和构建配置两层策略生效。

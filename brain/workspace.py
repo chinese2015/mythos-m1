@@ -1,12 +1,20 @@
 """Task workspace preparation and read-only Git evidence."""
+import hashlib
 import re
 import subprocess
 import threading
 
 from .errors import Conflict, InvalidInput
-from .executor import SETTINGS, validate_repository
+from .executor import SETTINGS, validate_registered_repository, validate_repository
+from .git_host import GitHostClient
+from .task_spec import is_manual, repository_config_from_spec, validate_task_spec
 
 MAX_DIFF = 128 * 1024
+
+
+def parse_diff_names(value):
+    """Split NUL-separated git diff --name-only -z output into change names."""
+    return [name for name in value.split('\0') if name]
 
 
 class TaskWorkspace:
@@ -48,19 +56,29 @@ class TaskWorkspace:
             self._active.add(work_id)
         try:
             source = work['sourceRecord']
-            validate_repository(source['repositoryUrl'])
+            branch = 'main'
+            context = None
+            if is_manual(work):
+                spec = validate_task_spec(work['taskSpec'], owner)
+                if source.get('repositoryUrl') != spec['repository']['cloneUrl']:
+                    raise InvalidInput('Task repository binding does not match the frozen task spec')
+                validate_registered_repository(self.store, owner, spec['repository']['cloneUrl'], work_id=work_id)
+                context = (self.executor.host or GitHostClient()).git_context(repository_config_from_spec(spec))
+                branch = spec['repository']['baseBranch']
+            else:
+                validate_repository(source['repositoryUrl'])
             if not re.fullmatch(r'[0-9a-f]{40}', source['baseCommit']):
                 raise InvalidInput('baseCommit must be a full lowercase Git SHA')
-            record = self.broker.create(owner, label, source['repositoryUrl'])
+            record = self.broker.create(owner, label, source['repositoryUrl'], branch=branch, git_context=context)
             sandbox_id = record['sandbox_id']
             self._exec(owner, sandbox_id, ['git', 'checkout', '--detach', source['baseCommit']])
             actual = self._exec(owner, sandbox_id, ['git', 'rev-parse', 'HEAD'])
             if actual != source['baseCommit']:
                 raise RuntimeError('Baseline SHA mismatch')
-            branch = 'argon/' + source['id'].lower()
+            branch = 'mythos/' + source['id'].lower()
             self._exec(owner, sandbox_id, ['git', 'checkout', '-b', branch])
-            self._exec(owner, sandbox_id, ['git', 'config', 'user.name', 'Argon Demo Operator'])
-            self._exec(owner, sandbox_id, ['git', 'config', 'user.email', 'argon-demo@localhost'])
+            self._exec(owner, sandbox_id, ['git', 'config', 'user.name', 'Mythos Demo Operator'])
+            self._exec(owner, sandbox_id, ['git', 'config', 'user.email', 'mythos-demo@localhost'])
             item = self.broker.registry.get(owner, sandbox_id)
             subprocess.run(['docker', 'exec', '-i', '--user', '1001:1000', '-w', item['workspace_path'],
                             item['container_name'], 'sh', '-c', 'mkdir -p .cache && cat > .cache/settings.xml'],
@@ -94,7 +112,7 @@ class TaskWorkspace:
             baseline = self._exec(owner, record['sandbox_id'], ['git', 'rev-parse', source['baseCommit']])
             self._exec(owner, record['sandbox_id'], ['test', '-s', '.cache/settings.xml'])
             status = self._exec(owner, record['sandbox_id'], ['git', 'status', '--porcelain'])
-            return (head == baseline == source['baseCommit'] and branch == 'argon/' + source['id'].lower()
+            return (head == baseline == source['baseCommit'] and branch == 'mythos/' + source['id'].lower()
                     and not status)
         except Exception:
             return False
@@ -112,16 +130,21 @@ class TaskWorkspace:
         head = git('rev-parse', 'HEAD')
         branch = git('branch', '--show-current')
         status = git('status', '--short')
-        names = git('diff', '--name-only', source['baseCommit']).splitlines()
+        raw_names = self.broker.execute_capture(owner, sandbox_id,
+            ['git', 'diff', '--name-only', '-z', '--no-color', '--no-renames', source['baseCommit']], timeout=30)
+        if raw_names['exitCode']:
+            raise RuntimeError('Unable to read task change names')
+        names = parse_diff_names(raw_names['stdout'])
         tests = [name for name in names if re.search(r'(^|/)(test|tests)(/|$)|Test[^/]*\.java$', name, re.I)]
         raw = self.broker.execute_capture(owner, sandbox_id,
             ['git', 'diff', '--no-ext-diff', '--no-color', '--binary', source['baseCommit']], timeout=30)
         if raw['exitCode']:
             raise RuntimeError('Unable to read task diff')
         diff_bytes = raw['stdout'].encode()
+        diff_hash = hashlib.sha256(diff_bytes).hexdigest()
         truncated = len(diff_bytes) > MAX_DIFF
         diff = diff_bytes[:MAX_DIFF].decode('utf8', errors='replace')
         return {'sandboxId': sandbox_id, 'workspacePath': self.broker.registry.get(owner, sandbox_id)['workspace_path'],
                 'git': {'baseCommit': source['baseCommit'], 'headCommit': head, 'branch': branch,
-                        'status': status, 'diff': diff, 'changedFiles': names,
+                        'status': status, 'diff': diff, 'diffHash': diff_hash, 'changedFiles': names,
                         'testsChanged': tests, 'diffTruncated': truncated}}

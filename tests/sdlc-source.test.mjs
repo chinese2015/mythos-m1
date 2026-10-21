@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FindingSource } from '../plugins/argon-workflow/source.mjs';
+import { FindingSource } from '../plugins/mythos-workflow/source.mjs';
 const work = { workItemId: 'work-' + 'a'.repeat(32), source: { id: 'FND-00009' }, sourceRecord: { ownerId: 'source-owner', repositoryUrl: 'http://127.0.0.1:3000/demo/demo-nova-catalog-api.git', baseCommit: 'b'.repeat(40), sourcePath: 'src/Fix.java' } };
 const delivery = { candidateCommit: 'c'.repeat(40), pullUrl: 'http://127.0.0.1:3000/demo/demo-nova-catalog-api/pulls/3' };
 function fixture() {

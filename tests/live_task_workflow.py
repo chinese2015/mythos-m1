@@ -1,7 +1,7 @@
 """Operator-host acceptance driver for the real authenticated console HTTP API.
 
 No credentials are printed or saved. Approval is an explicit separate command
-after inspecting the actual model plan. Run from ~/argon-m1 on the DSH host.
+after inspecting the actual model plan. Run from ~/mythos-m1 on the DSH host.
 """
 import argparse
 import http.cookiejar
@@ -24,9 +24,9 @@ def main():
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
     opener.open(auth_url).close()
     def call(path, body=None, key=None):
-        request = urllib.request.Request(origin + '/argon/api' + path,
+        request = urllib.request.Request(origin + '/mythos/api' + path,
             data=json.dumps(body).encode() if body is not None else None,
-            headers={'Content-Type': 'application/json', 'X-Argon-Action': '1', 'Origin': origin,
+            headers={'Content-Type': 'application/json', 'X-Mythos-Action': '1', 'Origin': origin,
                      'Idempotency-Key': key or str(uuid.uuid4())})
         with opener.open(request, timeout=60) as response:
             return json.load(response)

@@ -1,8 +1,8 @@
-package com.example.argondemo.api;
+package com.example.mythosdemo.api;
 
-import com.example.argondemo.domain.Finding;
-import com.example.argondemo.domain.FindingRepository;
-import com.example.argondemo.service.MailDelivery;
+import com.example.mythosdemo.domain.Finding;
+import com.example.mythosdemo.domain.FindingRepository;
+import com.example.mythosdemo.service.MailDelivery;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -44,12 +44,12 @@ public class OwnerNotificationController {
         byte[] binding = mapper.writeValueAsBytes(List.of(f.id, f.ownerId, f.repositoryUrl, f.baseCommit, f.sourcePath));
         String expected = "intake-" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(binding));
         if (!expected.equals(req.notificationId())) throw new ResponseStatusException(HttpStatus.CONFLICT, "Notification binding changed");
-        String to = f.ownerId + "@argon.demo";
-        String subject = ("[Argon] 批准请求：" + id + " " + f.name).replace('\r', ' ').replace('\n', ' ');
-        String body = "To: " + to + "\r\nFrom: argon-demo@example.test\r\nSubject: " + subject
-            + "\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nX-Argon-Intake: " + req.notificationId()
+        String to = f.ownerId + "@mythos.demo";
+        String subject = ("[Mythos] 批准请求：" + id + " " + f.name).replace('\r', ' ').replace('\n', ' ');
+        String body = "To: " + to + "\r\nFrom: mythos-demo@example.test\r\nSubject: " + subject
+            + "\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nX-Mythos-Intake: " + req.notificationId()
             + "\n来源：" + id + "\n风险：" + f.risk + "\n类别：" + f.category + "\nOwner 团队：" + f.ownerTeamsId
-            + "\n研判：" + f.triageResult + "\n请在任务中心批准接管，批准前不会启动修复。\nhttp://127.0.0.1:3080/argon/\n";
+            + "\n研判：" + f.triageResult + "\n请在任务中心批准接管，批准前不会启动修复。\nhttp://127.0.0.1:3080/mythos/\n";
         Files.createDirectories(outbox);
         Path receipt = outbox.resolve(id + "-" + req.notificationId() + ".eml");
         Path temporary = Files.createTempFile(outbox, ".intake-", ".tmp");

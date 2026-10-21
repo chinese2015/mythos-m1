@@ -4,7 +4,7 @@
 
 ## 使用与当前状态
 
-入口 `http://127.0.0.1:3080/argon/#/tasks`，复用 DSH 登录。本机已恢复 3080、3081、3000 的 SSH 转发。
+入口 `http://127.0.0.1:3080/mythos/#/tasks`，复用 DSH 登录。本机已恢复 3080、3081、3000 的 SSH 转发。
 
 | 来源 | 当前状态 | 已验证事实 |
 | --- | --- | --- |
@@ -16,13 +16,13 @@ Pixel 工作项 `work-466690061b6c4ed492e2f41ab94f8dda`；PLAN Session `session-
 
 ## 行为与边界
 
-`argon-subscribe` 每 30 秒读取 Mock Findings。仅对已映射资产内、尚未处理的 High/Critical 来源做规则研判，精确核对仓库、基线、路径与 Owner。先持久化 M2 intake，再写 triageResult、生成通知预览。失败保存 lastError，后续轮询重试。审批前不更改 Finding 的处理状态。
+`mythos-subscribe` 每 30 秒读取 Mock Findings。仅对已映射资产内、尚未处理的 High/Critical 来源做规则研判，精确核对仓库、基线、路径与 Owner。先持久化 M2 intake，再写 triageResult、生成通知预览。失败保存 lastError，后续轮询重试。审批前不更改 Finding 的处理状态。
 
 任务中心显示研判、Owner 建议、通知预览与批准/拒绝按钮。缺少 intake 或尚未批准时，新启动均拒绝；已有任务可继续打开。批准不会自动启动任务，也不会代替后续代码方案审批。
 
 审批保存不可变 `decision.binding`，包含 finding/Owner/仓库/基线/路径。并发轮询可以更新研判，不能把旧批准改绑给新 Owner。待批准来源的绑定变化会清除旧通知标记，并生成新绑定的预览；同一通知身份的重试复用首次成功回执，即使标题或团队文案后来变化。
 
-通知只写远程 `~/argon-backend/data/outbox/FND-*-intake-*.eml`，拒绝 SMTP 模式。本轮没有向真人发邮件、Teams 或钉钉消息。控制台依旧是单 operator alice；不是企业多用户身份认证，M2 bearer 是受信管理面。
+通知只写远程 `~/mythos-backend/data/outbox/FND-*-intake-*.eml`，拒绝 SMTP 模式。本轮没有向真人发邮件、Teams 或钉钉消息。控制台依旧是单 operator alice；不是企业多用户身份认证，M2 bearer 是受信管理面。
 
 原生会话嵌入已实测：先修复同步 catalog 回调递归，再修复 native restore 在 retained-catalog 通知后覆盖任务跳转的问题；新页面初始化后，交付页 caption 和 iframe 均显示 Pixel CODE。导航失败局部记录并允许目录变化后重试，不产生未处理的 Promise rejection。
 
@@ -31,7 +31,7 @@ Pixel 工作项 `work-466690061b6c4ed492e2f41ab94f8dda`；PLAN Session `session-
 - 本地 Node 83/83；Python 86 项（85 pass、Linux 专属 1 skip）。
 - 远程 Linux Node 83/83、Python 86/86；Java overlay 16/16（本轮未改 overlay）。部署 JAR 与通过测试的 JAR SHA256 一致。
 - 独立代码审查发现的 3 项 Important 均有先失败后通过的回归：审批改绑竞态、Owner 变化后漏通知、通知落盘后正文变化导致重试 409。
-- 真实证据：远程 `~/argon-m1/state/m3-acceptance.json`，包含 409 门禁、来源未领取、重复启动返回同任务、仅两份预览、Nova PR 保留、Pixel JUnit 与 Git 状态。
+- 真实证据：远程 `~/mythos-m1/state/m3-acceptance.json`，包含 409 门禁、来源未领取、重复启动返回同任务、仅两份预览、Nova PR 保留、Pixel JUnit 与 Git 状态。
 - 当前浏览器截图：`artifacts/m3-pixel-pr-open.png`；`m3-task-center.png`、`m3-pixel-blocked.png` 为额度中断时历史截图。以上均忽略入 Git。
 
 ## 实现裁定与后续代价
@@ -54,7 +54,7 @@ Pixel 工作项 `work-466690061b6c4ed492e2f41ab94f8dda`；PLAN Session `session-
 - 开发 A：`sb-f363592fdf6c498f`；基线操作 exit 1 / JUnit 2 项 1 失败，编码后 UNIT_TEST `exec-1ef841eb0633497b89a079e87b1b241d` exit 0 / 2 项全过。
 - 新验证 B：`sb-7faca107f3604f52`；操作 `exec-49deeccddc4343f784c81f0223131a4f` 从精确候选 Git bundle 重建，freshTargetAbsent=true，`mvn clean verify` exit 0 / JUnit 2 项全过，证据持久化后清理 B。
 - 补充检查：`tests/fixtures/PixelPathProbe.java` 在 `/tmp` 独立编译实际源码，不改演示仓库测试、POM 或 Git 状态。同一 probe SHA，基线 4 pass/4 fail → 候选 8 pass/0 fail；覆盖正常文件、相对基目录、父目录穿越、绝对外部路径、外部文件链接、外部目录链接、内部链接及 IOException 包装。operator-host 执行方式为 `python3 -m tests.live_pixel_paths baseline`（修复前）或 `candidate`（候选生成后）。
-- 交付：分支 `argon/fnd-00015-46669006-b4b64a6998ca`，PR #2 的 head 精确等于候选，delivery marker 对应 `e0594bb17a4ad4e979b03a8c1224203d3c05d9cf9688ed8da78971be33aaae69`。独立 Gitea API 认证核验仅一条匹配 PR；重复发布、DSH 重启后仍同一交付、2 个 Session、3 个 operation，无新模型/测试重放。
+- 交付：分支 `mythos/fnd-00015-46669006-b4b64a6998ca`，PR #2 的 head 精确等于候选，delivery marker 对应 `e0594bb17a4ad4e979b03a8c1224203d3c05d9cf9688ed8da78971be33aaae69`。独立 Gitea API 认证核验仅一条匹配 PR；重复发布、DSH 重启后仍同一交付、2 个 Session、3 个 operation，无新模型/测试重放。
 - 门禁：Orion 未批准启动返回 409；已发布 Pixel 的补充输入返回 409；Nova 原 PR 保留；Owner 通知预览仍仅两份；Pixel 来源未提前关闭。CI 未配置，页面如实显示暂无检查记录。
 
 独立候选审查未发现文件名输入、稳定文件系统场景下的阻塞问题。边界：`toRealPath()` 与读取之间并非原子操作，不保证防御并发恶意修改目录结构的攻击者；符号链接与 `..` 混合路径采用词法归一化语义，可能与原始文件系统遍历选择不同的目录内文件。若扩展为不可信并发写入场景，需要描述符相对或原子文件访问方案，不沿用当前安全结论。

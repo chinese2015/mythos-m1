@@ -4,7 +4,7 @@
 
 **Goal:** 在任务工作台工作详情页交付「运行监控」区块：Work Item 阶段、Agent 活动、操作状态/退出码/JUnit、M2 事件流、活动操作的实时日志尾随；关网页重开可无损恢复观察。
 
-**Architecture:** 纯轮询，不引入推送。console 新增一条只读代理路由 `GET /argon/api/work-items/{id}/events?after=N` 转发到 M2 既有游标接口；前端仿 `delivery-view.js` 新增 `monitor-view.js`（渲染）+ `monitor-state.js`（纯函数，可单测），游标状态存模块级 Map（按 workItemId），重开网页 = after=0 全量拉取，天然恢复。
+**Architecture:** 纯轮询，不引入推送。console 新增一条只读代理路由 `GET /mythos/api/work-items/{id}/events?after=N` 转发到 M2 既有游标接口；前端仿 `delivery-view.js` 新增 `monitor-view.js`（渲染）+ `monitor-state.js`（纯函数，可单测），游标状态存模块级 Map（按 workItemId），重开网页 = after=0 全量拉取，天然恢复。
 
 **Tech Stack:** 原生 ES modules（无构建、无新依赖）、node:test、M2 后端既有 API（无改动）。
 
@@ -32,15 +32,15 @@
 ### Task 1: events 只读代理路由（workflow.events + console GET 路由）
 
 **Files:**
-- Modify: `plugins/argon-workflow/controller.mjs`（`logs()` 之后，约 :138）
-- Modify: `plugins/argon-console/index.mjs`（GET 分支 :34-42、assets Map :4）
+- Modify: `plugins/mythos-workflow/controller.mjs`（`logs()` 之后，约 :138）
+- Modify: `plugins/mythos-console/index.mjs`（GET 分支 :34-42、assets Map :4）
 - Test: `tests/task-controller.test.mjs`
 
 **Interfaces:**
 - Consumes: `TaskWorkflow.snapshot(id)` 返回 `{workItem}`（既有）；`this.client.request('GET', path)`（既有 M2Client）；console 既有 GET 分支模式（index.mjs:37-41）。
 - Produces:
   - `TaskWorkflow.prototype.events(id: string, after: number) -> Promise<{events: Array, nextCursor: number}>` —— 先 `await this.snapshot(id)`（确存在性 + 记忆状态），再 `this.client.request('GET', route(workItem.workItemId) + '/events?after=' + after + '&limit=200')`，原样返回 M2 响应。
-  - `GET /argon/api/work-items/{id}/events?after=N` → 200 透传 `workflow.events(id, after)`；`after` 缺省 0，非安全整数或 <0 → 400 `无效事件游标`（与日志路由同句式）。只读：不要求 `X-Argon-Action`/`Idempotency-Key`。
+  - `GET /mythos/api/work-items/{id}/events?after=N` → 200 透传 `workflow.events(id, after)`；`after` 缺省 0，非安全整数或 <0 → 400 `无效事件游标`（与日志路由同句式）。只读：不要求 `X-Mythos-Action`/`Idempotency-Key`。
 
 - [ ] **Step 1: 写失败测试**（追加到 `tests/task-controller.test.mjs`）
 
@@ -51,10 +51,10 @@ test('console proxies work-item events with cursor validation and auth fencing',
     workflow: { events: async (id, after) => { seen = { id, after }; return { events: [{ sequence: 7, type: 'execution.started' }], nextCursor: 7 }; } } }));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); const url = 'http://127.0.0.1:' + server.address().port;
   try {
-    assert.equal((await fetch(url + '/argon/api/work-items/work-x/events')).status, 401);
-    assert.equal((await fetch(url + '/argon/api/work-items/work-x/events?after=-1', { headers: { cookie: 'session=valid' } })).status, 400);
-    assert.equal((await fetch(url + '/argon/api/work-items/work-x/events?after=1.5', { headers: { cookie: 'session=valid' } })).status, 400);
-    const ok = await fetch(url + '/argon/api/work-items/work-x/events?after=5', { headers: { cookie: 'session=valid' } });
+    assert.equal((await fetch(url + '/mythos/api/work-items/work-x/events')).status, 401);
+    assert.equal((await fetch(url + '/mythos/api/work-items/work-x/events?after=-1', { headers: { cookie: 'session=valid' } })).status, 400);
+    assert.equal((await fetch(url + '/mythos/api/work-items/work-x/events?after=1.5', { headers: { cookie: 'session=valid' } })).status, 400);
+    const ok = await fetch(url + '/mythos/api/work-items/work-x/events?after=5', { headers: { cookie: 'session=valid' } });
     assert.equal(ok.status, 200);
     assert.deepEqual(await ok.json(), { events: [{ sequence: 7, type: 'execution.started' }], nextCursor: 7 });
     assert.deepEqual(seen, { id: 'work-x', after: 5 });
@@ -79,7 +79,7 @@ Expected: PASS
 - [ ] **Step 5: 提交**
 
 ```bash
-git add tests/task-controller.test.mjs plugins/argon-workflow/controller.mjs plugins/argon-console/index.mjs
+git add tests/task-controller.test.mjs plugins/mythos-workflow/controller.mjs plugins/mythos-console/index.mjs
 git commit -m "feat: proxy cursor-paginated work-item events to the console"
 ```
 
@@ -88,7 +88,7 @@ git commit -m "feat: proxy cursor-paginated work-item events to the console"
 ### Task 2: `monitor-state.js` 纯函数模块（TDD）
 
 **Files:**
-- Create: `plugins/argon-console/public/monitor-state.js`
+- Create: `plugins/mythos-console/public/monitor-state.js`
 - Test: `tests/monitor-state.test.mjs`（新）
 
 **Interfaces:**
@@ -100,7 +100,7 @@ git commit -m "feat: proxy cursor-paginated work-item events to the console"
   - `formatEvent(event: object, operationLabel: (opId: string) => string) -> string|null` —— 时间（occurredAt 转 zh-CN locale）+ 摘要；`execution.output` 返回 null（由调用方折叠计数）；`execution.succeeded/failed/cancelled` 带 payload.exitCode/reason；`execution.cancel_requested`→"已请求取消"；`workspace.preparation_started/ready/failed`、work_item 系列映射中文摘要；未知 type 返回原文 type。
   - `staleNote(lastErrorAt: number|null, now?: number) -> string|null` —— null→null；否则 `连接中断，显示的是 N 秒前的快照`。
 
-- [ ] **Step 1: 写失败测试**（`tests/monitor-state.test.mjs`，直接 `import { ... } from '../plugins/argon-console/public/monitor-state.js'`）
+- [ ] **Step 1: 写失败测试**（`tests/monitor-state.test.mjs`，直接 `import { ... } from '../plugins/mythos-console/public/monitor-state.js'`）
 
 覆盖断言（每个 Review Focus 至少一条）：
 - `mergeEvents`：重叠 sequence 去重、乱序归并、空页（`{events: []}`）cursor 保持上一页 nextCursor、nextCursor 缺失时取末位 sequence。
@@ -114,7 +114,7 @@ git commit -m "feat: proxy cursor-paginated work-item events to the console"
 Run: `cd m1 && node --test tests/monitor-state.test.mjs`
 Expected: FAIL（模块不存在）
 
-- [ ] **Step 3: 实现 `plugins/argon-console/public/monitor-state.js`**
+- [ ] **Step 3: 实现 `plugins/mythos-console/public/monitor-state.js`**
 
 签名与映射表见 Interfaces；纯函数、无 DOM/Node API（`Date` 可用），中文文案按 Global Constraints。
 
@@ -126,7 +126,7 @@ Expected: PASS
 - [ ] **Step 5: 提交**
 
 ```bash
-git add tests/monitor-state.test.mjs plugins/argon-console/public/monitor-state.js
+git add tests/monitor-state.test.mjs plugins/mythos-console/public/monitor-state.js
 git commit -m "feat: pure run-monitor state helpers with cancel-requested semantics"
 ```
 
@@ -135,10 +135,10 @@ git commit -m "feat: pure run-monitor state helpers with cancel-requested semant
 ### Task 3: `monitor-view.js` 视图 + 集成（app.js / index.mjs / styles.css）
 
 **Files:**
-- Create: `plugins/argon-console/public/monitor-view.js`
-- Modify: `plugins/argon-console/public/app.js:1`（import）、`buildDetail`（col1 操作记录面板后插入一行调用，约 :183）
-- Modify: `plugins/argon-console/index.mjs:4`（assets Map 加 `/monitor-view.js`、`/monitor-state.js`）
-- Modify: `plugins/argon-console/public/styles.css`（追加 `.event-stream` 等少量样式）
+- Create: `plugins/mythos-console/public/monitor-view.js`
+- Modify: `plugins/mythos-console/public/app.js:1`（import）、`buildDetail`（col1 操作记录面板后插入一行调用，约 :183）
+- Modify: `plugins/mythos-console/index.mjs:4`（assets Map 加 `/monitor-view.js`、`/monitor-state.js`）
+- Modify: `plugins/mythos-console/public/styles.css`（追加 `.event-stream` 等少量样式）
 
 **Interfaces:**
 - Consumes: Task 1 的 `GET /work-items/{id}/events?after=` 路由；Task 2 全部纯函数；app.js 的 `el`/`panelHead`/`request`/`showNotice`（经 ctx 注入，同 `renderDelivery` 模式，app.js:167）；app.js 的 `normalizeOperation`（在 buildDetail 内先归一化再传入）。
@@ -166,7 +166,7 @@ col1.append(renderMonitor({ workItemId: currentWorkId, workflow, operations, ses
 
 - [ ] **Step 2: 语法与加载自检**
 
-Run: `cd m1 && node --check plugins/argon-console/public/monitor-view.js && node --check plugins/argon-console/public/monitor-state.js && node --check plugins/argon-console/public/app.js`
+Run: `cd m1 && node --check plugins/mythos-console/public/monitor-view.js && node --check plugins/mythos-console/public/monitor-state.js && node --check plugins/mythos-console/public/app.js`
 Expected: 无输出（exit 0）
 
 - [ ] **Step 3: 全量回归**
@@ -177,7 +177,7 @@ Expected: Node 全 pass（62 个，含 Task 1/2 新增）；Python `OK`
 - [ ] **Step 4: 提交**
 
 ```bash
-git add plugins/argon-console/public/monitor-view.js plugins/argon-console/public/monitor-state.js plugins/argon-console/public/app.js plugins/argon-console/public/styles.css plugins/argon-console/index.mjs
+git add plugins/mythos-console/public/monitor-view.js plugins/mythos-console/public/monitor-state.js plugins/mythos-console/public/app.js plugins/mythos-console/public/styles.css plugins/mythos-console/index.mjs
 git commit -m "feat: run monitor panel with cursor-recovered event stream and live log tail"
 ```
 
@@ -186,16 +186,16 @@ git commit -m "feat: run monitor panel with cursor-recovered event stream and li
 ### Task 4: 远程部署与真实验收
 
 **Files:**
-- 远程：`~/argon-m1/`（tar 同步）、DSH 重启
-- 证据：`~/argon-m1/state/run-monitor-acceptance.json`
+- 远程：`~/mythos-m1/`（tar 同步）、DSH 重启
+- 证据：`~/mythos-m1/state/run-monitor-acceptance.json`
 
 **Interfaces:**
-- Consumes: Task 1-3 部署产物；既有 `/tmp/argon-sshpw.sh` 风格的 ssh 通道（由执行者自行建立）；M2 API `POST /api/brain/work-items/{id}/operations`（既有，owner token 在远程 `~/.argon-brain/tokens.json`）。
+- Consumes: Task 1-3 部署产物；既有 `/tmp/mythos-sshpw.sh` 风格的 ssh 通道（由执行者自行建立）；M2 API `POST /api/brain/work-items/{id}/operations`（既有，owner token 在远程 `~/.mythos-brain/tokens.json`）。
 - Produces: `state/run-monitor-acceptance.json`（0600），ledger 条目。
 
 - [ ] **Step 1: 同步 + 重启 DSH + 烟测**
 
-tar 同步跟踪文件到远程（先备份既有同名文件），仅重启 DSH（`python3 restart-dsh.py`，M2 后端无改动）；`curl` 确认 `GET /argon/api/work-items/work-e0c22f1188d6495781d2c33659937fa5/events?after=0`（带 DSH cookie）返回 200 且含 `nextCursor`。
+tar 同步跟踪文件到远程（先备份既有同名文件），仅重启 DSH（`python3 restart-dsh.py`，M2 后端无改动）；`curl` 确认 `GET /mythos/api/work-items/work-e0c22f1188d6495781d2c33659937fa5/events?after=0`（带 DSH cookie）返回 200 且含 `nextCursor`。
 
 - [ ] **Step 2: 起一条长命令操作并观察（关网页重开恢复）**
 
