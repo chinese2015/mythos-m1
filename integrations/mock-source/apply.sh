@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
-  echo "usage: $0 /path/to/argon-security-platform/backend" >&2
+  echo "usage: $0 /path/to/mythos-security-platform/backend" >&2
   exit 2
 fi
 backend=$(cd "$1" && pwd)
@@ -12,9 +12,9 @@ python3 - "$backend" "$root" <<'PY'
 from pathlib import Path
 import sys
 backend, overlay = map(Path, sys.argv[1:])
-entity = backend / "src/main/java/com/example/argondemo/domain/Finding.java"
-controller = backend / "src/main/java/com/example/argondemo/api/FindingController.java"
-errors = backend / "src/main/java/com/example/argondemo/api/ApiErrorHandler.java"
+entity = backend / "src/main/java/com/example/mythosdemo/domain/Finding.java"
+controller = backend / "src/main/java/com/example/mythosdemo/api/FindingController.java"
+errors = backend / "src/main/java/com/example/mythosdemo/api/ApiErrorHandler.java"
 
 def replace_once(path, old, new):
     text = path.read_text()
@@ -52,13 +52,13 @@ if "OptimisticLockingFailureException" not in errors.read_text().split("public c
     errors.write_text(text)
 
 for name in ['AiCompletionController.java', 'OwnerNotificationController.java']:
-    target = backend / 'src/main/java/com/example/argondemo/api' / name
+    target = backend / 'src/main/java/com/example/mythosdemo/api' / name
     source = (overlay / name).read_text()
     if target.exists() and target.read_text() != source:
         raise SystemExit(f'refusing to overwrite different file: {target}')
     target.write_text(source)
 for name in ['AiCompletionIntegrationTests.java', 'OwnerNotificationIntegrationTests.java']:
-    target = backend / 'src/test/java/com/example/argondemo' / name
+    target = backend / 'src/test/java/com/example/mythosdemo' / name
     source = (overlay / 'tests' / name).read_text()
     if target.exists() and target.read_text() != source:
         raise SystemExit(f'refusing to overwrite different file: {target}')

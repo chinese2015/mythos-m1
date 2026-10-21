@@ -11,7 +11,7 @@ from brain.executor import DockerExecutor
 from brain.store import Store
 from sandbox import SandboxBroker
 
-with tempfile.TemporaryDirectory(prefix='argon-plugin-') as temporary:
+with tempfile.TemporaryDirectory(prefix='mythos-plugin-') as temporary:
     root = Path(temporary)
     store = Store(root / 'brain')
     broker = SandboxBroker(root / 'sandboxes')

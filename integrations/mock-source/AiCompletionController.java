@@ -1,7 +1,7 @@
-package com.example.argondemo.api;
+package com.example.mythosdemo.api;
 
-import com.example.argondemo.domain.Finding;
-import com.example.argondemo.domain.FindingRepository;
+import com.example.mythosdemo.domain.Finding;
+import com.example.mythosdemo.domain.FindingRepository;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;

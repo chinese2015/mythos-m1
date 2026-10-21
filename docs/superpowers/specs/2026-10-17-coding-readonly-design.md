@@ -4,11 +4,11 @@
 
 ## 结果
 
-任务中心仍为入口；现有详情增加“进入编码工作区”，地址 `/argon/coding/#/work/{workItemId}`。左目录、中间只读源码/任务 Diff、右原生会话、底部现有 Run Monitor。来源、phase、branch、HEAD、审批/交付入口始终与 Work Item 绑定。无自动 Start、建 Session、prompt、执行命令或提交。
+任务中心仍为入口；现有详情增加“进入编码工作区”，地址 `/mythos/coding/#/work/{workItemId}`。左目录、中间只读源码/任务 Diff、右原生会话、底部现有 Run Monitor。来源、phase、branch、HEAD、审批/交付入口始终与 Work Item 绑定。无自动 Start、建 Session、prompt、执行命令或提交。
 
 ## 插件与权限
 
-新增 `@local/argon-coding` 双端插件，通过 `configure_presets.py` 的任务服务清单注册；新增 prefix `/argon/coding`，沿用 DSH connection cookie 和来源验证。代码在独立 worktree `codex/vibe-coding-readonly` 开发；不修改共享 checkout 的未提交文件，不重启生产服务。
+新增 `@local/mythos-coding` 双端插件，通过 `configure_presets.py` 的任务服务清单注册；新增 prefix `/mythos/coding`，沿用 DSH connection cookie 和来源验证。代码在独立 worktree `codex/vibe-coding-readonly` 开发；不修改共享 checkout 的未提交文件，不重启生产服务。
 
 服务端每次先用 TaskWorkflow.snapshot 验证 owner/来源；workspace 信息由现有绑定推导，Session 只能为当前任务持久化绑定中的 PLAN/CODE。无工作区或会话时 409，不分配新资源。
 
@@ -16,10 +16,10 @@
 
 ## API
 
-- `GET /argon/coding/api/work-items/{id}/context`：workItem、当前 Session、source、git、operations/evidence；复用现有 detail。
+- `GET /mythos/coding/api/work-items/{id}/context`：workItem、当前 Session、source、git、operations/evidence；复用现有 detail。
 - `GET …/{id}/files?path=`：相对根目录逐层读取，最多 2000 项；仅返回 name/type/size，明确截断。
 - `GET …/{id}/file?path=`：完整 UTF-8 普通文本，最多 512 KiB/16000 行，返回 path/text/contentHash。超限 413；二进制/目录 415；失联 503。
-- 原有 `/argon/api/work-items/{id}/events`、`operations/{id}/logs`、cancel 接口继续承担运行事实和控制。
+- 原有 `/mythos/api/work-items/{id}/events`、`operations/{id}/logs`、cancel 接口继续承担运行事实和控制。
 
 路径拒绝绝对路径、空段、`..`、反斜线、控制字符、`.git`；每层 lstat 拒绝 symlink，并用同一个远端 provider 的 resolve/contains 再确认边界。读取前后 metadata version 不一致返回 409，明确避免将变化中的文件当作稳定快照。只返回必要的相对路径，不公开 operator 根路径或凭据。写方法一律 405。
 

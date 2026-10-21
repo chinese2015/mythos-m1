@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderMonitor } from '../plugins/argon-console/public/monitor-view.js';
+import { renderMonitor } from '../plugins/mythos-console/public/monitor-view.js';
 // Minimal DOM boundary double: exercises actual async view updates, not source strings.
 class Element {
   constructor(tag,attrs={}) { this.tag=tag;this.attrs=attrs;this.children=[];this.dataset={};this.value=attrs.text||'';for(const [key,val]of Object.entries(attrs))if(key.startsWith('data-'))this.dataset[key.slice(5).replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]=val; }

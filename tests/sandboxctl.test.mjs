@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { apply } from '../plugins/argon-sandbox/index.mjs';
+import { apply } from '../plugins/mythos-sandbox/index.mjs';
 
 const stubCtx = () => {
   const registered = [];
@@ -16,26 +16,26 @@ test('registers the four sandbox tools', () => {
     ['sandbox_create', 'sandbox_exec', 'sandbox_status', 'sandbox_stop']);
 });
 
-test('rejects a session without an argon preset before touching the broker', async () => {
+test('rejects a session without an mythos preset before touching the broker', async () => {
   const { registered, ctx } = stubCtx();
   apply(ctx);
   const status = byName(registered, 'sandbox_status');
   await assert.rejects(() => status.execute({}, execAs('standard')),
-    /argon-<owner> preset/);
+    /mythos-<owner> preset/);
   await assert.rejects(() => status.execute({}, execAs(undefined)),
-    /argon-<owner> preset/);
+    /mythos-<owner> preset/);
 });
 
-test('an argon preset session passes owner resolution', async () => {
+test('an mythos preset session passes owner resolution', async () => {
   const { registered, ctx } = stubCtx();
   apply(ctx);
   const status = byName(registered, 'sandbox_status');
   // Redirect the broker root so the CLI is hermetic on any machine.
   const previous = process.env.HOME;
   process.env.HOME = await import('node:fs/promises').then((fs) =>
-    fs.mkdtemp('/tmp/argon-sandboxctl-test-'));
+    fs.mkdtemp('/tmp/mythos-sandboxctl-test-'));
   try {
-    const text = await status.execute({}, execAs('argon-alice'));
+    const text = await status.execute({}, execAs('mythos-alice'));
     const parsed = JSON.parse(text);
     assert.ok(Array.isArray(parsed.records), 'owner resolution passed and broker returned a list');
   } finally {
@@ -47,5 +47,5 @@ test('parameter validation happens before owner resolution', async () => {
   const { registered, ctx } = stubCtx();
   apply(ctx);
   const exec = byName(registered, 'sandbox_exec');
-  await assert.rejects(() => exec.execute({ sandboxId: 'sb-x' }, execAs('argon-alice')));
+  await assert.rejects(() => exec.execute({ sandboxId: 'sb-x' }, execAs('mythos-alice')));
 });

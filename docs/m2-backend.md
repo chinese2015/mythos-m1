@@ -6,28 +6,28 @@
 
 运行目标为现有 Linux Docker operator host。Python 3.9+，只使用标准库。macOS 可运行离线测试，但 Linux subreaper 的脱离进程组子进程清理测试仅在 Linux 上运行。
 
-当前仍为单操作员 PoC：服务端令牌映射 owner，未接 SSO；DSH、broker 与 worker 共用 operator 的 OS 信任域。DSH 接入现已由 [argon-brain 插件](m2-dsh-plugin.md) 提供七个异步工具。旧 M1 同步工具保持原行为；本后端仅记录经 M2 接口提交的执行。
+当前仍为单操作员 PoC：服务端令牌映射 owner，未接 SSO；DSH、broker 与 worker 共用 operator 的 OS 信任域。DSH 接入现已由 [mythos-brain 插件](m2-dsh-plugin.md) 提供七个异步工具。旧 M1 同步工具保持原行为；本后端仅记录经 M2 接口提交的执行。
 
 ## 启动
 
-在远程 `/home/hx/argon-m1` 执行一次：
+在远程 `/home/hx/mythos-m1` 执行一次：
 
 ```bash
-python3 -m brain --data-dir /home/hx/.argon-brain init-config --owners alice bob
+python3 -m brain --data-dir /home/hx/.mythos-brain init-config --owners alice bob
 ```
 
-令牌只写入 `/home/hx/.argon-brain/tokens.json`，权限 0600；不会打印。不要重复运行初始化，也不要将该文件纳入 Git。数据目录必须为 0700。
+令牌只写入 `/home/hx/.mythos-brain/tokens.json`，权限 0600；不会打印。不要重复运行初始化，也不要将该文件纳入 Git。数据目录必须为 0700。
 
 分别在两个终端运行：
 
 ```bash
-cd /home/hx/argon-m1
-python3 -m brain --data-dir /home/hx/.argon-brain api --port 3081
+cd /home/hx/mythos-m1
+python3 -m brain --data-dir /home/hx/.mythos-brain api --port 3081
 ```
 
 ```bash
-cd /home/hx/argon-m1
-python3 -m brain --data-dir /home/hx/.argon-brain worker
+cd /home/hx/mythos-m1
+python3 -m brain --data-dir /home/hx/.mythos-brain worker
 ```
 
 默认只监听 `127.0.0.1:3081`。可通过 SSH 隧道转发本机 3081 到远程同端口。`GET /health` 不需凭据，其余路由需 `Authorization: Bearer <owner token>`。浏览器页面后续通过同源代理接入；本后端不开放跨源访问。
@@ -51,7 +51,7 @@ API 和 worker 都可以用 SIGTERM 停止。worker 退出不取消容器里的�
 
 每次 POST 都需 `Idempotency-Key`；相同 key 的业务参数必须一致，expectedVersion 只是并发前提，不计入新请求的逻辑身份。这样插件在响应丢失、重载后可重读版本并安全重试；改变命令等业务输入仍会冲突。操作/工作项的版本分别从相应 GET 读取；版本冲突为 409。不同 owner 无权读取的 ID 与不存在的 ID 均为 404。未知字段、非法类型、超限值为 400。JSON 请求体上限 64 KiB；事件/日志分页 limit 为 1..200。
 
-source.type 为 ARGON/JIRA/DIRECT；这是引用的快照，并不代表已经接通来源系统或审批。source 与 sandbox/session 绑定不可变；同 owner、同 source revision 只能有一个 Work Item。
+source.type 为 MYTHOS/JIRA/DIRECT；这是引用的快照，并不代表已经接通来源系统或审批。source 与 sandbox/session 绑定不可变；同 owner、同 source revision 只能有一个 Work Item。
 
 Operation kind 为 COMMAND、UNIT_TEST、VERIFY。timeoutSeconds 为 1..3600 的整数，默认 300。UNIT_TEST/VERIFY 除了 exitCode=0，还必须有本次产生的有效、非全跳过且无失败/错误的 JUnit 报告。成功不会自动关闭 Finding 或完成 Work Item。
 
@@ -70,7 +70,7 @@ VERIFY 必须提供完整 40 位 sourceCommit，且源 A 的 HEAD 与其相同�
 
 ## 日志和证据
 
-容器内根目录 `/run/argon-operations/<operationId>` 为 root 所有、0700；模型可写 workspace 不包含该目录。监督进程以 runner 身份运行命令，使用 subreaper 管理脱离原进程组的后代；信号权限不足时以 runner 身份发送信号，不增加容器 capabilities。
+容器内根目录 `/run/mythos-operations/<operationId>` 为 root 所有、0700；模型可写 workspace 不包含该目录。监督进程以 runner 身份运行命令，使用 subreaper 管理脱离原进程组的后代；信号权限不足时以 runner 身份发送信号，不增加容器 capabilities。
 
 stdout/stderr 每路最多保存 2 MiB，超出仍消费管道并标记 truncated。每次最多拉取 64 KiB；分页日志的 data 为 base64 原始字节，text 是便于阅读的尽力解码。前端流式显示 UTF-8 时应按 stream 用增量解码器解码 data，避免在字节块边界损坏字符。
 
@@ -88,7 +88,7 @@ npm test
 明确需要 Docker 的远程实测单独运行：
 
 ```bash
-cd /home/hx/argon-m1
+cd /home/hx/mythos-m1
 PYTHONPATH=. python3 tests/live_brain_smoke.py --source-sandbox sb-f4a61d0b6a3648c1
 ```
 

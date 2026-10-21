@@ -21,12 +21,12 @@
 - Tools/service/timers unregister on real Cordis disposal, while backend jobs and DSH Sessions survive.
 
 ### Task 1: HTTP and retry contract
-Files: plugins/argon-brain/client.mjs; tests/fixtures/brain_plugin_api.py; tests/brain-plugin.test.mjs; brain/store.py and tests/test_brain_store.py.
+Files: plugins/mythos-brain/client.mjs; tests/fixtures/brain_plugin_api.py; tests/brain-plugin.test.mjs; brain/store.py and tests/test_brain_store.py.
 - [x] Write RED tests for logical idempotency across changed expectedVersion, credential checks, real HTTP errors and abort.
 - [x] Implement bounded loopback client and narrow M2 fingerprint change; verify GREEN.
 
 ### Task 2: Session bridge and scoped tools
-Files: plugins/argon-brain/bridge.mjs, service.mjs, index.mjs; tests/brain-plugin.test.mjs.
+Files: plugins/mythos-brain/bridge.mjs, service.mjs, index.mjs; tests/brain-plugin.test.mjs.
 - [x] Write RED tests for Session binding, same-owner denial, async tools, event snapshots/replay, stable Session preparation, disposal and reload.
 - [x] Implement bridge, named service, explicit Session adapter and seven tools; verify full suites.
 

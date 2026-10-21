@@ -1,8 +1,8 @@
-package com.example.argondemo;
+package com.example.mythosdemo;
 
-import com.example.argondemo.domain.Finding;
-import com.example.argondemo.domain.FindingRepository;
-import com.example.argondemo.service.MailDelivery;
+import com.example.mythosdemo.domain.Finding;
+import com.example.mythosdemo.domain.FindingRepository;
+import com.example.mythosdemo.service.MailDelivery;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,7 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@TestPropertySource(properties={"spring.datasource.url=jdbc:h2:mem:argon-owner-notification;DB_CLOSE_DELAY=-1", "spring.jpa.hibernate.ddl-auto=create-drop", "notification.mode=preview", "notification.outbox-dir=./target/owner-notification-outbox"})
+@TestPropertySource(properties={"spring.datasource.url=jdbc:h2:mem:mythos-owner-notification;DB_CLOSE_DELAY=-1", "spring.jpa.hibernate.ddl-auto=create-drop", "notification.mode=preview", "notification.outbox-dir=./target/owner-notification-outbox"})
 class OwnerNotificationIntegrationTests {
     @Autowired MockMvc mvc;
     @Autowired FindingRepository findings;
@@ -50,8 +50,8 @@ class OwnerNotificationIntegrationTests {
         try (var files = Files.list(outbox)) {
             var paths = files.toList(); assertEquals(1, paths.size());
             String eml = Files.readString(paths.get(0));
-            assertTrue(eml.contains("owner-pixel-01@argon.demo")); assertTrue(eml.contains("FND-00015"));
-            assertTrue(eml.contains("http://127.0.0.1:3080/argon/")); assertTrue(eml.contains("CONFIRMED"));
+            assertTrue(eml.contains("owner-pixel-01@mythos.demo")); assertTrue(eml.contains("FND-00015"));
+            assertTrue(eml.contains("http://127.0.0.1:3080/mythos/")); assertTrue(eml.contains("CONFIRMED"));
         }
         Finding current = findings.findById(finding.id).orElseThrow();
         assertEquals("Not Started", current.status); assertNull(current.workItemId); assertEquals(finding.revision, current.revision);

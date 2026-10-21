@@ -15,7 +15,7 @@ from .store import ACTIVE, TERMINAL
 from .workspace import TaskWorkspace
 
 MAX_BUNDLE = 32 * 1024 * 1024
-CREDENTIAL_HELPER = '/home/hx/gitea/git-credential-argon.py'
+CREDENTIAL_HELPER = '/home/hx/gitea/git-credential-mythos.py'
 SHA = re.compile(r'^[0-9a-f]{40}$')
 
 
@@ -25,7 +25,7 @@ def delivery_id(work_item_id, candidate_commit, verification_operation_id):
 
 
 def publication_branch(finding_id, work_item_id, candidate_commit):
-    return f"argon/{finding_id.lower()}-{work_item_id.split('-')[-1][:8]}-{candidate_commit[:12]}"
+    return f"mythos/{finding_id.lower()}-{work_item_id.split('-')[-1][:8]}-{candidate_commit[:12]}"
 
 
 class GitPublisher:
@@ -59,7 +59,7 @@ class GitPublisher:
             return self._report(intent, repository, branch, candidate, remote, True, tree)
 
         bundle = self._export_bundle(owner, work, candidate, intent['id'])
-        with tempfile.TemporaryDirectory(prefix='argon-publish-') as temp:
+        with tempfile.TemporaryDirectory(prefix='mythos-publish-') as temp:
             temp_path = Path(temp)
             bare = temp_path / 'staging.git'
             self._git(temp_path, ['init', '--bare', str(bare)], auth=False)
@@ -92,10 +92,10 @@ class GitPublisher:
         source = work.get('sourceRecord')
         workflow = work.get('workflow') or {}
         intent = workflow.get('delivery')
-        if (work.get('ownerId') != owner or work.get('source', {}).get('type') != 'ARGON'
+        if (work.get('ownerId') != owner or work.get('source', {}).get('type') != 'MYTHOS'
                 or not isinstance(source, dict) or not source.get('ownerId')
                 or work.get('source', {}).get('id') != source.get('id')):
-            raise Conflict('Publication requires an owner-bound Argon task')
+            raise Conflict('Publication requires an owner-bound Mythos task')
         repository = validate_repository(source.get('repositoryUrl'))
         if not isinstance(intent, dict) or workflow.get('phase') != 'PUBLISHING':
             raise Conflict('No active durable publication intent')
@@ -256,7 +256,7 @@ class GitPublisher:
     def _remote_commit(self, repository, branch, work):
         validate_repository(repository)
         # A private temporary directory provides a sanitized HOME and Git config.
-        with tempfile.TemporaryDirectory(prefix='argon-publish-query-') as temp:
+        with tempfile.TemporaryDirectory(prefix='mythos-publish-query-') as temp:
             output = self._git(Path(temp), ['ls-remote', '--heads', repository,
                                             'refs/heads/' + branch], auth=True)
         rows = [line.split('\t', 1) for line in output.splitlines() if '\t' in line]

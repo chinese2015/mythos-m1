@@ -11,7 +11,7 @@ class StoreTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.store = Store(self.temp.name)
-        self.body = {'source': {'type': 'ARGON', 'id': 'FND-00009', 'revision': 2},
+        self.body = {'source': {'type': 'MYTHOS', 'id': 'FND-00009', 'revision': 2},
                      'sandboxId': 'sb-alice', 'sessionId': 'session-1'}
         self.work = self.store.create_work_item('alice', self.body, 'create-1')
 

@@ -6,7 +6,7 @@ RUN apk add --no-cache nodejs npm openjdk17-jdk maven openssh-server \
     openssh-client python3 make g++ util-linux bubblewrap ripgrep \
     && adduser -D -u 1001 -G git -h /home/runner -s /bin/bash runner \
     && passwd -d runner \
-    && mkdir -p /opt/dsh-helper /etc/argon /run/sshd \
+    && mkdir -p /opt/dsh-helper /etc/mythos /run/sshd \
     && chmod 755 /home/runner
 RUN npm --prefix /opt/dsh-helper --registry=https://registry.npmmirror.com install --omit=dev \
     @deepseek-ai/dsh-ssh@0.2.0-rc.2 \
@@ -15,7 +15,7 @@ RUN npm --prefix /opt/dsh-helper --registry=https://registry.npmmirror.com insta
     @deepseek-ai/dsh-subprocess-local@0.2.0-rc.2 \
     @deepseek-ai/dsh-sandbox-local@0.2.0-rc.2
 COPY sshd_config /etc/ssh/sshd_config
-COPY entrypoint.sh /opt/argon-entrypoint.sh
+COPY entrypoint.sh /opt/mythos-entrypoint.sh
 COPY m2-seed /opt/m2-seed
-RUN chmod 755 /opt/argon-entrypoint.sh && chmod -R a+rX /opt/dsh-helper /opt/m2-seed
-ENTRYPOINT ["/opt/argon-entrypoint.sh"]
+RUN chmod 755 /opt/mythos-entrypoint.sh && chmod -R a+rX /opt/dsh-helper /opt/m2-seed
+ENTRYPOINT ["/opt/mythos-entrypoint.sh"]

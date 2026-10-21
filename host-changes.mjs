@@ -3,7 +3,7 @@
 import * as Native from '@deepseek-ai/dsh-workspace-changes';
 import { guardSessionEvents } from './change-boundary.mjs';
 
-export const name = 'argon-safe-host-changes';
+export const name = 'mythos-safe-host-changes';
 export const Config = Native.Config;
 export const inject = Native.inject;
 

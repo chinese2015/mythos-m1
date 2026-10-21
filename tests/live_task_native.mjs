@@ -9,21 +9,21 @@ import Tools from '@deepseek-ai/dsh-tools';
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
 import * as Projections from '@deepseek-ai/dsh-session-projection';
 import * as Files from '@deepseek-ai/dsh-tool-fs';
-import * as Policy from '../plugins/argon-workflow/session-policy.mjs';
-import * as Search from '../plugins/argon-workflow/search.mjs';
-import { TaskWorkflow } from '../plugins/argon-workflow/controller.mjs';
+import * as Policy from '../plugins/mythos-workflow/session-policy.mjs';
+import * as Search from '../plugins/mythos-workflow/search.mjs';
+import { TaskWorkflow } from '../plugins/mythos-workflow/controller.mjs';
 const root = new URL('..', import.meta.url);
 const snapshot = JSON.parse(await readFile(new URL('artifacts/task-acceptance.json', root), 'utf8'));
 const record = JSON.parse(await readFile(new URL('state/sandboxes.json', root), 'utf8')).alice;
-const work = snapshot.workItem, path = '/home/hx/argon-sandboxes/' + work.sandboxId + '/workspace';
-const controller = new TaskWorkflow({ owner: 'alice', tokenFile: '/home/hx/.argon-brain/tokens.json' }, { sessions: {}, workspaces: {}, presets: {}, source: {} });
+const work = snapshot.workItem, path = '/home/hx/mythos-sandboxes/' + work.sandboxId + '/workspace';
+const controller = new TaskWorkflow({ owner: 'alice', tokenFile: '/home/hx/.mythos-brain/tokens.json' }, { sessions: {}, workspaces: {}, presets: {}, source: {} });
 await controller.snapshot(work.workItemId);
 const ctx = new Context();
-class Workflow extends Service { constructor() { super(ctx, 'argonWorkflow'); this.controller = controller; } }
+class Workflow extends Service { constructor() { super(ctx, 'mythosWorkflow'); this.controller = controller; } }
 try {
   await ctx.plugin(SystemPrompt); await ctx.plugin(Tools); await ctx.plugin(Projections.default ?? Projections); new Workflow();
   await ctx.plugin(Policy, { role: 'PLAN', workId: work.workItemId, workspacePath: path });
-  await ctx.plugin(Ssh, { host: 'argon-' + work.sandboxId, node: '/usr/bin/node', helper: '/opt/dsh-helper/node_modules/@deepseek-ai/dsh-ssh/lib/helper.js', helperHash: record.helper_hash, workspace: path });
+  await ctx.plugin(Ssh, { host: 'mythos-' + work.sandboxId, node: '/usr/bin/node', helper: '/opt/dsh-helper/node_modules/@deepseek-ai/dsh-ssh/lib/helper.js', helperHash: record.helper_hash, workspace: path });
   await ctx.plugin(Fs); await ctx.plugin(Subprocess); await ctx.plugin(Files);
   await Search.apply(ctx, { sampleOverCapGlobResults: false, globMaxResults: 100, grepMaxMatches: 250, grepMaxLineBytes: 2000,
     searchMetaMaxBytes: 2000, rawOutputMaxBytes: 100000, graceMs: 100, stderrMaxBytes: 2000, timeoutMs: 10000 });

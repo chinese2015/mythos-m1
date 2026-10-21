@@ -56,10 +56,10 @@ class TaskWorkspace:
             actual = self._exec(owner, sandbox_id, ['git', 'rev-parse', 'HEAD'])
             if actual != source['baseCommit']:
                 raise RuntimeError('Baseline SHA mismatch')
-            branch = 'argon/' + source['id'].lower()
+            branch = 'mythos/' + source['id'].lower()
             self._exec(owner, sandbox_id, ['git', 'checkout', '-b', branch])
-            self._exec(owner, sandbox_id, ['git', 'config', 'user.name', 'Argon Demo Operator'])
-            self._exec(owner, sandbox_id, ['git', 'config', 'user.email', 'argon-demo@localhost'])
+            self._exec(owner, sandbox_id, ['git', 'config', 'user.name', 'Mythos Demo Operator'])
+            self._exec(owner, sandbox_id, ['git', 'config', 'user.email', 'mythos-demo@localhost'])
             item = self.broker.registry.get(owner, sandbox_id)
             subprocess.run(['docker', 'exec', '-i', '--user', '1001:1000', '-w', item['workspace_path'],
                             item['container_name'], 'sh', '-c', 'mkdir -p .cache && cat > .cache/settings.xml'],
@@ -93,7 +93,7 @@ class TaskWorkspace:
             baseline = self._exec(owner, record['sandbox_id'], ['git', 'rev-parse', source['baseCommit']])
             self._exec(owner, record['sandbox_id'], ['test', '-s', '.cache/settings.xml'])
             status = self._exec(owner, record['sandbox_id'], ['git', 'status', '--porcelain'])
-            return (head == baseline == source['baseCommit'] and branch == 'argon/' + source['id'].lower()
+            return (head == baseline == source['baseCommit'] and branch == 'mythos/' + source['id'].lower()
                     and not status)
         except Exception:
             return False

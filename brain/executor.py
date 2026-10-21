@@ -40,7 +40,7 @@ class DockerExecutor:
             raise RuntimeError('Registered container is unavailable')
         actual = json.loads(result.stdout)[0]
         labels = actual['Config'].get('Labels', {})
-        if labels.get('argon.owner') != item['owner_id'] or labels.get('argon.sandbox') != item['sandbox_id']:
+        if labels.get('mythos.owner') != item['owner_id'] or labels.get('mythos.sandbox') != item['sandbox_id']:
             raise RuntimeError('Container ownership labels do not match registry')
         if not actual['State']['Running']:
             raise RuntimeError('Registered container is stopped')

@@ -4,7 +4,7 @@
 
 **Goal:** 新 High/Critical 已映射漏洞自动研判、通知 Owner，Owner 在任务中心批准接管后才进入既有修复流水线。
 
-**Architecture:** 新增 M2 `source_intakes` 持久化登记簿（唯一新表）+ 新 Cordis 插件 `argon-subscribe`（轮询 Mock→研判→先落 intake→再写 Mock triageResult/发邮件）+ Mock overlay `notify-owner` 端点 + 任务启用门从"硬编码 FND-00009"改为"intake APPROVED"。批准后复用既有全链路。
+**Architecture:** 新增 M2 `source_intakes` 持久化登记簿（唯一新表）+ 新 Cordis 插件 `mythos-subscribe`（轮询 Mock→研判→先落 intake→再写 Mock triageResult/发邮件）+ Mock overlay `notify-owner` 端点 + 任务启用门从"硬编码 FND-00009"改为"intake APPROVED"。批准后复用既有全链路。
 
 **Tech Stack:** Python (M2/SQLite)、Node ESM (DSH 插件)、Java/Spring (Mock overlay)、node:test / unittest。
 
@@ -17,7 +17,7 @@
 - `enabled` 不得再依赖硬编码 finding id；映射表（source.mjs `mappings`）仍是资产边界。
 - Owner 决定幂等防丢：M2 侧 `expectedRevision` + Idempotency-Key（scope `intake-decide`）。
 - 测试命令：`cd m1 && node --test tests/*.test.mjs`、`python3 -m unittest discover -s tests -p 'test_*.py'`、Mock overlay `mvn test`（在 backend 目录）。全部不得变红。
-- UI 文案中文；console POST 走既有 bodyOf 门禁（X-Argon-Action/Idempotency-Key）。
+- UI 文案中文；console POST 走既有 bodyOf 门禁（X-Mythos-Action/Idempotency-Key）。
 
 ## Review Focus
 
@@ -51,23 +51,23 @@
 
 ---
 
-### Task 2: argon-subscribe 插件（轮询 + 研判 + 编排）
+### Task 2: mythos-subscribe 插件（轮询 + 研判 + 编排）
 
 **Files:**
-- Create: `plugins/argon-subscribe/triage.mjs`（纯函数）、`plugins/argon-subscribe/service.mjs`、`plugins/argon-subscribe/index.mjs`（Cordis 入口）
+- Create: `plugins/mythos-subscribe/triage.mjs`（纯函数）、`plugins/mythos-subscribe/service.mjs`、`plugins/mythos-subscribe/index.mjs`（Cordis 入口）
 - Modify: `configure_presets.py`（注册插件 + config：owner/pollIntervalMs=30000/sourceUrl='http://127.0.0.1:8080'）
 - Test: `tests/subscribe-triage.test.mjs`、`tests/subscribe-service.test.mjs`（新）
 
 **Interfaces:**
-- Consumes: Task 1 的 M2 API（经 `plugins/argon-brain/client.mjs` 的 M2Client，构造仿 TaskWorkflow）；`plugins/argon-workflow/source.mjs` 的 `mappings`（import 复用资产边界）与 `FindingSource.request` 模式（订阅器自建 mockClient，同 8s 超时/2MB 上限/redirect:error）。
+- Consumes: Task 1 的 M2 API（经 `plugins/mythos-brain/client.mjs` 的 M2Client，构造仿 TaskWorkflow）；`plugins/mythos-workflow/source.mjs` 的 `mappings`（import 复用资产边界）与 `FindingSource.request` 模式（订阅器自建 mockClient，同 8s 超时/2MB 上限/redirect:error）。
 - Produces:
   - `export function triageFinding(row, mapping) -> {result: 'CONFIRMED'|'NEEDS_REVIEW', reasons: string[]}`——CONFIRMED 需：`repositoryUrl/baseCommit/sourcePath` 与 mapping 逐字一致、`risk ∈ {HIGH, CRITICAL}`、`status === 'Not Started'`、`closed !== 'Closed'`、无 `workItemId`；否则 NEEDS_REVIEW + 人类可读理由（中文）。
   - `export class SubscribeController`：`constructor(config, {client /* M2 */, mock /* finding source */, report})`；`async syncOnce()`——mock 全量列表 → 过滤映射内候选 → 对每个候选：已有 work item（`GET /api/brain/work-items/{...}` 不行——work item 按 finding 关联走 `GET /api/brain/work-items` 列表按 `source.id` 匹配，已有则 PUT intake `{revision, triage:{result:'CONFIRMED', reasons:['existing-work-item']}}` 且 state 直接 APPROVED grandfathered）→ 否则 triageFinding → `PUT intake` → 成功后外部写：`PATCH /api/findings/{id} {triageResult}` → result==='CONFIRMED' 时 `POST /api/findings/{id}/notify-owner` → 成功后回写 intake `notifiedAt`（PUT 带 `{notified: true}` 或专用字段，implementer 定，保持幂等）。任一步失败：`report` + intake `lastError`（PUT 带 triage 理由外字段），下轮重试。全部 Finding 处理完返回摘要 `{seen, registered, notified, errors}`。
-  - Cordis Service：`inject ['argonBrain']` 不需要——直接 `new M2Client`；`ctx.effect` setInterval(`syncOnce`, pollIntervalMs)，dispose clearInterval；`apply(ctx, config)`。
+  - Cordis Service：`inject ['mythosBrain']` 不需要——直接 `new M2Client`；`ctx.effect` setInterval(`syncOnce`, pollIntervalMs)，dispose clearInterval；`apply(ctx, config)`。
 - [ ] **Step 1: 失败测试**——triageFinding 各分支（Review Focus #5 映射漂移→NEEDS_REVIEW）；syncOnce fixture：假 mock（列表含 FND-00015 可候选 + FND-00009 已有 work item）+ 假 client 记录请求序列——断言 **PUT intake 先于 PATCH triageResult 先于 notify-owner**（红线）、grandfathered 路径、外部写失败时 lastError 落库且状态保持。
-- [ ] **Step 2: 确认失败。** Step 3: 实现三文件 + configure_presets.py 注册（仿 argon-workflow 条目格式）。
+- [ ] **Step 2: 确认失败。** Step 3: 实现三文件 + configure_presets.py 注册（仿 mythos-workflow 条目格式）。
 - [ ] **Step 4: 测试通过 + `node --test tests/*.test.mjs` 全绿。**
-- [ ] **Step 5: Commit** `feat: argon-subscribe plugin with triage-first intake orchestration`。
+- [ ] **Step 5: Commit** `feat: mythos-subscribe plugin with triage-first intake orchestration`。
 
 ---
 
@@ -76,13 +76,13 @@
 **Files:**
 - Modify: `integrations/mock-source/AiCompletionController.java`（同文件加端点，保持 overlay 单文件可 apply）或新 `NotifyOwnerController.java` + `apply.sh` 白名单更新
 - Test: `integrations/mock-source/tests/` 补 notify-owner 集成测试
-- 远程构建：`~/argon-mock-cas-build-release` 流水线（Task 5 部署时做）
+- 远程构建：`~/mythos-mock-cas-build-release` 流水线（Task 5 部署时做）
 
 **Interfaces:**
 - Consumes: Mock 既有 `MailDelivery`（`deliver(to, subject, body)`，preview 落 `data/outbox/*.eml`）、`OWNERS`/`FindingRepository`。
-- Produces: `POST /api/findings/{id}/notify-owner`——仅 loopback（非 127.0.0.1/::1 → 403）；finding 不存在 404；收件人 `{ownerId}@argon.demo`；主题 `[Argon] 批准请求：{id} {name}`；正文含 risk/category/ownerTeamsId/研判结论（从 `triageResult` 读）/控制台链接；返回 `{delivered: true, to}`。
+- Produces: `POST /api/findings/{id}/notify-owner`——仅 loopback（非 127.0.0.1/::1 → 403）；finding 不存在 404；收件人 `{ownerId}@mythos.demo`；主题 `[Mythos] 批准请求：{id} {name}`；正文含 risk/category/ownerTeamsId/研判结论（从 `triageResult` 读）/控制台链接；返回 `{delivered: true, to}`。
 - [ ] **Step 1: 失败测试**（Java：loopback 403、404、outbox .eml 生成且含 finding id）。Step 2: 确认失败。Step 3: 实现。
-- [ ] **Step 4: `cd argon-security-platform/backend && mvn -q test`（对本机；若无 mvn 则远程构建机跑，记录事实）通过。**
+- [ ] **Step 4: `cd mythos-security-platform/backend && mvn -q test`（对本机；若无 mvn 则远程构建机跑，记录事实）通过。**
 - [ ] **Step 5: Commit** `feat: notify-owner endpoint in mock overlay`。
 
 ---
@@ -90,9 +90,9 @@
 ### Task 4: 任务启用门 + console 审批 UI
 
 **Files:**
-- Modify: `plugins/argon-workflow/source.mjs`（删 FND-00009 硬编码门）、`plugins/argon-workflow/controller.mjs`（tasks() 合并 intakes、start() 加 intake 门）
-- Modify: `plugins/argon-console/index.mjs`（POST `/api/tasks/{id}/decide` → `subscribe.decide`）、`plugins/argon-console/public/app.js`（卡状态/Owner 建议/批准拒绝按钮/nav-count）
-- Modify: `plugins/argon-console/index.mjs` inject 加 `argonSubscribe`
+- Modify: `plugins/mythos-workflow/source.mjs`（删 FND-00009 硬编码门）、`plugins/mythos-workflow/controller.mjs`（tasks() 合并 intakes、start() 加 intake 门）
+- Modify: `plugins/mythos-console/index.mjs`（POST `/api/tasks/{id}/decide` → `subscribe.decide`）、`plugins/mythos-console/public/app.js`（卡状态/Owner 建议/批准拒绝按钮/nav-count）
+- Modify: `plugins/mythos-console/index.mjs` inject 加 `mythosSubscribe`
 - Test: `tests/task-controller.test.mjs`、`tests/subscribe-service.test.mjs` 补用例
 
 **Interfaces:**
@@ -101,7 +101,7 @@
   - `source.mjs:14`：`enabled: exact`（删 `&& row.id === 'FND-00009'`）。
   - `controller.tasks()`：每个 task 附加 `intake`（从 `client.request('GET','/api/brain/source-intakes')` 按 id 匹配；无则 null）；task 增加 `startable` 字段：有 workItemId 或 intake?.state==='APPROVED' 或无 intake 时 enabled（兼容性，见 Review Focus #5：无 intake 且 enabled 的老任务仍可启动，FND-00009 走 grandfathered intake 也可）。
   - `controller.start()`：无 work item 且 intake 存在且非 APPROVED → 409 '请等待 Owner 在任务中心批准接管'。
-  - console 卡：`startable` false 时——AWAITING_OWNER → pill '待 Owner 批准' + Owner 建议行（task.ownerId/ownerTeamsId，ownerTeamsId 需 tasks() 透传 finding 字段）+ 按钮 '批准接管'/'拒绝'；NEEDS_REVIEW → pill '需人工复核' + triage 理由；REJECTED → '已拒绝接管'。decide 按钮 → POST `/argon/api/tasks/{id}/decide {decision:'APPROVE'|'REJECT'}`（mutation:true）。
+  - console 卡：`startable` false 时——AWAITING_OWNER → pill '待 Owner 批准' + Owner 建议行（task.ownerId/ownerTeamsId，ownerTeamsId 需 tasks() 透传 finding 字段）+ 按钮 '批准接管'/'拒绝'；NEEDS_REVIEW → pill '需人工复核' + triage 理由；REJECTED → '已拒绝接管'。decide 按钮 → POST `/mythos/api/tasks/{id}/decide {decision:'APPROVE'|'REJECT'}`（mutation:true）。
   - `nav-count` 显示 `tasks.filter(t=>t.intake?.state==='AWAITING_OWNER').length`，0 时回退 enabled 计数。
 - [ ] **Step 1: 失败测试**——start() intake 门 409；tasks() startable/intake 合并；console decide 路由 202/401/409。Step 2: 失败。Step 3: 实现。Step 4: 全绿。Step 5: Commit `feat: owner approval gate in task intake with console decision UI`。
 
@@ -111,9 +111,9 @@
 
 - [ ] **Step 1: 三套件全绿**（node + python + overlay mvn）。
 - [ ] **Step 2: 部署**——tar 同步 m1；重启 M2 api+worker（brain 代码变更）+ DSH（插件变更）+ Mock（新 jar：overlay apply → mvn package → 备份旧 jar → 换 jar → 重启，流水线仿既有 build-release）。
-- [ ] **Step 3: 订阅验收**——≤60s 内 FND-00003 与 FND-00015 出现在 intakes（AWAITING_OWNER，triage CONFIRMED）；Mock 侧 `triageResult=CONFIRMED`；`~/argon-backend/data/outbox/` 出现两封 owner 邮件（含 finding id 与链接）；console 任务卡显示 '待 Owner 批准' + Owner 建议；FND-00009 卡不退化。
+- [ ] **Step 3: 订阅验收**——≤60s 内 FND-00003 与 FND-00015 出现在 intakes（AWAITING_OWNER，triage CONFIRMED）；Mock 侧 `triageResult=CONFIRMED`；`~/mythos-backend/data/outbox/` 出现两封 owner 邮件（含 finding id 与链接）；console 任务卡显示 '待 Owner 批准' + Owner 建议；FND-00009 卡不退化。
 - [ ] **Step 4: 审批验收**——console 批准 FND-00015 → 卡变 '开始处理' → 点击启动 → 既有链路跑通到基线复现与只读方案（模型真实执行）；批准后 FND-00003 保持 '待 Owner 批准'（门生效证明）。
-- [ ] **Step 5: 全链验收（时间盒）**——FND-00015 走完 plan 审批 → 编码 → 独立验证 → 发布 PR（复用 publish 链路），PR 保持开放；证据写 `~/argon-m1/state/m3-acceptance.json`。若模型会话异常，如实记录停在哪个阶段。
+- [ ] **Step 5: 全链验收（时间盒）**——FND-00015 走完 plan 审批 → 编码 → 独立验证 → 发布 PR（复用 publish 链路），PR 保持开放；证据写 `~/mythos-m1/state/m3-acceptance.json`。若模型会话异常，如实记录停在哪个阶段。
 - [ ] **Step 6: ledger**——progress.md 记 M3 条目 + 限制；交接文档更新；Commit docs。
 
 ## Self-Review 结论

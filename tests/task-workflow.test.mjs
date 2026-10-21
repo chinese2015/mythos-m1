@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeFinding } from '../plugins/argon-workflow/source.mjs';
-import { sessionProgress, assertApproval, baselineReproduced } from '../plugins/argon-workflow/rules.mjs';
-import { taskPreset, readonlyGuard } from '../plugins/argon-workflow/session-policy.mjs';
+import { normalizeFinding } from '../plugins/mythos-workflow/source.mjs';
+import { sessionProgress, assertApproval, baselineReproduced } from '../plugins/mythos-workflow/rules.mjs';
+import { taskPreset, readonlyGuard } from '../plugins/mythos-workflow/session-policy.mjs';
 import { Context, Service } from '@deepseek-ai/cordis';
-import * as TaskPolicy from '../plugins/argon-workflow/session-policy.mjs';
+import * as TaskPolicy from '../plugins/mythos-workflow/session-policy.mjs';
 import Tools from '@deepseek-ai/dsh-tools';
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
 
@@ -56,10 +56,10 @@ test('native inbox admission is durable and canceled prompts are never treated a
 });
 test('task presets use the task workspace and separate PLAN from CODE capabilities', () => {
   const work = { workItemId: 'work-' + 'a'.repeat(32), ownerId: 'alice', sandboxId: 'sb-new-task' };
-  const config = { root: '/home/hx/argon-m1', helperHash: 'b'.repeat(64), workspacePath: '/home/hx/argon-sandboxes/sb-new-task/workspace' };
+  const config = { root: '/home/hx/mythos-m1', helperHash: 'b'.repeat(64), workspacePath: '/home/hx/mythos-sandboxes/sb-new-task/workspace' };
   const plan = taskPreset(work, 'PLAN', config), code = taskPreset(work, 'CODE', config);
   const planRows = plan.plugins[1].config, codeRows = code.plugins[1].config;
-  assert.equal(planRows.find(x => x.id === 'ssh').config.host, 'argon-sb-new-task');
+  assert.equal(planRows.find(x => x.id === 'ssh').config.host, 'mythos-sb-new-task');
   assert.equal(planRows.some(x => x.id === 'commands' || x.id === 'brain'), false);
   assert.equal(codeRows.some(x => x.id === 'brain'), true);
   assert.equal(readonlyGuard({ name: 'write' }), 'Task planning is read-only until human plan approval');
@@ -79,7 +79,7 @@ test('native monotonic guard prevents a write tool body even when the model requ
 });
 test('CODE filesystem policy becomes read-only during PR publication and review', async () => {
   const ctx = new Context(), work = { workflow: { phase: 'CODING' }, paused: false }, workId = 'work-' + 'a'.repeat(32);
-  class Workflow extends Service { constructor() { super(ctx, 'argonWorkflow'); this.controller = { closed: false, workState: new Map([[workId, work]]), inputRejection: () => undefined }; } }
+  class Workflow extends Service { constructor() { super(ctx, 'mythosWorkflow'); this.controller = { closed: false, workState: new Map([[workId, work]]), inputRejection: () => undefined }; } }
   try {
     await ctx.plugin(SystemPrompt); await ctx.plugin(Tools); new Workflow(); await ctx.plugin(TaskPolicy, { role: 'CODE', workId, workspacePath: '/task' });
     assert.equal(ctx.sandboxPolicy.resolve().mode, 'workspace-write');

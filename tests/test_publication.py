@@ -25,7 +25,7 @@ class PublicationTests(unittest.TestCase):
         expected = hashlib.sha256(f"{self.work['workItemId']}:{commit}:{verify}".encode()).hexdigest()
         self.assertEqual(delivery_id(self.work['workItemId'], commit, verify), expected)
         self.assertEqual(publication_branch(self.source['id'], self.work['workItemId'], commit),
-                         f"argon/{self.source['id'].lower()}-{self.work['workItemId'].split('-')[-1][:8]}-{commit[:12]}")
+                         f"mythos/{self.source['id'].lower()}-{self.work['workItemId'].split('-')[-1][:8]}-{commit[:12]}")
 
     def test_rejects_delivery_id_that_does_not_match_durable_intent(self):
         candidate, verify = 'b' * 40, 'exec-1234567890abcdef'

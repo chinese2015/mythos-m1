@@ -7,7 +7,7 @@ from sandbox import SandboxBroker
 
 root = Path(__file__).resolve().parent
 records = json.loads((root / 'state/sandboxes.json').read_text())
-broker = SandboxBroker(Path.home() / 'argon-sandboxes')
+broker = SandboxBroker(Path.home() / 'mythos-sandboxes')
 candidate = records['alice']
 def git(item, *args):
     return broker.execute(item['owner_id'], item['sandbox_id'], ['git', '-c', 'safe.directory=' + item['workspace_path'], *args])

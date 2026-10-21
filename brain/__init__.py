@@ -1,1 +1,1 @@
-"""Argon M2 durable workflow and execution backend."""
+"""Mythos M2 durable workflow and execution backend."""

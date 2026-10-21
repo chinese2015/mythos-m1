@@ -4,7 +4,7 @@ from configure_presets import make_preset, make_brain_service, make_task_service
 
 class BrainPresetTests(unittest.TestCase):
     def setUp(self):
-        self.records = {owner: {'sandbox_id': 'sb-' + owner, 'workspace_path': '/home/hx/argon-sandboxes/sb-' + owner + '/workspace',
+        self.records = {owner: {'sandbox_id': 'sb-' + owner, 'workspace_path': '/home/hx/mythos-sandboxes/sb-' + owner + '/workspace',
                                 'helper_hash': '0' * 64} for owner in ['alice', 'bob']}
 
     def test_each_preset_injects_only_its_operator_configured_owner(self):
@@ -12,20 +12,20 @@ class BrainPresetTests(unittest.TestCase):
         plugins = preset['config']['plugins'][1]['config']
         brain = next(item for item in plugins if item['id'] == 'brain')
         self.assertEqual(brain['config'], {'owner': 'alice'})
-        self.assertTrue(brain['name'].endswith('/plugins/argon-brain/index.mjs'))
+        self.assertTrue(brain['name'].endswith('/plugins/mythos-brain/index.mjs'))
 
     def test_global_service_maps_sandboxes_and_private_credential_file(self):
         service = make_brain_service(self.records)
-        self.assertEqual(service['id'], 'argon-brain-service')
+        self.assertEqual(service['id'], 'mythos-brain-service')
         self.assertEqual(service['config']['owners']['alice']['sandboxId'], 'sb-alice')
         self.assertEqual(service['config']['owners']['bob']['workspacePath'], self.records['bob']['workspace_path'])
-        self.assertEqual(service['config']['owners']['alice']['preset'], 'argon-alice')
+        self.assertEqual(service['config']['owners']['alice']['preset'], 'mythos-alice')
         self.assertIn('tokenFile', service['config'])
         self.assertNotIn('token', service['config']['owners']['alice'])
 
     def test_task_services_include_subscription_with_private_operator_binding(self):
         services = make_task_services(self.records)
-        subscribe = next((s for s in services if s['id'] == 'argon-subscribe'), None)
+        subscribe = next((s for s in services if s['id'] == 'mythos-subscribe'), None)
         self.assertIsNotNone(subscribe)
         self.assertEqual(subscribe['config']['owner'], 'alice')
         self.assertEqual(subscribe['config']['pollIntervalMs'], 30000)

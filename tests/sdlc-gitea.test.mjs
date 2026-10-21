@@ -4,19 +4,19 @@ import { createServer } from 'node:http';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { GiteaClient } from '../plugins/argon-sdlc/gitea.mjs';
+import { GiteaClient } from '../plugins/mythos-sdlc/gitea.mjs';
 const repo = 'demo/demo-nova-catalog-api';
-const delivery = { id: 'a'.repeat(64), headBranch: 'argon/fnd-00009-12345678-' + 'b'.repeat(12), candidateCommit: 'b'.repeat(40), baseBranch: 'main' };
+const delivery = { id: 'a'.repeat(64), headBranch: 'mythos/fnd-00009-12345678-' + 'b'.repeat(12), candidateCommit: 'b'.repeat(40), baseBranch: 'main' };
 async function fixture(handler) {
-  const dir = await mkdtemp(join(tmpdir(), 'argon-gitea-')), credentialFile = join(dir, 'credentials.json');
-  await writeFile(credentialFile, JSON.stringify({ username: 'argon-agent', password: 'private-fixture-password' }), { mode: 0o600 });
+  const dir = await mkdtemp(join(tmpdir(), 'mythos-gitea-')), credentialFile = join(dir, 'credentials.json');
+  await writeFile(credentialFile, JSON.stringify({ username: 'mythos-agent', password: 'private-fixture-password' }), { mode: 0o600 });
   const server = createServer(handler); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const baseUrl = 'http://127.0.0.1:' + server.address().port, client = new GiteaClient({ baseUrl, credentialFile });
   return { baseUrl, client, close: async () => { await client.dispose(); await new Promise(resolve => server.close(resolve)); await rm(dir, { recursive: true }); } };
 }
 const json = (res, value, status = 200) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
-const pull = origin => ({ number: 1, html_url: origin + '/' + repo + '/pulls/1', state: 'open', merged: false, user: { login: 'argon-agent' },
-  body: `<!-- argon-delivery:${delivery.id} -->`, head: { ref: delivery.headBranch, sha: delivery.candidateCommit, repo: { full_name: repo } }, base: { ref: 'main', repo: { full_name: repo } } });
+const pull = origin => ({ number: 1, html_url: origin + '/' + repo + '/pulls/1', state: 'open', merged: false, user: { login: 'mythos-agent' },
+  body: `<!-- mythos-delivery:${delivery.id} -->`, head: { ref: delivery.headBranch, sha: delivery.candidateCommit, repo: { full_name: repo } }, base: { ref: 'main', repo: { full_name: repo } } });
 test('lost PR creation acknowledgement is reconciled from all states instead of creating a duplicate', async () => {
   const prs = []; let posts = 0; let f;
   f = await fixture(async (req, res) => {

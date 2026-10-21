@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { codingHandler } from '../plugins/argon-coding/index.mjs';
+import { codingHandler } from '../plugins/mythos-coding/index.mjs';
 const id = 'work-' + 'a'.repeat(32);
 async function server(t) {
   const calls = [];
@@ -10,7 +10,7 @@ async function server(t) {
   const handler = codingHandler({ workflow, files, connection: { requestRejection: ({ headers }) => headers.cookie !== 'owned' ? 401 : headers.origin === 'https://foreign.example' ? 403 : null }, assetReader: async () => Buffer.from('asset') });
   const app = createServer(handler); await new Promise(resolve => app.listen(0, '127.0.0.1', resolve)); t.after(() => new Promise(resolve => app.close(resolve)));
   const base = 'http://127.0.0.1:' + app.address().port;
-  const call = (path, options={}) => fetch(base + '/argon/coding' + path, { headers: { cookie: 'owned', ...options.headers }, ...options });
+  const call = (path, options={}) => fetch(base + '/mythos/coding' + path, { headers: { cookie: 'owned', ...options.headers }, ...options });
   return { call, calls };
 }
 test('coding routes retain authentication, origin checks and task owner authority', async t => {

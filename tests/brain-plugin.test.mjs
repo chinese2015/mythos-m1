@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { once } from 'node:events';
-import { M2Client } from '../plugins/argon-brain/client.mjs';
-import { BrainBridge } from '../plugins/argon-brain/bridge.mjs';
+import { M2Client } from '../plugins/mythos-brain/client.mjs';
+import { BrainBridge } from '../plugins/mythos-brain/bridge.mjs';
 import { Context } from '@deepseek-ai/cordis';
 import Tools from '@deepseek-ai/dsh-tools';
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
-import * as ServicePlugin from '../plugins/argon-brain/service.mjs';
-import * as ToolPlugin from '../plugins/argon-brain/index.mjs';
+import * as ServicePlugin from '../plugins/mythos-brain/service.mjs';
+import * as ToolPlugin from '../plugins/mythos-brain/index.mjs';
 
 let fixture, configuration, lines, client;
 before(async () => {
@@ -50,14 +50,14 @@ test('disposed clients reject new calls', async () => {
 });
 
 const bridgeConfig = () => ({ ...configuration, owners: Object.fromEntries(Object.entries(configuration.records).map(([owner, record]) =>
-  [owner, { sandboxId: record.sandbox_id, workspacePath: record.workspace_path, preset: 'argon-' + owner }])) });
+  [owner, { sandboxId: record.sandbox_id, workspacePath: record.workspace_path, preset: 'mythos-' + owner }])) });
 const bridge = (events = []) => new BrainBridge(bridgeConfig(), { emit: (topic, event) => events.push({ topic, event }) });
 const call = (callId, signal) => ({ callId, signal });
 
 test('persisted task sessions share their task sandbox and never create a DIRECT work item', async () => {
   const b = bridge();
   const work = { ownerId: 'alice', sessionId: 'task-code', sessionIds: ['task-plan', 'task-code'],
-    source: { type: 'ARGON', id: 'FND-00009', revision: 2 }, sandboxId: 'sb-new-task',
+    source: { type: 'MYTHOS', id: 'FND-00009', revision: 2 }, sandboxId: 'sb-new-task',
     workItemId: 'work-' + 'c'.repeat(32), workflow: { approval: { actor: 'alice' } } };
   b.clients.get('alice').request = async (method, path) => {
     assert.equal(method, 'GET');
@@ -147,7 +147,7 @@ test('event bridge restores snapshots and delivers ordered events; disposal emit
   fixture.stdin.write(JSON.stringify({ action: 'finish', operationId: op.operationId, id: 'finish-events' }) + '\n');
   await response;
   await b.tick();
-  const delivered = events.filter(e => e.topic === 'argon-brain/event' && e.event.sessionId === 'session-events');
+  const delivered = events.filter(e => e.topic === 'mythos-brain/event' && e.event.sessionId === 'session-events');
   assert.ok(delivered.some(e => e.event.event.type === 'execution.succeeded'));
   assert.deepEqual(delivered.map(e => e.event.event.sequence), [...new Set(delivered.map(e => e.event.event.sequence))].sort((a, z) => a - z));
   await b.dispose(); const count = events.length;
@@ -194,7 +194,7 @@ test('real Cordis unload unregisters the named service and seven native tools wh
     const status = JSON.parse(await ctx.tools.get('execution_status').execute({ operationId: operation.operationId }, exec));
     assert.equal(status.state, 'QUEUED');
     await service.dispose();
-    assert.equal(ctx.get('argonBrain'), undefined);
+    assert.equal(ctx.get('mythosBrain'), undefined);
     assert.equal(ctx.tools.get('execution_run'), undefined);
     assert.equal((await client.request('GET', '/api/brain/operations/' + operation.operationId)).state, 'QUEUED');
     await client.request('POST', '/api/brain/operations/' + operation.operationId + '/cancel', { key: 'cordis-cleanup', body: { expectedVersion: 1 } });
@@ -207,7 +207,7 @@ test('a failed initial snapshot is retried before subsequent events', async () =
     source: { type: 'DIRECT', id: 'DSH:' + sessionId, revision: 1 }, sessionId, sandboxId: configuration.records.alice.sandbox_id } });
   let attempts = 0, delivered = 0;
   const b = new BrainBridge(bridgeConfig(), { emit: (topic, payload) => {
-    if (topic === 'argon-brain/snapshot' && payload.sessionId === sessionId) {
+    if (topic === 'mythos-brain/snapshot' && payload.sessionId === sessionId) {
       attempts++; if (attempts === 1) throw new Error('temporary subscriber failure'); delivered++;
     }
   } });
@@ -221,7 +221,7 @@ test('real Cordis awaits async observer failures and retries their snapshot with
     source: { type: 'DIRECT', id: 'DSH:' + sessionId, revision: 1 }, sessionId, sandboxId: configuration.records.alice.sandbox_id } });
   const ctx = new Context(); let attempts = 0, delivered = 0;
   ctx.provide('sessionController', {}); ctx.provide('workspaceRegistry', {});
-  ctx.on('argon-brain/snapshot', async payload => {
+  ctx.on('mythos-brain/snapshot', async payload => {
     if (payload.sessionId !== sessionId) return;
     attempts++; await new Promise(r => setTimeout(r, 10));
     if (attempts === 1) throw new Error('async observer failed');
@@ -229,8 +229,8 @@ test('real Cordis awaits async observer failures and retries their snapshot with
   });
   try {
     await ctx.plugin(ServicePlugin, { ...bridgeConfig(), pollIntervalMs: 30000 });
-    await ctx.get('argonBrain').bridge.tick();
-    await ctx.get('argonBrain').bridge.restore();
+    await ctx.get('mythosBrain').bridge.tick();
+    await ctx.get('mythosBrain').bridge.restore();
     assert.equal(attempts, 2); assert.equal(delivered, 1);
   } finally { await ctx.fiber.dispose(); }
 });
@@ -240,7 +240,7 @@ test('disposal releases a pending observer acknowledgement without any later emi
   const began = new Promise(resolve => { entered = resolve; });
   let release; const observer = new Promise(resolve => { release = resolve; });
   b.emit = async () => { entered(); await observer; };
-  const delivery = b.deliver('argon-brain/event', { eventId: 'evt-pending' });
+  const delivery = b.deliver('mythos-brain/event', { eventId: 'evt-pending' });
   await began;
   await b.dispose();
   assert.equal(await delivery, false);
@@ -257,9 +257,9 @@ test('a malformed snapshot cursor is rejected and restoration rereads a valid sn
   const events = []; const b = bridge(events);
   try {
     await b.restore();
-    assert.equal(events.filter(e => e.topic === 'argon-brain/snapshot' && e.event.sessionId === sessionId).length, 0);
+    assert.equal(events.filter(e => e.topic === 'mythos-brain/snapshot' && e.event.sessionId === sessionId).length, 0);
     await b.restore();
-    const recovered = events.filter(e => e.topic === 'argon-brain/snapshot' && e.event.sessionId === sessionId);
+    const recovered = events.filter(e => e.topic === 'mythos-brain/snapshot' && e.event.sessionId === sessionId);
     assert.equal(recovered.length, 1);
     assert.ok(Number.isSafeInteger(recovered[0].event.snapshot.cursor));
   } finally { await b.dispose(); }

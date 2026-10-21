@@ -70,7 +70,7 @@ def make_server(store, executor, tokens, address=('127.0.0.1', 3081), publisher=
             url = urlsplit(self.path)
             path = url.path.rstrip('/')
             if self.command == 'GET' and path == '/health':
-                return 200, {'service': 'argon-brain', 'status': 'ok', 'schemaVersion': 1}
+                return 200, {'service': 'mythos-brain', 'status': 'ok', 'schemaVersion': 1}
             owner = self.owner()
             key = self.headers.get('Idempotency-Key')
             segments = path.split('/')[1:]

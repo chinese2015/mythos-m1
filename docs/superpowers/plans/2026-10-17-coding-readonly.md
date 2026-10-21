@@ -4,7 +4,7 @@
 
 **Goal:** 在现有任务入口内交付插件式文件/Diff/Agent/运行观察工作区。
 
-**Architecture:** 新双端 argon-coding 插件隔离 SSH 只读 provider，使用 TaskWorkflow 的权限与绑定。外壳复用已验证客户端桥与主线 Run Monitor，保持审批和执行控制语义。
+**Architecture:** 新双端 mythos-coding 插件隔离 SSH 只读 provider，使用 TaskWorkflow 的权限与绑定。外壳复用已验证客户端桥与主线 Run Monitor，保持审批和执行控制语义。
 
 **Tech Stack:** DSH 0.2.0-rc.2、Cordis、Node ESM、原生 fs-ssh、浏览器原生 JS、现有 Python M2（不修改）。
 
@@ -27,7 +27,7 @@
 
 ### Task 1: 任务文件服务与 SSH 工厂
 
-**Files:** Create `plugins/argon-coding/{files,ssh}.mjs`, `tests/coding-files.test.mjs`.
+**Files:** Create `plugins/mythos-coding/{files,ssh}.mjs`, `tests/coding-files.test.mjs`.
 
 **Interfaces:** `TaskFiles({workflow,openFs}).list(id,path,signal)` / `.read(id,path,signal)`；`createSshReaders(config).open(work,location)` 返回 `{fs,dispose}`，`.dispose()` 清理。
 
@@ -37,7 +37,7 @@
 
 ### Task 2: 认证路由与插件注册
 
-**Files:** Create `plugins/argon-coding/{index.mjs,package.json}`, `tests/coding-api.test.mjs`; Modify `configure_presets.py`.
+**Files:** Create `plugins/mythos-coding/{index.mjs,package.json}`, `tests/coding-api.test.mjs`; Modify `configure_presets.py`.
 
 **Interfaces:** `codingHandler({connection,workflow,files,assetReader})`；GET context/files/file；其余方法 405；静态资产精确 allowlist。
 
@@ -47,9 +47,9 @@
 
 ### Task 3: 四区任务外壳与原生桥
 
-**Files:** Create `plugins/argon-coding/{client.js,public/*}`、`tests/coding-bridge.test.mjs`; Modify `plugins/argon-console/public/app.js`、`plugins/argon-console/public/monitor-view.js`、`monitor-state.js`。
+**Files:** Create `plugins/mythos-coding/{client.js,public/*}`、`tests/coding-bridge.test.mjs`; Modify `plugins/mythos-console/public/app.js`、`plugins/mythos-console/public/monitor-view.js`、`monitor-state.js`。
 
-**Interfaces:** `/argon/coding/#/work/{id}`；原生 iframe `argonCodingWork/argonCodingBinding`；复用 `/argon/api` monitor request 和 `renderMonitor(ctx)`。
+**Interfaces:** `/mythos/coding/#/work/{id}`；原生 iframe `mythosCodingWork/mythosCodingBinding`；复用 `/mythos/api` monitor request 和 `renderMonitor(ctx)`。
 
 - [x] 先写消息边界、目录时序、引用与任务限定 monitor 目标测试并观察 RED。
 - [x] 迁移已验收 PoC 桥为任务上下文绑定；文件树、只读源码、Diff、原生会话、轮询日志、可调面板及任务入口链接。

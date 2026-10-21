@@ -6,14 +6,14 @@ import { join } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
 import LocalFs from '@deepseek-ai/dsh-fs-local';
 import LocalSubprocess from '@deepseek-ai/dsh-subprocess-local';
-import { bindScopedRead } from '../plugins/argon-coding/scoped.mjs';
-import { TaskFiles } from '../plugins/argon-coding/files.mjs';
-import { ReaderPool } from '../plugins/argon-coding/ssh.mjs';
-import * as sshReaders from '../plugins/argon-coding/ssh.mjs';
+import { bindScopedRead } from '../plugins/mythos-coding/scoped.mjs';
+import { TaskFiles } from '../plugins/mythos-coding/files.mjs';
+import { ReaderPool } from '../plugins/mythos-coding/ssh.mjs';
+import * as sshReaders from '../plugins/mythos-coding/ssh.mjs';
 
 const id = 'work-' + 'a'.repeat(32);
 async function fixture(t) {
-  const root = await mkdtemp(join(tmpdir(), 'argon-coding-'));
+  const root = await mkdtemp(join(tmpdir(), 'mythos-coding-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const remote = join(root, 'remote'); await mkdir(join(remote, 'src'), { recursive: true });
   await writeFile(join(remote, 'src/Fix.java'), 'REMOTE workspace\nsecond line\n');

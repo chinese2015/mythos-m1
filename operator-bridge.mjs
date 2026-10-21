@@ -3,7 +3,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 
-export const name = 'argon-operator-poc-bridge';
+export const name = 'mythos-operator-poc-bridge';
 export const inject = ['sessionController', 'workspaceRegistry', 'agentPresets'];
 const state = new URL('./state/', import.meta.url);
 const load = async (file, fallback) => {
@@ -31,7 +31,7 @@ export function apply(ctx) {
         }
         if (!sessions[request.ownerId]) {
           const workspace = await ctx.workspaceRegistry.create(record.workspace_path, 'Sandbox ' + request.ownerId);
-          const session = await ctx.sessionController.create({ workspaceId: workspace.id, cwd: record.workspace_path, agentPreset: 'argon-' + request.ownerId });
+          const session = await ctx.sessionController.create({ workspaceId: workspace.id, cwd: record.workspace_path, agentPreset: 'mythos-' + request.ownerId });
           sessions[request.ownerId] = { ...session, sandboxId: record.sandbox_id };
           await save('poc-sessions.json', sessions);
           await ctx.sessionController.rename({ sessionId: session.sessionId, title: 'M1 Sandbox ' + request.ownerId + ' / Nova' });

@@ -51,7 +51,7 @@ class Registry:
             if own >= self.per_owner_limit or total >= self.global_limit:
                 raise QuotaExceeded('Sandbox concurrency quota exhausted')
             connection.execute('INSERT INTO sandboxes VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)',
-                               (sandbox_id, owner_id, workspace_id, str(path), 'argon-' + sandbox_id, 'allocated'))
+                               (sandbox_id, owner_id, workspace_id, str(path), 'mythos-' + sandbox_id, 'allocated'))
             connection.commit()
         try:
             path.mkdir(parents=True, mode=0o700)

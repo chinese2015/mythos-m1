@@ -1,7 +1,7 @@
-package com.example.argondemo;
+package com.example.mythosdemo;
 
-import com.example.argondemo.domain.Finding;
-import com.example.argondemo.domain.FindingRepository;
+import com.example.mythosdemo.domain.Finding;
+import com.example.mythosdemo.domain.FindingRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,7 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties={
-    "spring.datasource.url=jdbc:h2:mem:argon-mock-cas;DB_CLOSE_DELAY=-1",
+    "spring.datasource.url=jdbc:h2:mem:mythos-mock-cas;DB_CLOSE_DELAY=-1",
     "spring.jpa.hibernate.ddl-auto=create-drop",
     "notification.mode=preview",
     "notification.outbox-dir=./target/mock-cas-outbox"

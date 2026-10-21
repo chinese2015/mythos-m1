@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Context, Service } from '@deepseek-ai/cordis';
 import Tools from '@deepseek-ai/dsh-tools';
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
-import * as Search from '../plugins/argon-workflow/search.mjs';
+import * as Search from '../plugins/mythos-workflow/search.mjs';
 test('native glob uses container ripgrep through SSH while retaining native no-config argv and result parsing', async () => {
   const ctx = new Context(), spawns = [];
   class Subprocess extends Service {

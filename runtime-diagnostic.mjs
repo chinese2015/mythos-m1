@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
 
-export const name = 'argon-runtime-diagnostic';
+export const name = 'mythos-runtime-diagnostic';
 export const inject = ['agentPresets'];
 export function apply(ctx) {
   const save = async () => {
@@ -9,7 +9,7 @@ export function apply(ctx) {
     writeFileSync(new URL('./state/runtime-diagnostic.json', import.meta.url), JSON.stringify({ presets, fibers }, null, 2));
   };
   ctx.effect(() => {
-    const timer = setInterval(() => { void save().catch(error => console.error('argon diagnostic:', error.message)); }, 1000);
+    const timer = setInterval(() => { void save().catch(error => console.error('mythos diagnostic:', error.message)); }, 1000);
     return () => clearInterval(timer);
   });
 }

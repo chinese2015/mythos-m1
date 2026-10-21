@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { acceptMessage, referenceText, fileNavigation } from '../plugins/argon-coding/public/bridge.js';
-import * as bridge from '../plugins/argon-coding/public/bridge.js';
+import { acceptMessage, referenceText, fileNavigation } from '../plugins/mythos-coding/public/bridge.js';
+import * as bridge from '../plugins/mythos-coding/public/bridge.js';
 
 const frame = {};
 const binding = { workItemId: 'poc-nova', sessionId: 'session-poc-nova', bindingId: 'binding-one' };
@@ -19,7 +19,7 @@ test('bridge refuses other origins, windows, stale bindings and unknown message 
 });
 
 test('selection reference names exact file, one-based lines, content version and captured text', () => {
-  assert.equal(referenceText({ path: 'src/Catalog.java', startLine: 2, endLine: 3, version: 'sha256:abc', text: 'first\nsecond' }), '[src/Catalog.java:2-3 · sha256:abc · 只读快照]\nfirst\nsecond');
+  assert.equal(referenceText({ path: 'src/Catalog.java', startLine: 2, endLine: 3, version: 'sha256:abc', text: 'first\nsecond' }), '[src/Catalog.java:2-3 · sha256:abc · read-only snapshot]\nfirst\nsecond');
   assert.throws(() => referenceText({ path: '../secret', startLine: 1, endLine: 1, version: 'v1', text: 'x' }));
   assert.throws(() => referenceText({ path: 'src/A.java', startLine: 0, endLine: 1, version: 'v1', text: 'x' }));
 });

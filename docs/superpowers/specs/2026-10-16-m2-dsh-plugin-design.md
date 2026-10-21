@@ -4,8 +4,8 @@ The user approved implementing the proposed boundary: DSH/Cordis owns registrati
 
 ## Integration
 
-- A global `argonBrain` Cordis service wraps a bounded, loopback-only M2 client per configured owner. Credentials are read from a private operator file and never placed in prompts, parameters, results, URLs or diagnostics.
-- Per-preset `argon-brain-tools` registers `execution_run`, `execution_status`, `execution_follow`, `execution_cancel`, `work_item_status`, `work_item_pause`, `work_item_resume`. All outputs are JSON strings to accommodate DSH 0.2.0-rc.2 result projection behavior.
+- A global `mythosBrain` Cordis service wraps a bounded, loopback-only M2 client per configured owner. Credentials are read from a private operator file and never placed in prompts, parameters, results, URLs or diagnostics.
+- Per-preset `mythos-brain-tools` registers `execution_run`, `execution_status`, `execution_follow`, `execution_cancel`, `work_item_status`, `work_item_pause`, `work_item_resume`. All outputs are JSON strings to accommodate DSH 0.2.0-rc.2 result projection behavior.
 - Tool context supplies the immutable Session header id. The preset config supplies owner; the global service supplies sandbox and workspace. Model arguments cannot select owner, sandbox, another Work Item or a Session. An operation must belong to that Session's bound Work Item before it can be read/cancelled through a tool, including when both Sessions have the same owner.
 - A Session first submitting execution obtains one durable Work Item: DIRECT source `DSH:<sessionId>`, revision 1, immutable sessionId/sandboxId. Read-only status on an unbound Session returns unbound without creating work. Re-instantiation discovers the same binding from M2, and mismatched persisted bindings fail closed.
 - Each model tool call uses a deterministic idempotency key derived from owner, Session id, operation and DSH callId. M2 idempotency fingerprints business input separately from expectedVersion, allowing safe retry after a lost acknowledgement and plugin reload. Stale optimistic versions can be reread/retried once; changed business input with the same key conflicts. HTTP/Agent abort never triggers implicit execution cancellation.
@@ -14,7 +14,7 @@ The user approved implementing the proposed boundary: DSH/Cordis owns registrati
 
 The server-only service can prepare a Session through `workspaceRegistry` and `sessionController.create`, using a stable Session id derived from an operator request id; it passes workspaceId OR cwd, never both. It binds the result to M2. A separate explicit prompt method uses `sessionController.prompt` with a stable requestId. No model call, automatic prompt, auto-resume, or Session creation occurs during plugin startup/restoration.
 
-The service restores existing DSH Work Items, reads atomic snapshots, then polls events after each snapshot cursor. It emits `argon-brain/snapshot`, `argon-brain/event`, `argon-brain/error` on the Cordis bus for future Run Monitor consumers. Execution details remain authoritative in M2; no arbitrary execution event is inserted into DSH's native journal. Cursors advance only after delivery and are reset from snapshots on gaps; reconnection does not enqueue work. Logs are read explicitly with cursors and remain bounded. Agent polling is not required for backend progress.
+The service restores existing DSH Work Items, reads atomic snapshots, then polls events after each snapshot cursor. It emits `mythos-brain/snapshot`, `mythos-brain/event`, `mythos-brain/error` on the Cordis bus for future Run Monitor consumers. Execution details remain authoritative in M2; no arbitrary execution event is inserted into DSH's native journal. Cursors advance only after delivery and are reset from snapshots on gaps; reconnection does not enqueue work. Logs are read explicitly with cursors and remain bounded. Agent polling is not required for backend progress.
 
 ## Ownership of teardown
 

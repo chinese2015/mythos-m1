@@ -5,9 +5,9 @@ import { runInNewContext } from 'node:vm';
 async function fixture({ reentrant = false } = {}) {
   let plugin; const callbacks = new Set(), cleanups = [], opened = [];
   const state = { byId: {} };
-  runInNewContext(await readFile(new URL('../plugins/argon-console/client.js', import.meta.url), 'utf8'), {
+  runInNewContext(await readFile(new URL('../plugins/mythos-console/client.js', import.meta.url), 'utf8'), {
     window: { __ModuleLoader__: { load: ({ factory }) => { plugin = factory(); } } }, URLSearchParams,
-    location: { search: '?argonSession=session-code&argonEmbedded=1' }, console,
+    location: { search: '?mythosSession=session-code&mythosEmbedded=1' }, console,
   });
   const ctx = { effect(fn) { cleanups.push(fn()); },
     sessions: { list: { getSnapshot: () => state, subscribe(fn) { callbacks.add(fn); return () => callbacks.delete(fn); } } },
