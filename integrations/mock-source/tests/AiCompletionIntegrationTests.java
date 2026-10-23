@@ -127,6 +127,19 @@ class AiCompletionIntegrationTests {
             .andExpect(jsonPath("$.prUrl").value(PR));
     }
 
+    @Test void acceptsTheMigratedLocalGiteaOriginOnPort13000() throws Exception {
+        String repositoryUrl = "http://127.0.0.1:13000/demo/demo-orion-notes-api.git";
+        String prUrl = "http://127.0.0.1:13000/demo/demo-orion-notes-api/pulls/17";
+        Finding finding = findings.findById(ID).orElseThrow();
+        finding.repositoryUrl = repositoryUrl;
+        finding = findings.saveAndFlush(finding);
+        String request = body(finding.revision).replace(REPOSITORY, repositoryUrl).replace(PR, prUrl);
+        mvc.perform(post("/api/findings/{id}/ai-completion", ID).contentType(MediaType.APPLICATION_JSON).content(request))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.repositoryUrl").value(repositoryUrl))
+            .andExpect(jsonPath("$.prUrl").value(prUrl));
+    }
+
     @Test void rejectsNonLocalOriginsAndUnallowlistedRepositoryPathsEvenWhenStoredOnFinding() throws Exception {
         for (String[] candidate : new String[][]{
                 {"https://127.0.0.1:3000/demo/demo-orion-notes-api.git", "https://127.0.0.1:3000/demo/demo-orion-notes-api/pulls/17"},

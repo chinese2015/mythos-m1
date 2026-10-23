@@ -21,6 +21,7 @@ import java.net.URI;
 @RestController
 @RequestMapping("/api/findings")
 public class AiCompletionController {
+    private static final java.util.Set<Integer> DEMO_GITEA_PORTS = java.util.Set.of(3000, 13000);
     private final FindingRepository findings;
 
     public AiCompletionController(FindingRepository findings) { this.findings = findings; }
@@ -75,7 +76,7 @@ public class AiCompletionController {
             URI pr = URI.create(prUrl);
             if (!"http".equalsIgnoreCase(repo.getScheme()) || !"http".equalsIgnoreCase(pr.getScheme())
                 || !"127.0.0.1".equals(repo.getHost()) || !"127.0.0.1".equals(pr.getHost())
-                || repo.getPort() != 3000 || pr.getPort() != 3000
+                || !DEMO_GITEA_PORTS.contains(repo.getPort()) || !DEMO_GITEA_PORTS.contains(pr.getPort())
                 || repo.getUserInfo() != null || pr.getUserInfo() != null
                 || repo.getQuery() != null || repo.getFragment() != null || pr.getQuery() != null || pr.getFragment() != null) return false;
             String[] repositoryParts = repo.getPath().split("/");

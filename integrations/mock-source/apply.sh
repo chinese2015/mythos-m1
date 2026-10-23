@@ -51,7 +51,8 @@ if "OptimisticLockingFailureException" not in errors.read_text().split("public c
 ''' + text[closing:]
     errors.write_text(text)
 
-for name in ['AiCompletionController.java', 'OwnerNotificationController.java', 'PushTaskController.java']:
+for name in ['AiCompletionController.java', 'OwnerNotificationController.java', 'PushTaskController.java',
+             'ResetFindingController.java']:
     target = backend / 'src/main/java/com/example/mythosdemo/api' / name
     source = (overlay / name).read_text()
     if target.exists() and target.read_text() != source:

@@ -42,7 +42,7 @@ External services cannot be changed in one atomic transaction. If a stage fails,
 
 ## Backup limits
 
-The SQLite snapshots and manifest preserve Task Center database state and source/PR/sandbox metadata. They do not archive sandbox workspace bytes or DSH conversation journals, so they are not a complete restore of code changes or DSH chat history. This reset removed 11 task workspace directories, whose bytes are not in the backup; the available older snapshot also does not contain the exact prior task state.
+The SQLite snapshots and manifest preserve Task Center database state and source/PR/sandbox metadata. They do not archive sandbox workspace bytes or DSH conversation journals, so they are not a complete restore of code changes or DSH chat history. The two cleanup passes removed 12 task workspace directories, whose bytes are not in the backups; the available older snapshot also does not contain the exact prior task state.
 
 ## Success criteria
 

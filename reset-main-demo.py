@@ -280,9 +280,16 @@ def _validate_pull_detail(candidate: dict[str, Any], pull: Any, *, stage: str) -
         fail(stage, 'gitea-pr-branch-mismatch')
     if candidate.get('baseBranch') and base.get('ref') != candidate['baseBranch']:
         fail(stage, 'gitea-pr-base-mismatch')
-    marker = candidate.get('deliveryId')
-    if marker and f'<!-- argon-delivery:{marker} -->' not in (pull.get('body') or ''):
-        fail(stage, 'gitea-pr-marker-mismatch')
+    if candidate.get('identityType') == 'delivery':
+        marker = candidate.get('deliveryId')
+        candidate_commit = candidate.get('candidateCommit')
+        if (not isinstance(marker, str) or not re.fullmatch(r'[a-f0-9]{64}', marker)
+                or not isinstance(candidate_commit, str) or not re.fullmatch(r'[a-f0-9]{40}', candidate_commit)
+                or not isinstance(candidate.get('headBranch'), str) or not candidate['headBranch']
+                or not isinstance(candidate.get('baseBranch'), str) or not candidate['baseBranch']):
+            fail(stage, 'linked-delivery-identity-incomplete')
+        if f'<!-- mythos-delivery:{marker} -->' not in (pull.get('body') or ''):
+            fail(stage, 'gitea-pr-marker-mismatch')
 
 
 def _list_pull_requests(inventory: dict[str, Any], repository: str) -> list[dict[str, Any]]:
@@ -330,7 +337,13 @@ def _pull_candidates(inventory: dict[str, Any]) -> list[dict[str, Any]]:
                     r'[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}', repository)
                     or not isinstance(head_branch, str) or not isinstance(delivery_id, str)):
                 fail('inventory', 'pending-delivery-identity-invalid')
-            marker_text = f'<!-- argon-delivery:{delivery_id} -->'
+            candidate_commit = delivery.get('candidateCommit')
+            base_branch = delivery.get('baseBranch')
+            if (not re.fullmatch(r'[a-f0-9]{64}', delivery_id)
+                    or not re.fullmatch(r'[a-f0-9]{40}', candidate_commit or '')
+                    or not isinstance(base_branch, str) or not base_branch):
+                fail('inventory', 'pending-delivery-identity-incomplete')
+            marker_text = f'<!-- mythos-delivery:{delivery_id} -->'
             matches = [pull for pull in _list_pull_requests(inventory, repository)
                        if (pull.get('head') or {}).get('ref') == head_branch
                        or marker_text in (pull.get('body') or '')]
@@ -344,9 +357,10 @@ def _pull_candidates(inventory: dict[str, Any]) -> list[dict[str, Any]]:
                 fail('inventory', 'pending-delivery-pr-invalid')
             candidate = {
                 'repository': repository, 'number': pull_number, 'url': pull_url,
-                'candidateCommit': delivery.get('candidateCommit'),
-                'headBranch': head_branch, 'baseBranch': delivery.get('baseBranch'),
-                'deliveryId': delivery_id, 'sourceId': (work.get('source') or {}).get('id'),
+                'candidateCommit': candidate_commit,
+                'headBranch': head_branch, 'baseBranch': base_branch,
+                'deliveryId': delivery_id, 'identityType': 'delivery',
+                'sourceId': (work.get('source') or {}).get('id'),
             }
             parsed = _parse_pull_url(pull_url, stage='inventory')
             if parsed != (repository, pull_number):
@@ -364,11 +378,21 @@ def _pull_candidates(inventory: dict[str, Any]) -> list[dict[str, Any]]:
         repository_url = _repo_url_for_work(work, delivery)
         if repository_url and _repository_from_url(repository_url, stage='inventory') != repository:
             fail('inventory', 'linked-pr-repository-mismatch')
+        candidate_commit = delivery.get('candidateCommit')
+        head_branch = delivery.get('headBranch')
+        base_branch = delivery.get('baseBranch')
+        delivery_id = delivery.get('id')
+        if (not isinstance(candidate_commit, str) or not re.fullmatch(r'[a-fA-F0-9]{40}', candidate_commit)
+                or not isinstance(head_branch, str) or not head_branch
+                or not isinstance(base_branch, str) or not base_branch
+                or not isinstance(delivery_id, str) or not re.fullmatch(r'[a-f0-9]{64}', delivery_id)):
+            fail('inventory', 'linked-delivery-identity-incomplete')
         candidate = {
             'repository': repository, 'number': pull_number, 'url': pull_url,
-            'candidateCommit': delivery.get('candidateCommit'),
-            'headBranch': delivery.get('headBranch'), 'baseBranch': delivery.get('baseBranch'),
-            'deliveryId': delivery.get('id'), 'sourceId': (work.get('source') or {}).get('id'),
+            'candidateCommit': candidate_commit.lower(),
+            'headBranch': head_branch, 'baseBranch': base_branch,
+            'deliveryId': delivery_id, 'identityType': 'delivery',
+            'sourceId': (work.get('source') or {}).get('id'),
         }
         add(candidate)
 
@@ -385,7 +409,8 @@ def _pull_candidates(inventory: dict[str, Any]) -> list[dict[str, Any]]:
             fail('inventory', 'finding-pr-commit-missing')
         add({'repository': repository, 'number': parsed[1], 'url': pull_url,
              'candidateCommit': candidate_commit.lower(), 'headBranch': None,
-             'baseBranch': None, 'deliveryId': None, 'sourceId': finding_id})
+             'baseBranch': None, 'deliveryId': None, 'identityType': 'finding',
+             'sourceId': finding_id})
 
     result = []
     for candidate in candidates.values():
@@ -415,7 +440,9 @@ def _validate_sandbox_row(row: dict[str, Any], root: Path) -> None:
     if Path(row.get('workspace_path', '')) != expected:
         fail('inventory', 'sandbox-path-mismatch')
     parent = root / sandbox_id
-    if parent.is_symlink() or (parent.exists() and parent.resolve() != parent):
+    workspace = expected
+    if (parent.is_symlink() or (parent.exists() and parent.resolve() != parent)
+            or workspace.is_symlink() or (workspace.exists() and workspace.resolve() != workspace)):
         fail('inventory', 'sandbox-path-unsafe')
     if parent.parent.resolve() != root:
         fail('inventory', 'sandbox-path-escape')
@@ -628,6 +655,11 @@ def build_inventory() -> dict[str, Any]:
         observed = (finding.get('repositoryUrl'), finding.get('baseCommit'), finding.get('sourcePath'))
         if observed != expected or type(finding.get('revision')) is not int:
             fail(stage, 'finding-mapping-or-revision-mismatch')
+        _, reset_capability = _json_request(
+            FINDING_ORIGIN + '/api/findings/' + finding_id + '/reset-demo', stage=stage)
+        if (not isinstance(reset_capability, dict) or reset_capability.get('supported') is not True
+                or reset_capability.get('revision') != finding['revision']):
+            fail(stage, 'finding-reset-cas-unavailable')
         inventory['findings'][finding_id] = finding
 
     # Gitea credentials are checked here, before any write, and never leave memory.
@@ -788,8 +820,6 @@ def _pause_pending_deliveries(inventory: dict[str, Any]) -> None:
             fail('pause', 'work-item-pause-not-confirmed')
         inventory['pausedWorkItemIds'].append(work_id)
 
-    if not inventory['pauseWorkItemIds']:
-        return
     latest = _brain_get(inventory, '/api/brain/work-items')
     if not isinstance(latest, dict) or not isinstance(latest.get('workItems'), list):
         fail('pause', 'work-item-refresh-invalid')
@@ -802,15 +832,96 @@ def _pause_pending_deliveries(inventory: dict[str, Any]) -> None:
         snapshot = _brain_get(inventory, '/api/brain/work-items/' + quote(work_id, safe=''))
         if not isinstance(snapshot, dict) or snapshot.get('workItem') != latest_items[work_id]:
             fail('pause', 'work-item-refresh-mismatch')
-        if work_id in inventory['pausedWorkItemIds'] and snapshot['workItem'].get('paused') is not True:
+        refreshed_work = snapshot['workItem']
+        original_work = inventory['snapshots'][work_id]['workItem']
+        ignored_pause_fields = {'paused', 'status', 'version', 'sequence'}
+        original_stable = {key: value for key, value in original_work.items() if key not in ignored_pause_fields}
+        refreshed_stable = {key: value for key, value in refreshed_work.items() if key not in ignored_pause_fields}
+        if original_stable != refreshed_stable:
+            fail('pause', 'work-item-changed-during-pause')
+        phase = (refreshed_work.get('workflow') or {}).get('phase')
+        if phase in ACTIVE_WORKFLOW_PHASES:
+            fail('pause', 'active-workflow-phase')
+        if phase in PAUSE_WORKFLOW_PHASES and refreshed_work.get('paused') is not True:
             fail('pause', 'work-item-pause-not-confirmed')
-        if any(operation.get('state') in ACTIVE_OPERATION_STATES for operation in snapshot.get('operations', [])):
+        was_paused = original_work.get('paused') is True
+        expected_delta = 0 if was_paused else 1 if phase in PAUSE_WORKFLOW_PHASES else 0
+        if (refreshed_work.get('version') != original_work.get('version', 0) + expected_delta
+                or refreshed_work.get('sequence') != original_work.get('sequence', 0) + expected_delta
+                or refreshed_work.get('paused') is not (was_paused or phase in PAUSE_WORKFLOW_PHASES)):
+            fail('pause', 'work-item-pause-transition-invalid')
+        operations = snapshot.get('operations')
+        if not isinstance(operations, list) or any(
+                not isinstance(operation, dict) or operation.get('state') in ACTIVE_OPERATION_STATES
+                for operation in operations):
             fail('pause', 'active-or-unknown-operation')
         refreshed_snapshots[work_id] = snapshot
     inventory['workItems'] = [latest_items[item['workItemId']] for item in inventory['workItems']]
     inventory['snapshots'] = refreshed_snapshots
     # Reconcile deliveries after pausing so any late PR create is visible before source reset.
     inventory['pullRequests'] = _pull_candidates(inventory)
+
+
+def _begin_brain_reset_transaction(inventory: dict[str, Any]) -> sqlite3.Connection:
+    """Lock Brain writers and prove the destructive plan still matches the DB."""
+    stage = 'brain-guard'
+    connection = sqlite3.connect(BRAIN_DB, timeout=15, isolation_level=None)
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute('PRAGMA foreign_keys=ON')
+        connection.execute('BEGIN IMMEDIATE')
+        work_items = {row['id']: json.loads(row['data']) for row in connection.execute(
+            'SELECT id,data FROM work_items WHERE owner=? ORDER BY id', (OWNER,))}
+        expected_work_items = {item['workItemId']: item for item in inventory['workItems']}
+        if work_items != expected_work_items:
+            fail(stage, 'brain-work-items-changed')
+        for item in work_items.values():
+            phase = (item.get('workflow') or {}).get('phase')
+            if phase in ACTIVE_WORKFLOW_PHASES:
+                fail(stage, 'active-workflow-phase')
+            if phase in PAUSE_WORKFLOW_PHASES and item.get('paused') is not True:
+                fail(stage, 'pending-workflow-not-paused')
+
+        operation_rows = connection.execute(
+            'SELECT id,owner,work_id,kind,state,data FROM operations WHERE owner=? ORDER BY id', (OWNER,)).fetchall()
+        expected_operations = {
+            operation['operationId']: operation
+            for snapshot in inventory['snapshots'].values()
+            for operation in snapshot['operations']
+        }
+        current_operations = {row['id']: json.loads(row['data']) for row in operation_rows}
+        if current_operations != expected_operations:
+            fail(stage, 'brain-operations-changed')
+        if any(row['state'] in ACTIVE_OPERATION_STATES for row in operation_rows):
+            fail(stage, 'active-or-unknown-operation')
+
+        intake_rows = connection.execute(
+            'SELECT * FROM source_intakes WHERE owner=? ORDER BY finding_id', (OWNER,)).fetchall()
+        current_intakes = [{
+            'findingId': row['finding_id'], 'owner': row['owner'], 'revision': row['revision'],
+            'state': row['state'], 'triage': json.loads(row['triage']), 'notifiedAt': row['notified_at'],
+            'lastError': row['last_error'],
+            'decision': json.loads(row['decision']) if row['decision'] else None,
+            'createdAt': row['created_at'], 'updatedAt': row['updated_at'],
+        } for row in intake_rows]
+        if current_intakes != inventory['intakes']:
+            fail(stage, 'brain-intakes-changed')
+
+        repository_rows = {row['id']: json.loads(row['data']) for row in connection.execute(
+            'SELECT id,data FROM repositories WHERE owner=? ORDER BY id', (OWNER,))}
+        expected_repositories = {row['repositoryId']: row for row in inventory['repositories']
+                                 if isinstance(row, dict) and row.get('ownerId') == OWNER}
+        if repository_rows != expected_repositories:
+            fail(stage, 'brain-repositories-changed')
+        return connection
+    except (sqlite3.Error, TypeError, ValueError, KeyError):
+        connection.rollback()
+        connection.close()
+        fail(stage, 'brain-reset-guard-failed')
+    except ResetFailure:
+        connection.rollback()
+        connection.close()
+        raise
 
 
 def _is_finding_reset(row: dict[str, Any]) -> bool:
@@ -1021,6 +1132,10 @@ def _verify(inventory: dict[str, Any]) -> dict[str, Any]:
             (OWNER,)).fetchone()[0]
         if task_idempotency:
             fail(stage, 'task-idempotency-remains')
+        other_work_item_ids = sorted(row['id'] for row in brain_db.execute(
+            'SELECT id FROM work_items WHERE owner!=?', (OWNER,)))
+        if other_work_item_ids != inventory['otherWorkItemIds']:
+            fail(stage, 'other-owner-work-items-changed')
     finally:
         brain_db.close()
     for candidate in inventory['pullRequests']:
@@ -1044,6 +1159,10 @@ def _verify(inventory: dict[str, Any]) -> dict[str, Any]:
                                      (OWNER,)).fetchall()
         if task_rows:
             fail(stage, 'task-sandbox-registry-not-empty')
+        preserved_sandbox_ids = sorted(row['sandbox_id'] for row in registry.execute('SELECT sandbox_id FROM sandboxes'))
+        expected_preserved = sorted(inventory['otherSandboxIds'])
+        if preserved_sandbox_ids != expected_preserved:
+            fail(stage, 'unrelated-sandbox-registry-changed')
         existing_linked = [row['sandbox_id'] for row in registry.execute('SELECT sandbox_id FROM sandboxes')
                            if row['sandbox_id'] in inventory['linkedSandboxIds']]
         if existing_linked:
